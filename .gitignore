@@ -1,0 +1,15 @@
+# harness scratch — tools\smoketest.ps1 builds and deletes this
+_smoketest.html
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# never commit secrets or env files
+.env
+.env.*
+*.key
+*.pem
