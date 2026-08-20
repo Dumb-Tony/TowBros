@@ -1,5 +1,119 @@
 # Changelog
 
+## Milestone 6 — heavy and procedural recovery — 2026-08-20
+
+**GDD §7:** *"Add heavy wreckers/rotators, multiple winches and outriggers, large vehicles, richer
+anchors, water recovery, and procedural situation generation from vehicle + incident + terrain +
+damage + conditions."*
+
+All seven, and the question the whole milestone had to answer was whether a bigger job is a
+**different** job or the same job with bigger numbers. A seven-tonne box truck that just needed a
+longer pull would have been the second thing, and would not have been worth building.
+
+### Three casualties, and the numbers you know stop being enough
+
+| | mass | downslope pull | bogged in | one drum stalls at |
+|---|---|---|---|---|
+| sedan | 1.4 t | 6.6 kN | 4.0 kN | 26 kN |
+| panel van | 2.6 t | 12.2 kN | 7.5 kN | 26 kN |
+| box truck | 7.2 t | **33.8 kN** | 20.8 kN | 26 kN |
+
+The light wrecker stops a van at 3/4 corners, stalling on half of every second. Against a box truck
+it is itself dragged 14 m down the road. Nothing about it was nerfed — the casualty simply weighs
+more, and every force that scales with mass scales.
+
+### So there is a heavy wrecker, and it is a different machine
+
+| | what it buys | what it costs |
+|---|---|---|
+| **15 t instead of 6.8** | it holds where the light one slides | 9.2 m of it, and it turns like it |
+| **two drums** | two people, two lines, two fairleads 1.44 m apart | two lines to keep track of |
+| **four outriggers** | 260 kN of static hold — measured: dragged 13.7 m on its tyres against a box truck, 0.52 m on its legs | **it cannot move at all**: 0.000 m in three seconds at full throttle |
+| **a slewing boom** | the fairleads sweep a 2.4 m arc, so the pull direction is something you steer | two more keys |
+
+The legs are the decision the milestone is built around. A light wrecker that is losing an argument
+can back up and try a better angle. A heavy one on its legs has committed, and what it can still
+change is where the line leaves the machine.
+
+**And a box truck still needs two parks.** One pull brings it up the bank and leaves it at −70°
+across the road; a second park 16 m east swings it round to 4/4. That is Milestone 1's geometry
+lesson — *a winch pulls its load to the drum* — arriving again at a scale where it cannot be
+ignored. 67 seconds of work, and every second of it a decision.
+
+### Anchors can let go
+
+`anchorStrengthN` has been authored on every tree since the first commit and read by nothing. A
+snatch block folds the line back on itself, so the anchor holds the vector sum of both legs — up to
+**twice** the line tension, and the sharper the redirect the more of it.
+
+Judged in newton-seconds, like the guardrail and the wheel lift before it, for the reason this
+codebase has now learned three times: a threshold on force fails on the first spike, and a snatch
+load *is* a spike. A tree past its rating leans, holds, and then goes over — and takes the block,
+the routing and the redirect with it.
+
+**Driven ground anchors** are the portable answer, and they are worth exactly what the ground under
+them is worth:
+
+| | a driven anchor holds |
+|---|---|
+| wet grass | 22 kN |
+| gravel | 12 kN |
+| mud | 7.7 kN |
+| loose rock | 6.6 kN |
+| tarmac | **nothing at all** |
+
+Measured through a live rig: on wet grass the line spikes to 15 kN and the anchor never gets near
+coming out; the same anchor in mud reaches 40% of the way out of the ground; driven into tarmac it
+is gone in 2.5 seconds. Nothing validates the placement — the ground decides.
+
+The quarry still has no answer, because loose rock holds nothing either. That site's whole identity
+is that the side pull does not exist there.
+
+### Water is not a wetter kind of mud
+
+The ford has had standing water since Milestone 5, with its own grip and a lot of drag. What was
+missing is the thing that makes it a different problem: **it carries weight.** A partly submerged
+vehicle presses on the ground with less than its own weight, so it has less grip — the same sedan
+has **4.4 kN of grip on the bank and 1.5 kN standing in the brook**. It skates rather than digs,
+and where it goes is decided by where the line points.
+
+And the ford's casualty is now *in* the water rather than on the bank above it, because a ford whose
+car never touches it is a blue puddle painted next to a recovery. The same pull that takes 39
+seconds at the bend takes 52 at the ford. A crew member wades at less than half speed, so walking
+the hook out is a slog.
+
+### Procedural situations, from five independent axes
+
+Vehicle × incident × terrain × damage × conditions, rolled from one seeded stream. The obvious
+version of this is one difficulty dial smeared across every axis, so a hard job is a heavy vehicle
+on the steepest site in the dark, badly damaged, dug in — and that produces a ramp rather than a set
+of situations.
+
+So the axes are **independent**. Over 200 rolls: 3 vehicles, 5 incidents, 4 sites, 3 arrival states,
+5 forecasts, and the box-truck jobs are not all in bad weather or all at the same place. What is
+bounded is plausibility (a seven-tonner does not go through a narrow bridge parapet) and reach:
+reputation decides which vehicles are sent to you, and that is the only gate.
+
+A generated job emits **the same offer shape** an authored one does and touches only the same six
+modifier keys, so nothing downstream can tell which is which — and neither can the simulation, which
+is what keeps GDD §4's "no scripted sequence and no mandatory tool" true. One slot on the board is
+generated, not the whole board: the authored shapes are its spine.
+
+### One sign bug, and one architecture change
+
+**`winch.targetId` said 'van' while the slot was `vehicles.sedan`**, so the cable looked up a vehicle
+that did not exist and every big-casualty pull produced exactly 0 N. `createVehicle` now takes the
+vehicle's identity in the WORLD separately from its type: the casualty slot is `sedan` and what is
+standing in it may be a box truck.
+
+**And the drum is a list.** `st.winches` is one entry on a light wrecker and two on the heavy;
+`st.winch` is a plain reference to the first of them, so five milestones of code that says
+`st.winch` goes on meaning the primary drum and goes on working unchanged. Fifteen files, and 900
+prior assertions passed on the first run afterwards.
+
+**1055 assertions** across six suites — 265, 219, 160, 128, 128, 155.
+
+
 ## Milestone 5 — the county — 2026-08-20
 
 Four places instead of one, weather that reaches the tyres, a carriageway with other people on it,

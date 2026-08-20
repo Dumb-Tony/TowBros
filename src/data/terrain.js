@@ -134,6 +134,10 @@ export const SITES = Object.freeze([
     id: 'ford', name: 'the ford at Marle Brook',
     blurb: 'Shallow bank down to standing water. Only one tree worth rigging to.',
     dropMul: 0.78, gapMul: 1.45, hazard: 'water', trees: 'one', boulders: 0,
+    /* IN the brook, not on the bank above it (Milestone 6). A ford whose casualty never touches
+     * the water would be a site with a blue puddle painted on it — the buoyancy that makes a water
+     * recovery a different problem only exists where the vehicle is actually standing in it. */
+    casualtyDy: 6.2,
     map: { x: 0.09, y: 0.22 }, short: 'Marle Brook',
   }),
   Object.freeze({
@@ -328,7 +332,7 @@ export function createTerrain(rng, site = SITES[0]) {
   // Where the sedan came to rest. Drawn BEFORE the guardrail, because the gap in the rail has
   // to be centred on where the car went through it — see below.
   const sedanX = ANCHOR_PLAN.sedan.x + rng.spread(2.4);
-  const sedanY = ANCHOR_PLAN.sedan.y + rng.spread(1.1);
+  const sedanY = ANCHOR_PLAN.sedan.y + (site.casualtyDy || 0) + rng.spread(1.1);
   const sedanA = ANCHOR_PLAN.sedan.angle + rng.spread(0.30);
 
   // The gap is centred on the sedan, not on a fixed x. This started as a fixed span and it was
@@ -447,6 +451,19 @@ export function createTerrain(rng, site = SITES[0]) {
     return bandSurfaceAt(x, y);
   }
 
+  /**
+   * How deep the standing water is here, in metres, or 0 anywhere that is not a ford.
+   *
+   * The hazard bowl is the same shape whatever is in it — the bend has mud in it and the ford has
+   * water — so this is `mudDepthAt` asked a different question, and it returns 0 at every site
+   * whose hazard is not water. Read by the tire model for buoyancy (Milestone 6) and by the crew's
+   * legs; nothing caches it.
+   */
+  function waterDepthAt(x, y) {
+    if (!hazardSurface || hazardSurface.id !== 'water') return 0;
+    return mudDepthAt(x, y);
+  }
+
   /** Is a point on the road? Used by success detection and by the HUD. */
   function onRoad(x, y) {
     return y >= ROAD.y0 && y <= ROAD.y1 && x >= ROAD.x0 && x <= ROAD.x1;
@@ -472,7 +489,8 @@ export function createTerrain(rng, site = SITES[0]) {
     weather: null,
     mud, trees, rail, railPosts, railSegments, anchors,
     yard: YARD,
-    heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, onRoad, clampToWorld, inYard, inBay,
+    heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, waterDepthAt, onRoad, clampToWorld,
+    inYard, inBay,
     /** Steepest gradient anywhere on the embankment, for the debug overlay and tests. */
     describe() {
       let worst = 0, worstY = 0;

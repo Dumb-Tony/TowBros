@@ -20,7 +20,9 @@
 import { CONFIG } from '../config.js';
 import { mulberry32, hashStr } from '../core/rng.js';
 import { SITES } from '../data/terrain.js';
+import { casualtyDefById } from '../data/vehicles.js';
 import { rollWeather } from '../world/weather.js';
+import { rollSituation, situationToOffer } from './situations.js';
 
 /**
  * The job templates. Each is a shape, not a scenario — the terrain is the same site every time,
@@ -69,6 +71,28 @@ export const JOB_TYPES = Object.freeze([
     feeMul: 1.85,
     mods: { boggedMul: 1.0, seizedChance: 0.3, dentChance: 0.0, lieSpread: 0.9 },
   },
+  /* Milestone 6. A job is not only a car in a ditch any more, and the two below say so on the
+   * board: WHAT is off the road is the first thing a dispatcher tells you, because it decides
+   * which machine you take. Both need a reputation, not because reputation is a gate on content
+   * but because nobody sends a seven-tonner to an outfit they have not used. */
+  {
+    id: 'van-down',
+    title: 'Van off the bend',
+    blurb: 'Panel van, nose in, and the owner has a delivery round to finish.',
+    minRep: 30,
+    feeMul: 2.1,
+    casualtyId: 'van',
+    mods: { boggedMul: 1.0, seizedChance: 0.4, dentChance: 0.3, lieSpread: 1.1 },
+  },
+  {
+    id: 'heavy-down',
+    title: 'Seven-tonner off the road',
+    blurb: 'Box truck, loaded, and it is not coming out on a light-duty drum.',
+    minRep: 55,
+    feeMul: 3.4,
+    casualtyId: 'boxTruck',
+    mods: { boggedMul: 1.0, seizedChance: 0.5, dentChance: 0.25, lieSpread: 1.0 },
+  },
 ]);
 
 /**
@@ -92,7 +116,11 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
   const out = [];
   const used = new Set();
   const taken = new Set(company.takenToday || []);
-  for (let i = 0; i < count; i++) {
+  /* One of the day's slots belongs to a GENERATED job (Milestone 6, below). A slot, not an extra
+   * card: "three jobs, pick one" is the shape the whole day is built around, and a board that grew
+   * to four would be a wider choice rather than a different kind of one. */
+  const authored = Math.max(1, count - 1);
+  for (let i = 0; i < authored; i++) {
     // Draw without replacement while there is anything left to draw, so a board of three is three
     // different jobs rather than the same one looked at from three angles.
     let pick = null;
@@ -122,6 +150,11 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
       weatherId: weather.id,
       weatherLabel: weather.label,
       weatherBlurb: weather.blurb,
+      /* WHAT is off the road (Milestone 6). On the card, before the job is taken, because it is
+       * the fact that decides which machine you take out — and taking the wrong one is a decision
+       * the player is allowed to make and then live with. */
+      casualtyId: pick.casualtyId || 'sedan',
+      casualtyLabel: casualtyDefById(pick.casualtyId).label,
       feeMul: pick.feeMul * weather.feeMul,
       /** Presentation only — the drive to site is not simulated. It is why the fee differs. */
       distanceKm,
@@ -130,6 +163,16 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
       locked: false,
     });
   }
+
+  /* One GENERATED job on the board (Milestone 6), rolled from vehicle x incident x terrain x
+   * damage x conditions — see meta/situations.js. One, not three: the authored shapes are the
+   * spine of the board and a generator that replaced them would trade a set of jobs a designer
+   * chose for a set nobody did. It emits the same offer shape, so nothing downstream can tell
+   * which is which, and its seed comes from the same cursor, so it does not reroll on refresh. */
+  const situation = rollSituation(
+    (hashStr('gen:' + company.dispatchCursor) ^ Math.floor(rnd() * 0xffffffff)) >>> 0,
+    company.reputation);
+  out.push(situationToOffer(situation, company.dispatchCursor + '-g'));
 
   // Jobs already taken today are off the board. They are not offered twice and they are not
   // available to a rival at the end of the day either — you did them.

@@ -27,9 +27,15 @@ import { CONFIG } from '../config.js';
 import { STARTER_PILE } from '../data/equipment.js';
 import { loadRaw, saveRaw, clearSave, LOAD } from './save.js';
 
-/** What a fleet vehicle looks like. Condition is 0..1 and 1 is "as new". */
-export function newTruck(id, name) {
-  return { id, name, condition: { body: 1, winch: 1 }, jobs: 0 };
+/**
+ * What a fleet vehicle looks like. Condition is 0..1 and 1 is "as new".
+ *
+ * `defId` is WHICH MACHINE it is (src/data/vehicles.js TRUCK_DEFS) — Milestone 6 put a second one
+ * in the catalogue, and a fleet entry that did not say which would be a fleet of identical trucks
+ * with different names.
+ */
+export function newTruck(id, name, defId = 'truck') {
+  return { id, name, defId, condition: { body: 1, winch: 1 }, jobs: 0 };
 }
 
 /** A brand-new company, which is also the shape every save must have. */
@@ -99,6 +105,9 @@ function fixTruck(t) {
   if (!t || typeof t !== 'object') return base;
   return {
     ...base,
+    // An unknown machine in a save is the light wrecker, not a crash. Same rule as everywhere else
+    // in this file: validate a save only as far as "is this a shape I understand".
+    defId: CONFIG.company.truckPrices[t.defId] === undefined ? 'truck' : t.defId,
     condition: {
       body: clamp01(num(t.condition && t.condition.body, 1)),
       winch: clamp01(num(t.condition && t.condition.winch, 1)),
@@ -129,12 +138,45 @@ export function conditionEffects(truck) {
   };
 }
 
-/** What it costs to put a truck back to new. */
+/** What it costs to put a truck back to new. A bigger machine costs more to put right. */
 export function repairQuote(truck) {
   const C = CONFIG.company;
-  const body = Math.round((1 - truck.condition.body) * C.bodyRepairFull);
-  const winch = Math.round((1 - truck.condition.winch) * C.winchRepairFull);
+  const mul = truck && truck.defId === 'heavy' ? C.heavyRepairMul : 1;
+  const body = Math.round((1 - truck.condition.body) * C.bodyRepairFull * mul);
+  const winch = Math.round((1 - truck.condition.winch) * C.winchRepairFull * mul);
   return { body, winch, total: body + winch };
+}
+
+/* ── the fleet (Milestone 6) ───────────────────────────────────────────────── */
+
+/** What a machine costs to put on the books, or 0 for one already owned. */
+export const truckPrice = (defId) => CONFIG.company.truckPrices[defId] ?? 0;
+
+export const ownsTruck = (company, defId) => company.fleet.some((t) => t.defId === defId);
+
+/**
+ * Buy a second machine.
+ *
+ * It joins the fleet and becomes the active truck, because nobody buys a heavy wrecker and then
+ * takes the little one out. Switching back is one click in the yard.
+ */
+export function buyTruck(company, defId, name) {
+  const price = truckPrice(defId);
+  if (ownsTruck(company, defId)) return { bought: false, spent: 0, why: 'owned' };
+  if (company.money < price) return { bought: false, spent: 0, why: 'money' };
+  company.money -= price;
+  const id = `t${company.fleet.length + 1}`;
+  const truck = newTruck(id, name || defId, defId);
+  company.fleet.push(truck);
+  company.activeTruckId = id;
+  return { bought: true, spent: price, truck };
+}
+
+/** Take a different machine out today. */
+export function setActiveTruck(company, truckId) {
+  if (!company.fleet.some((t) => t.id === truckId)) return false;
+  company.activeTruckId = truckId;
+  return true;
 }
 
 /** Spend the money and fix it. Partial repairs are allowed: you pay for what you can afford. */
@@ -255,6 +297,8 @@ export function describeCompany(c) {
     day: c.day,
     slotsLeft: c.slotsLeft,
     truck: t.name,
+    truckDefId: t.defId,
+    fleet: c.fleet.map((v) => v.defId),
     condition: { body: Math.round(t.condition.body * 100), winch: Math.round(t.condition.winch * 100) },
     repairDue: repairQuote(t).total,
     stock: { ...c.stock },

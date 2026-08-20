@@ -3,12 +3,13 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 5 — the county — is playable.** Pick a job off the board — a place, a forecast and a
-fee — winch the car out of the ditch, pick it up on the wheel lift, strap it down, drive it home
-through live traffic, reverse it into the bay, and get paid what the damage left of the fee. Then
-fix the truck, and see what the outfits down the road took while you were busy. Two to four people,
-over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero
-external requests — including the multiplayer and the save file.
+**Milestone 6 — heavy and procedural recovery — is playable.** Pick a job off the board — a place, a
+forecast, a fee, and what is off the road — winch it out of the ditch, pick it up on the wheel lift,
+strap it down, drive it home through live traffic, reverse it into the bay, and get paid what the
+damage left of the fee. Then fix the truck, and save up for a bigger one, because a seven-tonner is
+not coming out on a light-duty drum. Two to four people, over a network if you like. Browser,
+Canvas 2D, ES modules, zero dependencies, and still zero external requests — including the
+multiplayer and the save file.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
@@ -18,6 +19,8 @@ it, not the other way round.
 ![the yard: money, a worn truck, the equipment cupboard, and three jobs on the board](docs/m4-yard-screen.png)
 
 ![the county map and the board: four places, and what is on offer at each of them today](docs/m5-county.png)
+
+![the heavy wrecker on its outriggers, boom slewed, both drums rigged to a box truck on the bank](docs/m6-heavy.png)
 
 ## Play it
 
@@ -51,6 +54,11 @@ Two people, one keyboard. Mirrored hand positions, no shared keys.
 | get in and out | `V` | `right shift` |
 | parking brake | `space` | `\` |
 | winch in / out | `I` `O` | `]` `[` |
+| slew the boom | `Z` `C` | `;` `'` |
+| outriggers up / down | `X` | `L` |
+
+The last two only do anything on the heavy wrecker. They are machine controls, on the same tier as
+the drum keys — they operate a thing, rather than deciding what the one context key means.
 
 `-` `=` zoom · `R` `R` restart the job · `G` the yard · `Esc` pause · `F3` developer overlay. Those
 are shared, because they are about the screen rather than about a person.
@@ -58,6 +66,58 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 6 is
+
+A bigger machine for a bigger casualty, and a job that is rolled rather than written. GDD §7: "add
+heavy wreckers/rotators, multiple winches and outriggers, large vehicles, richer anchors, water
+recovery, and procedural situation generation from vehicle + incident + terrain + damage +
+conditions."
+
+**Three casualties, and the numbers you know stop being enough.**
+
+| | mass | downslope pull | bogged in | one drum stalls at |
+|---|---|---|---|---|
+| sedan | 1.4 t | 6.6 kN | 4.0 kN | 26 kN |
+| panel van | 2.6 t | 12.2 kN | 7.5 kN | 26 kN |
+| box truck | 7.2 t | **33.8 kN** | 20.8 kN | 26 kN |
+
+Nothing was nerfed to make room for the heavy wrecker. The casualty weighs more, and every force
+that scales with mass scales — so the light truck stops a van at 3/4 corners, and against a box
+truck it is itself dragged 14 m down the road.
+
+**The heavy wrecker is a different machine, not a better one.**
+
+| | what it buys | what it costs |
+|---|---|---|
+| **15 t instead of 6.8** | it holds where the light one slides | 9.2 m of it, and it turns like it |
+| **two drums** | two people, two lines, from fairleads 1.44 m apart | two lines to keep track of |
+| **four outriggers** | dragged 13.7 m on its tyres against a box truck, 0.52 m on its legs | on the legs it cannot move at all — 0.000 m in three seconds at full throttle |
+| **a slewing boom** | the fairleads sweep a 2.4 m arc, so the pull direction is something you steer | two more keys |
+
+And a box truck still needs **two parks**: one pull brings it up the bank and leaves it at −70°
+across the road, and a second park swings it round. That is Milestone 1's *a winch pulls its load to
+the drum* arriving at a scale where it cannot be ignored.
+
+**Anchors can let go.** A snatch block folds the line back on itself, so the anchor holds up to
+twice the line tension — and it is judged in newton-seconds, like the guardrail and the wheel lift,
+because a threshold on force fails on the first spike and a snatch load is a spike. A tree past its
+rating leans, holds, then goes over, taking the block and the redirect with it. Driven ground
+anchors are the portable answer, worth exactly what the ground under them is worth: 22 kN in wet
+grass, 7.7 in mud, and nothing at all in tarmac, where the same pull has it out in 2.5 seconds.
+
+**Water carries weight.** The same sedan has 4.4 kN of grip on the bank and 1.5 kN standing in the
+brook, so it skates rather than digs and goes where the line points. The ford's casualty is *in* the
+water now — a ford whose car never touches it is a blue puddle painted next to a recovery — and the
+pull that takes 39 s at the bend takes 52 there. A crew member wades at less than half speed.
+
+**And one job on every board is generated**, from vehicle × incident × terrain × damage ×
+conditions. The axes are independent on purpose: one difficulty dial smeared across five of them
+would be a ramp rather than a set of situations, and the box-truck jobs are not all in the dark.
+What is bounded is plausibility and reach — a seven-tonner does not go through a bridge parapet, and
+reputation decides which vehicles are sent to you. A generated job emits the same offer shape an
+authored one does and touches only the same six modifier keys, so neither the board nor the
+simulation can tell which is which.
 
 ## What Milestone 5 is
 
@@ -334,10 +394,16 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m5-tests.js -Quiet
 ```
 
-**900 assertions** across five suites in headless Chrome — 265 for Milestone 1, 219 for Milestone 2,
-160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5.
-There is no Node.js on this machine, so the harness *is* a browser: it injects the suite into a copy
-of the page, serves it over http, and greps the dumped DOM.
+```bash
+.\tools\smoketest.ps1 -Tests tools\m6-tests.js -Quiet
+```
+
+**1055 assertions** across six suites in headless Chrome — 265 for Milestone 1, 219 for Milestone 2,
+160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 155 for Milestone 6.
+The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
+greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
+way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
+are not still need the same fixed-step loop the page runs.
 
 [`tools/m1-tests.js`](tools/m1-tests.js) — sections A–G test the machinery numerically. Section H
 drives **whole recoveries** and checks the GDD's nine completion criteria one at a time, including
@@ -384,6 +450,15 @@ it gets hit — and then it re-measures the Milestone 1 and 3 claims **with traf
 those suites deliberately bench on an empty road. AF is the day, the rivals, the county map on the
 real screen, and four milestones' worth of prior numbers that must not have moved.
 
+[`tools/m6-tests.js`](tools/m6-tests.js) — AG measures three casualties and two wreckers against
+each other, one fact at a time, to answer whether a bigger job is a different job. AH is the anchor:
+the geometry of a redirect, then the same rig driven for real into three kinds of ground, one of
+which pulls out. AJ is the heavy machine — two drums, the legs measured as the difference between
+being dragged 13.7 m and 0.52 m, and the box-truck recovery in two parks end to end. AL is what
+water takes off the tyres. AM rolls two hundred situations and checks the five axes move
+independently, and that a generated job can reach no further into the simulation than an authored
+one. AK is determinism and the five milestones of numbers underneath all of it.
+
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
 measured, and recorded in `Dev\INDEX.md`. A test that waits for a frame count waits forever.
@@ -425,9 +500,16 @@ where more than one person can grab the same thing.
   metres of it, now with traffic on it and a county map beside it — but no junctions, and the drive
   between sites is not simulated. The map says where a job is and what it pays; the distance is why
   the fee differs, not something you drive.
-- **One truck, one kind of car.** The fleet is a list with one thing in it and buying a second is
-  not implemented; every job is the same sedan on the same bank. Milestone 6 is where the vehicle
-  library lives.
+- **Two wreckers and three casualties.** A library, not a catalogue: enough for the decisions to be
+  real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
+  rotator's actual crane are all still missing.
+- **The wheel lift is light-duty and stays that way.** It holds 11 kN bare and a box truck's axle is
+  well past that, so a seven-tonner is recovered and towed on the line rather than lifted. That is
+  correct — you do not wheel-lift a 7.5-tonner on a car yoke — but it does mean the heavy machine
+  has no equivalent of Milestone 3's securement decision.
+- **The boom slews and does nothing else.** No lift, no telescope, no load chart: a rotator's boom
+  in a top-down game can plausibly change where the line leaves the machine, and the rest of what a
+  real one does needs a third axis this game does not have.
 - **Traffic is a lane model, not a driver model.** Cars keep station, brake for what they can see,
   overtake a stopped obstruction and creep round one that will not move — which is enough to make
   the road a hazard and the cones worth putting out. They do not indicate, give way, or react to

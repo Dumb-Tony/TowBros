@@ -164,6 +164,13 @@ export const CONFIG = {
 
     bodyRepairFull: 1200,       // to put a written-off body back to new
     winchRepairFull: 900,
+    /* The second truck (Milestone 6). Priced as a SEASON of work rather than a purchase: a clean
+     * job pays about 1400, so this is roughly eighteen of them. It has to be far enough away that
+     * the outfit is a small outfit for a long time, and close enough that it is obviously the
+     * thing the money is for — which is the only reason the money means anything. */
+    truckPrices: { truck: 0, heavy: 26000 },
+    /** What it costs to put the heavy back to new. It is a bigger machine and it costs more. */
+    heavyRepairMul: 2.4,
 
     repClean: 6,                // delivered without a mark on it
     repDelivered: 3,
@@ -534,6 +541,25 @@ export const CONFIG = {
       holdN: 22000,         // on ground with an anchorHoldMul of 1 (wet grass)
       reachM: 1.6,          // how close the block has to be mounted to it
     },
+  },
+
+  /* ── water ──────────────────────────────────────────────────────────────────
+   * GDD §7 Milestone 6: "water recovery".
+   *
+   * The ford has had standing water since Milestone 5, with its own grip and a great deal of drag.
+   * What was missing is the thing that makes water a different PROBLEM rather than a wetter one:
+   * it carries weight. A partly submerged vehicle presses on the ground with less than its own
+   * weight, so it has less grip — and a pull that would drag a car up a bank instead skates it
+   * sideways. That is a recovery you have to steer rather than one you can simply out-pull.
+   *
+   * `maxLift` is deliberately short of 1: a car in half a metre of water is light on its feet, not
+   * afloat, and a wheel with no load at all is a numerical cliff rather than a piece of drama. */
+  water: {
+    floatDepthM: 0.55,      // depth at which the lift is at its maximum
+    maxLift: 0.62,          // ...and that maximum, as a fraction of the weight on that wheel
+    /** A crew member in water this deep is wading, not walking. Presentation and pace only. */
+    wadeDepthM: 0.25,
+    wadeSpeedMul: 0.45,
   },
 
   /* ── anchors ────────────────────────────────────────────────────────────────

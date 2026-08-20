@@ -105,6 +105,10 @@ function jobPacketFor(offer) {
     ...offer,
     loadout: loadOutFor(company),
     effects: conditionEffects(activeTruck(company)),
+    /* WHICH MACHINE turned out (Milestone 6). The offer says what is off the road; the company
+     * says what is going to it. Taking the little truck to a seven-tonner is a decision the player
+     * is allowed to make, and the bank will explain it to them. */
+    truckId: activeTruck(company).defId,
   };
 }
 

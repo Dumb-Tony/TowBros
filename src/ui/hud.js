@@ -75,21 +75,25 @@ function phrase(e) {
  */
 function objectiveFor(st, cornersOnRoad, lift) {
   const j = st.job;
+  /* WHAT is in the ditch, by name. From Milestone 6 it is not always a sedan, and a line that
+   * says "get the sedan onto the road" while a seven-tonne box truck is lying on the bank is the
+   * interface disagreeing with the game. Still one line, still a statement of fact. */
+  const what = st.vehicles.sedan ? st.vehicles.sedan.def.label : 'the sedan';
   switch (j.phase) {
     case JOB.DELIVERED:
       return `delivered · £${j.payout ? j.payout.paid : 0}`;
     case JOB.TRANSPORT: {
       const n = lift.straps.length;
-      return `the sedan is on the lift · ${n === 0
+      return `the ${what} is on the lift · ${n === 0
         ? 'nothing strapping it down'
         : `${n} strap${n === 1 ? '' : 's'} on it`}`;
     }
     case JOB.LOAD:
       return j.bayCorners > 0
-        ? `the sedan is in the yard — ${j.bayCorners}/4 corners in the bay`
-        : 'the sedan is on the road, on its own wheels';
+        ? `the ${what} is in the yard — ${j.bayCorners}/4 corners in the bay`
+        : `the ${what} is on the road, on its own wheels`;
     default:
-      return `get the sedan onto the road — ${cornersOnRoad}/4 corners up`;
+      return `get the ${what} onto the road — ${cornersOnRoad}/4 corners up`;
   }
 }
 

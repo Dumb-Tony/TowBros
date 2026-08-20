@@ -34,6 +34,14 @@ import {
 } from '../src/recovery/anchors.js';
 import { toggleOutriggers, describeRig, outriggerPads } from '../src/recovery/rig.js';
 import { validateAuthority } from '../src/crew/authority.js';
+import { buoyancyFrac } from '../src/sim/tires.js';
+import {
+  rollSituation, situationToOffer, describeSituation, VEHICLES, INCIDENTS, CONDITIONS,
+} from '../src/meta/situations.js';
+import {
+  newCompany, activeTruck, buyTruck, setActiveTruck, truckPrice, repairQuote,
+} from '../src/meta/company.js';
+import { offersFor } from '../src/meta/dispatch.js';
 
 /* ── reporting ───────────────────────────────────────────────────────────── */
 
@@ -551,6 +559,205 @@ function sectionAJ() {
   }
 }
 
+/* ══ AL. water ════════════════════════════════════════════════════════════ */
+
+function sectionAL() {
+  lines.push('--- AL. standing water, and what it takes off the tyres ---');
+
+  const bend = job('truck', 'sedan', { siteId: 'bend' });
+  const ford = job('truck', 'sedan', { siteId: 'ford' });
+  const bt = bend.state.terrain, ft = ford.state.terrain;
+  // WHERE each casualty came to rest, taken before anything below moves one to measure it.
+  const spawn = {
+    ford: { ...ford.state.vehicles.sedan.body },
+    bend: { ...bend.state.vehicles.sedan.body },
+  };
+
+  eq('AL1 the bend has mud at the bottom', bt.mud.kind, 'mud');
+  eq('AL2 the ford has standing water', ft.mud.kind, 'water');
+  eq('AL3 and only the ford has any depth of it', bt.waterDepthAt(bt.mud.x, bt.mud.y), 0);
+  gt('AL4 which is real depth, not a painted stain', ft.waterDepthAt(ft.mud.x, ft.mud.y), 0.4);
+
+  /* Buoyancy: the thing that makes water a different problem rather than a wetter one. */
+  eq('AL5 dry ground carries none of a vehicle', buoyancyFrac(bt, bt.mud.x, bt.mud.y), 0);
+  gt('AL6 deep water carries a lot of it', buoyancyFrac(ft, ft.mud.x, ft.mud.y), 0.4);
+  lt('AL7 but never all of it — a car in a ford is light, not afloat',
+     buoyancyFrac(ft, ft.mud.x, ft.mud.y), 0.95);
+  ok('AL8 and it goes on rising with the depth',
+     buoyancyFrac(ft, ft.mud.x, ft.mud.y) > buoyancyFrac(ft, ft.mud.x + ft.mud.rx * 0.85, ft.mud.y));
+
+  /* And it reaches the tyres, which is the only thing that makes it a mechanic. */
+  {
+    const s = ford.state.vehicles.sedan;
+    const put = (x, y) => { s.body.x = x; s.body.y = y; s.body.vx = 0; s.body.vy = 0; return gripBudgetN(s, ft); };
+    const inWater = put(ft.mud.x, ft.mud.y);
+    const onBank = put(ft.mud.x, ft.mud.y - ft.mud.ry - 1.5);
+    lt(`AL9 the same car has far less grip in the brook (${kN(inWater)} kN against ${kN(onBank)} kN)`,
+       inWater, onBank * 0.55);
+    note(`AL  a sedan: ${kN(onBank)} kN of grip on the bank, ${kN(inWater)} kN standing in the water`);
+  }
+
+  /* The ford's casualty is IN the water. A site called a ford whose car never touches it would be
+   * a blue puddle painted next to a recovery. */
+  {
+    gt('AL10 the ford puts the casualty in the brook',
+       ft.waterDepthAt(spawn.ford.x, spawn.ford.y), 0.05);
+    eq('AL11 standing on water, which is what the surface says too',
+       ft.surfaceAt(spawn.ford.x, spawn.ford.y).id, 'water');
+    eq('AL12 while the bend leaves it on the bank as it always did',
+       bt.surfaceAt(spawn.bend.x, spawn.bend.y).id, 'wetGrass');
+    note(`AL  the ford's casualty comes to rest in ${ft.waterDepthAt(spawn.ford.x, spawn.ford.y).toFixed(2)} m of water`);
+  }
+
+  /* The recovery still works — GDD §4, no site is a wall — and it is a different job. */
+  {
+    const g = job('truck', 'sedan', { siteId: 'ford' });
+    const st = g.state;
+    park(st, st.vehicles.sedan.body.x + 11, BANDS.roadN + 1.4);
+    rigAll(g);
+    const peak = reel(g, 90000);
+    ok('AL13 a car can be recovered out of the water', st.goal.complete, `${cornersUp(st)}/4`);
+    const gb = job('truck', 'sedan', { siteId: 'bend' });
+    park(gb.state, gb.state.vehicles.sedan.body.x + 11, BANDS.roadN + 1.4);
+    rigAll(gb);
+    const peakBend = reel(gb, 90000);
+    gt('AL14 and it takes longer than the same pull on dry ground',
+       st.simTimeMs, gb.state.simTimeMs);
+    note(`AL  the same pull: ${(gb.state.simTimeMs / 1000).toFixed(0)} s at the bend (${kN(peakBend)} kN), `
+       + `${(st.simTimeMs / 1000).toFixed(0)} s at the ford (${kN(peak)} kN)`);
+  }
+
+  // Wading. Pace, and the reason walking the hook out at a ford is a slog.
+  {
+    const g = job('truck', 'sedan', { siteId: 'ford' });
+    const st = g.state;
+    const p = st.crew[0];
+    const fakeInput = {
+      moveAxis: () => ({ x: 1, y: 0 }),
+      driveAxis: () => ({ steer: 0, throttle: 0 }),
+      slewAxis: () => 0,
+      isDown: () => false, wasPressed: () => false, wasReleased: () => false, endStep: () => {},
+    };
+    const walk = (x, y) => {
+      p.x = x; p.y = y; p.vx = 0; p.vy = 0;
+      const x0 = p.x;
+      for (let i = 0; i < 60; i++) g.step(STEP, st.simTimeMs + STEP, [fakeInput]);
+      return p.x - x0;
+    };
+    const dry = walk(ft.mud.x, ft.mud.y - ft.mud.ry - 2.0);
+    const wet = walk(ft.mud.x - 1.0, ft.mud.y);
+    lt(`AL15 a crew member wades rather than walks (${wet.toFixed(2)} m against ${dry.toFixed(2)} m in a second)`,
+       wet, dry * 0.85);
+    note(`AL  on foot for one second: ${dry.toFixed(2)} m on the bank, ${wet.toFixed(2)} m in the water`);
+  }
+}
+
+/* ══ AM. procedural situations, and the fleet they are for ════════════════ */
+
+function sectionAM() {
+  lines.push('--- AM. vehicle x incident x terrain x damage x conditions ---');
+
+  eq('AM1 a situation is rolled from a seed and nothing else',
+     JSON.stringify(describeSituation(rollSituation(1234, 100))),
+     JSON.stringify(describeSituation(rollSituation(1234, 100))));
+  ok('AM2 and a different seed is a different situation',
+     JSON.stringify(describeSituation(rollSituation(1234, 100)))
+     !== JSON.stringify(describeSituation(rollSituation(9999, 100))));
+
+  // All five axes vary, independently. A generator whose axes move together is a difficulty dial.
+  const rolled = [];
+  for (let i = 0; i < 200; i++) rolled.push(rollSituation(i * 7919 + 11, 100));
+  const seen = (k) => new Set(rolled.map((s) => describeSituation(s)[k])).size;
+  gt('AM3 the vehicle varies', seen('vehicle'), 2);
+  gt('AM4 the incident varies', seen('incident'), 3);
+  gt('AM5 the site varies', seen('site'), 3);
+  gt('AM6 the damage varies', seen('condition'), 2);
+  gt('AM7 the weather varies', seen('weather'), 3);
+  note(`AM  over 200 rolls: ${seen('vehicle')} vehicles, ${seen('incident')} incidents, `
+     + `${seen('site')} sites, ${seen('condition')} states, ${seen('weather')} forecasts`);
+
+  /* INDEPENDENT, which is the whole design. If the axes were one difficulty dial in disguise, the
+   * heaviest vehicles would only ever turn up with the worst of everything else. */
+  {
+    const boxes = rolled.filter((s) => s.vehicle.id === 'boxTruck');
+    gt('AM8 there are box-truck jobs to look at', boxes.length, 5);
+    gt('AM9 and they are not all in the worst weather',
+       new Set(boxes.map((s) => s.weather.id)).size, 1);
+    gt('AM10 nor all at the same place', new Set(boxes.map((s) => s.site.id)).size, 1);
+    const dryClean = rolled.filter((s) => s.weather.id === 'dry' && s.condition.id === 'clean');
+    gt('AM11 and an easy forecast still turns up with a heavy vehicle sometimes',
+       dryClean.filter((s) => s.vehicle.id !== 'sedan').length, 0);
+  }
+
+  // Reputation decides what gets SENT to you, and it is the only thing that is gated.
+  {
+    const rookie = [];
+    for (let i = 0; i < 120; i++) rookie.push(rollSituation(i * 7919 + 11, 0));
+    eq('AM12 a new outfit is only sent cars', new Set(rookie.map((s) => s.vehicle.id)).size, 1);
+    eq('AM13 which is the sedan', rookie[0].vehicle.id, 'sedan');
+    gt('AM14 but everything else about the job still varies',
+       new Set(rookie.map((s) => s.incident.id)).size, 3);
+  }
+
+  // Plausibility: the one place an axis is allowed to look at another.
+  {
+    const onBridge = rolled.filter((s) => s.site.id === 'bridge');
+    eq('AM15 no seven-tonner goes through a narrow bridge parapet',
+       onBridge.filter((s) => s.vehicle.id === 'boxTruck').length, 0);
+    gt('AM16 though plenty of other things do', onBridge.length, 5);
+  }
+
+  /* A generated job is INDISTINGUISHABLE from an authored one downstream, and may not reach
+   * further into the simulation than an authored one does. GDD §4's promise, again. */
+  {
+    const AUTHORED_KEYS = ['boggedMul', 'seizedChance', 'dentChance', 'dentsMax', 'lieSpread', 'lieBias'];
+    const offers = rolled.slice(0, 60).map((s, i) => situationToOffer(s, `g${i}`));
+    ok('AM17 every generated offer has the shape the board expects',
+       offers.every((o) => o.id && o.siteId && o.weatherId && o.casualtyId && o.mods && o.fee > 0));
+    ok('AM18 and touches ONLY the six modifier keys an authored job may touch',
+       offers.every((o) => Object.keys(o.mods).every((k) => AUTHORED_KEYS.includes(k))),
+       [...new Set(offers.flatMap((o) => Object.keys(o.mods)))].join(','));
+    gt('AM19 a heavier vehicle is worth more',
+       Math.max(...offers.filter((o) => o.casualtyId === 'boxTruck').map((o) => o.fee), 0),
+       Math.min(...offers.filter((o) => o.casualtyId === 'sedan').map((o) => o.fee), 1e9));
+  }
+
+  // And it is on the board, in a slot rather than as an extra card.
+  {
+    const c = newCompany();
+    c.reputation = 100;
+    const board = offersFor(c).filter((o) => !o.locked);
+    const gen = board.filter((o) => o.generated);
+    eq('AM20 the board is still the size it says it is', board.length, CONFIG.company.offerCount);
+    eq('AM21 with exactly one generated job on it', gen.length, 1);
+    ok('AM22 which the board treats like any other offer',
+       gen.every((o) => o.fee > 0 && o.siteName && o.title));
+    eq('AM23 and which does not reroll when you look again',
+       offersFor(c).filter((o) => o.generated)[0].seed, gen[0].seed);
+    note(`AM  today's generated job: ${gen[0].title} at ${gen[0].siteName} for £${gen[0].fee}`);
+  }
+
+  /* And the fleet, which is where the money goes (Milestone 6). */
+  {
+    const c = newCompany();
+    eq('AM24 an outfit starts with one machine', c.fleet.length, 1);
+    eq('AM25 and it is the light wrecker', activeTruck(c).defId, 'truck');
+    eq('AM26 a heavy wrecker is not free', buyTruck(c, 'heavy').bought, false);
+    c.money = truckPrice('heavy') + 10;
+    const r = buyTruck(c, 'heavy', 'the Foden');
+    ok('AM27 with the money, it can be bought', r.bought);
+    eq('AM28 and it is the one going out', activeTruck(c).defId, 'heavy');
+    eq('AM29 which cost what it said it would', c.money, 10);
+    eq('AM30 buying a second one is refused', buyTruck(c, 'heavy').bought, false);
+    ok('AM31 and you can take the little one out again',
+       setActiveTruck(c, c.fleet[0].id) && activeTruck(c).defId === 'truck');
+    gt('AM32 a bigger machine costs more to put right',
+       repairQuote({ defId: 'heavy', condition: { body: 0.5, winch: 0.5 } }).total,
+       repairQuote({ defId: 'truck', condition: { body: 0.5, winch: 0.5 } }).total);
+    note(`AM  the heavy wrecker is £${truckPrice('heavy')} — about eighteen clean jobs`);
+  }
+}
+
 /* ══ AK. hygiene ══════════════════════════════════════════════════════════ */
 
 async function sectionAK() {
@@ -612,7 +819,10 @@ async function sectionAK() {
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['AG', sectionAG], ['AH', sectionAH], ['AJ', sectionAJ], ['AK', sectionAK]];
+  const sections = [
+    ['AG', sectionAG], ['AH', sectionAH], ['AJ', sectionAJ],
+    ['AL', sectionAL], ['AM', sectionAM], ['AK', sectionAK],
+  ];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {

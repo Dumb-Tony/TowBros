@@ -889,6 +889,39 @@ export class Renderer {
       ctx.fillStyle = '#c2483c';
       rect(ctx, -L * 1.0, -W * 0.78, 0.12, 0.26, true);
       rect(ctx, -L * 1.0, W * 0.52, 0.12, 0.26, true);
+    } else if (veh.def.id === 'boxTruck' || veh.def.id === 'van') {
+      /* A cab and a body, not a very long car (Milestone 6). The silhouette is the whole point:
+       * the player has to be able to tell at a glance that the thing on the bank is a seven-tonner
+       * and not a saloon, because that is the fact that decides which machine they brought. */
+      const box = veh.def.id === 'boxTruck';
+      const cabL = box ? 0.26 : 0.34;          // fraction of the length that is cab
+      const shell = veh.rolled ? '#4a5f75' : (box ? '#5d7fa0' : '#6b86a6');
+
+      // The load body: one tall box with a ridge line, sitting behind the cab.
+      roundRect(ctx, -L, -W, L * (2 - cabL * 2), W * 2, box ? 0.12 : 0.26, false);
+      fillLit(ctx, -L * 0.3, 0, W * 1.15, box ? '#8d97a4' : shell, A, 0.72, 1.16);
+      ctx.strokeStyle = 'rgba(10,12,16,0.35)';
+      ctx.lineWidth = 0.05;
+      for (let i = 1; i < (box ? 5 : 3); i++) {
+        const x = -L + (L * (2 - cabL * 2)) * (i / (box ? 5 : 3));
+        line(ctx, x, -W * 0.94, x, W * 0.94);
+      }
+
+      // The cab, lower and narrower, with a windscreen at the front of it.
+      roundRect(ctx, L * (1 - cabL * 2), -W * 0.94, L * cabL * 2, W * 1.88, 0.22, false);
+      fillLit(ctx, L * 0.7, 0, W, shell, A);
+      ctx.fillStyle = COL.glass;
+      roundRect(ctx, L * (1 - cabL * 0.7), -W * 0.7, L * cabL * 0.45, W * 1.4, 0.09, true);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      roundRect(ctx, L * (1 - cabL * 0.66), -W * 0.68, L * cabL * 0.16, W * 1.36, 0.07, true);
+
+      // Lights, so which end the hook is on is readable at a glance.
+      ctx.fillStyle = '#f6f0d8';
+      rect(ctx, L * 0.95, -W * 0.78, 0.14, 0.28, true);
+      rect(ctx, L * 0.95, W * 0.5, 0.14, 0.28, true);
+      ctx.fillStyle = '#c2483c';
+      rect(ctx, -L * 0.99, -W * 0.8, 0.11, 0.24, true);
+      rect(ctx, -L * 0.99, W * 0.56, 0.11, 0.24, true);
     } else {
       const shell = veh.rolled ? '#4a5f75' : COL.sedanBody;
       roundRect(ctx, -L, -W, L * 2, W * 2, 0.42, false);

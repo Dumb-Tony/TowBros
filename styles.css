@@ -280,3 +280,17 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 /* The heavy wrecker: the other drum, the legs, the boom. Hidden until there is one. */
 .rig-line{display:none;font-size:10.5px;color:#8fb0c0;letter-spacing:.02em;margin:2px 0 0}
 .rig-line.on{display:block}
+
+/* ── the fleet ─────────────────────────────────────────────────────────────
+ * One row per machine. The row says what it IS, not which is better. */
+.fleet{display:flex;flex-direction:column;gap:7px}
+.fleet-row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:baseline;
+  background:rgba(10,12,18,.55);border:1px solid rgba(242,234,217,.12);border-radius:8px;padding:8px 11px}
+.fleet-row.on{border-color:rgba(143,214,162,.45)}
+.fleet-row.buy{border-style:dashed;opacity:.92}
+.fleet-row b{font-size:13px;color:var(--paper)}
+.fleet-row span{font-size:13px;color:#8fd6a2;text-align:right}
+.fleet-row em{grid-column:1/2;font-style:normal;font-size:11px;color:#7d8a9a;letter-spacing:.02em}
+.fleet-row button{grid-column:2/3;grid-row:2/3;justify-self:end}
+.fleet-row b.going{grid-column:2/3;grid-row:2/3;justify-self:end;font-size:11px;color:#8fd6a2;
+  text-transform:uppercase;letter-spacing:.08em}

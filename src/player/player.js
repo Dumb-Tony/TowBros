@@ -146,6 +146,17 @@ function walk(st, p, terrain, dtSec, input, bus, simTimeMs) {
     const up = ax.x * slope.gx + ax.y * slope.gy;      // >0 means climbing
     speedMul = 1 - clamp(up, 0, 1.2) * P.slopeSpeedPenalty;
   }
+  /* Wading (Milestone 6). Standing water past the ankles is not walking, and the ford's whole
+   * character is that walking the hook out to the casualty takes noticeably longer. Depth, not a
+   * surface flag, so the shallow rim is a wade and the middle is a slog. */
+  const water = terrain.waterDepthAt ? terrain.waterDepthAt(p.x, p.y) : 0;
+  if (water > CONFIG.water.wadeDepthM) {
+    const deep = clamp((water - CONFIG.water.wadeDepthM) / CONFIG.water.floatDepthM, 0, 1);
+    speedMul *= 1 - (1 - CONFIG.water.wadeSpeedMul) * deep;
+    p.wading = true;
+  } else {
+    p.wading = false;
+  }
   if (holdsHook(st, p)) speedMul *= P.carryHookDrag;
   const carrying = carriedItem(st, p);
   if (carrying) speedMul *= 1 - Math.min(0.30, (gearDef(carrying.kind).massKg || 0) / 60);

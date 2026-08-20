@@ -126,7 +126,13 @@ export function applyWheelForces(veh, terrain, dtSec) {
     // genuinely disappears. That is the trade the player is making. A wheel-lift axle is a
     // stronger version of the same thing: not lightened, off the ground.
     const liftMul = ws.airborne ? 0 : (ws.lifted ? 0.15 : 1);
-    const N = groundKg * g * slope.normalFrac * share * liftMul;
+    /* Standing water takes weight off the tyres (Milestone 6). A car in a ford does not stop
+     * being heavy, but it stops pressing on the ground with all of it — which is why a vehicle
+     * in water skates rather than digs, and why what it does next is decided by where the line
+     * points rather than by where its wheels are aimed. Per WHEEL, because a car half in a ford
+     * is light at one end and planted at the other, and that difference is the whole feel of it. */
+    const floatMul = 1 - buoyancyFrac(terrain, p.x, p.y);
+    const N = groundKg * g * slope.normalFrac * share * liftMul * floatMul;
     totalLoad += N;
 
     // A dug-in hub is not a tire and is not bound by a tire's friction circle: it is a plough,
@@ -232,6 +238,26 @@ export function applyWheelForces(veh, terrain, dtSec) {
 }
 
 /**
+ * How much of a wheel's weight the water is carrying, 0..1. GDD §7 Milestone 6, "water recovery".
+ *
+ * Standing water is already a surface with its own grip and a great deal of drag (SURFACES.water).
+ * What buoyancy adds is the thing that makes a ford a DIFFERENT problem rather than a wetter one:
+ * a partly floating vehicle presses on the ground with less than its own weight, so it has less
+ * grip, and a pull that would have dragged a car up a bank instead swings it round.
+ *
+ * Capped well short of 1 on purpose. A car in half a metre of water is light on its feet, not
+ * afloat — and a wheel with zero normal load has zero grip, which is a numerical cliff rather
+ * than a recovery.
+ */
+export function buoyancyFrac(terrain, x, y) {
+  if (!terrain.waterDepthAt) return 0;
+  const d = terrain.waterDepthAt(x, y);
+  if (d <= 0) return 0;
+  const W = CONFIG.water;
+  return Math.min(W.maxLift, (d / W.floatDepthM) * W.maxLift);
+}
+
+/**
  * Peak force a vehicle's tires could resist as parked, given where it is standing.
  * Nothing in the simulation consumes this — it exists so the tests can assert the force
  * budget in src/config.js is still true, and so the debug overlay can show the number the
@@ -249,7 +275,10 @@ export function gripBudgetN(veh, terrain) {
     const p = b.toWorld(w.local.x, w.local.y);
     const surf = terrain.surfaceAt(p.x, p.y);
     const slope = terrain.slopeAt(p.x, p.y);
-    total += surf.mu * terrain.gripMul * (groundKg * CONFIG.sim.gravity / grounded) * slope.normalFrac;
+    // Including the water under this wheel, or the budget would disagree with the tire model it
+    // exists to summarise — and this is the number the tests and the overlay read.
+    total += surf.mu * terrain.gripMul * (groundKg * CONFIG.sim.gravity / grounded)
+           * slope.normalFrac * (1 - buoyancyFrac(terrain, p.x, p.y));
   });
   return total * veh.gripMul;
 }

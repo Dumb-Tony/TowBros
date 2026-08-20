@@ -15,7 +15,9 @@
 import { CONFIG } from '../config.js';
 import {
   activeTruck, conditionEffects, repairQuote, repairTruck, buyGear, gearPrice, describeCompany,
+  truckPrice, ownsTruck, buyTruck, setActiveTruck,
 } from '../meta/company.js';
+import { TRUCK_DEFS, truckDefById } from '../data/vehicles.js';
 import { offersFor, acceptOffer } from '../meta/dispatch.js';
 import { SITES } from '../data/terrain.js';
 
@@ -137,6 +139,15 @@ export class Garage {
       if (!offer || offer.locked) return;
       this.onTakeJob(offer);
       return;                       // main.js hides the garage and starts the job
+    } else if (act === 'buy-truck') {
+      const r = buyTruck(c, arg, 'the Foden');
+      this.note = r.bought
+        ? `Bought a ${truckDefById(arg).label} for £${r.spent}. It is the one going out.`
+        : r.why === 'money' ? `A ${truckDefById(arg).label} is £${truckPrice(arg)}.`
+        : 'You already have one.';
+    } else if (act === 'pick-truck') {
+      setActiveTruck(c, arg);
+      this.note = `${activeTruck(c).name} is going out.`;
     } else if (act === 'site') {
       /* Clicking a place on the map narrows the board to it, and clicking it again puts the rest
        * back. It deliberately does NOT take the job: a map is for looking at, and a mis-click that
@@ -176,6 +187,35 @@ export class Garage {
       <button data-act="repair" data-arg="winch" ${q.winch <= 0 || c.money <= 0 ? 'disabled' : ''}>
         ${q.winch > 0 ? `fix &pound;${q.winch}` : 'as new'}</button></div>`);
     bits.push('</div>');
+
+    /* The fleet (Milestone 6). One line per machine you own, and one price for the one you do not.
+     * It says what each is FOR rather than which is better, because that is the actual decision:
+     * the heavy holds against loads the light one slides under, and it will not get near a car in
+     * a ditch on a narrow bend. */
+    bits.push('<div class="gar-panel"><h2>the fleet</h2><div class="fleet">');
+    for (const t of c.fleet) {
+      const def = truckDefById(t.defId);
+      const on = t.id === c.activeTruckId;
+      bits.push(`<div class="fleet-row ${on ? 'on' : ''}">
+        <b>${esc(t.name)}</b><span>${esc(def.label)}</span>
+        <em>${(def.massKg / 1000).toFixed(1)} t &middot; ${def.drums.length} drum${def.drums.length > 1 ? 's' : ''}
+          ${def.outriggers ? '&middot; outriggers' : ''}</em>
+        ${on ? '<b class="going">going out</b>'
+             : `<button data-act="pick-truck" data-arg="${t.id}">take this one</button>`}
+      </div>`);
+    }
+    for (const defId of Object.keys(TRUCK_DEFS)) {
+      if (ownsTruck(c, defId) || truckPrice(defId) <= 0) continue;
+      const def = TRUCK_DEFS[defId];
+      bits.push(`<div class="fleet-row buy">
+        <b>${esc(def.label)}</b><span>&pound;${truckPrice(defId)}</span>
+        <em>${(def.massKg / 1000).toFixed(1)} t &middot; ${def.drums.length} drums &middot; outriggers
+          &middot; ${def.lengthM} m of it</em>
+        <button data-act="buy-truck" data-arg="${defId}" ${c.money < truckPrice(defId) ? 'disabled' : ''}
+          >buy it</button>
+      </div>`);
+    }
+    bits.push('</div></div>');
 
     // The cupboard. What you own is what goes on the truck.
     bits.push('<div class="gar-panel"><h2>equipment</h2><div class="gar-gear">');
@@ -222,7 +262,8 @@ export class Garage {
       const wx = o.weatherId && o.weatherId !== 'dry' ? ` &middot; <b>${esc(o.weatherLabel)}</b>` : '';
       bits.push(`<div class="offer">
         <div class="offer-head"><b>${esc(o.title)}</b><span>&pound;${o.fee}</span></div>
-        <p class="offer-where">${esc(o.siteName || '')}${wx}</p>
+        <p class="offer-where">${esc(o.siteName || '')}${wx}${
+          o.casualtyId && o.casualtyId !== 'sedan' ? ` &middot; <b>${esc(o.casualtyLabel)}</b>` : ''}</p>
         <p>${esc(o.blurb)}</p>
         ${o.weatherBlurb ? `<p class="offer-weather">${esc(o.weatherBlurb)}</p>` : ''}
         <div class="offer-foot">

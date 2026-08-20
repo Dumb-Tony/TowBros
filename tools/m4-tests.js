@@ -311,10 +311,13 @@ function sectionAA() {
   gt('AA10 a new outfit has jobs it cannot get yet', rookieBoard.filter((o) => o.locked).length, 0);
   ok('AA11 and every locked one says what it needs',
      rookieBoard.filter((o) => o.locked).every((o) => o.minRep > 0));
+  /* Authored offers only. From Milestone 6 one slot on the board is a GENERATED situation
+   * (src/meta/situations.js), whose `type` is a vehicle-and-incident pair rather than a JOB_TYPES
+   * id — it gates its own vehicle pool on reputation and is asserted in the m6 suite. */
   ok('AA12 while the ones it CAN take are within its reputation',
-     rookieBoard.filter((o) => !o.locked).every((o) => {
+     rookieBoard.filter((o) => !o.locked && !o.generated).every((o) => {
        const t = JOB_TYPES.find((jt) => jt.id === o.type);
-       return rookie.reputation >= t.minRep;
+       return t && rookie.reputation >= t.minRep;
      }));
 
   const veteran = newCompany();
