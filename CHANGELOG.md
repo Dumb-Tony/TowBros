@@ -1,5 +1,117 @@
 # Changelog
 
+## Milestone 7 — the scene, and everybody at it — 2026-08-20
+
+The GDD's roadmap ended at Milestone 6. This one is **authored after the fact**, knowing exactly
+what is on the ground, and drawn from §8's deferred list rather than invented.
+
+Six milestones built the machinery of a recovery and the company around it. What the scene still
+had was nobody in it. Traffic went past, but nothing at the site cared how long you took or what
+the owner of the car thought of the state it came back in.
+
+### A job clock, and the light that goes with it
+
+Every decision in this game has cost something — line, grip, gear, a bumper, a reputation — except
+the one a recovery operator actually spends most of. So the day runs while you work:
+
+| | |
+|---|---|
+| a clean 39 s recovery | **4.1 hours** of the working day |
+| a bad 90 s one | **9.5 hours** — most of it |
+| two ordinary jobs | finish at **16:13**, with the light at 0.80 |
+
+That last row is the feature, and it took a retune to get there. At the exchange rate it was first
+tuned to — 12 000 ms of simulation to the hour — two jobs finished at 14:40 and the clock cost
+nothing at all. At 9 500 the afternoon is genuinely at stake, and the tail of the second job is in
+falling light.
+
+**And the light was already wired to something.** Milestone 5 gave the traffic a sight distance
+that scales with it and gave the renderer a vignette that reads off it, so dusk is a consequence of
+a slow morning rather than a filter over the screen. One number on the terrain — the forecast times
+the hour — because two would eventually disagree.
+
+**Nothing about it is a countdown.** It never ends a job, never refuses one, and is checked only
+when a job is *taken*: GDD §4's "no instant fail" means the light going while you are still rigging
+is a thing that happens to you, not a thing that stops you. A day that ran into the evening leaves
+you with a slot you cannot use, and *you* close the day — a day that turned over while you were
+looking at the board would be something happening to the player rather than something they did.
+
+### The customer, at the scene
+
+Somebody owns the car in the ditch and until now nobody did. They stand on the verge. They do not
+move, cannot be talked to, and never tell you what to do — GDD §9's north star means a character who
+says "try the snatch block" has answered the question for the player.
+
+What they do is have an opinion, formed from things that already happened:
+
+| | mood, from 0.90 |
+|---|---|
+| a clean job | **0.90** |
+| three dents | 0.73 |
+| a part off | 0.70 |
+| dropped it in the road | **0.60** |
+
+Damage is weighted far more heavily here than the payout weights it — the payout charges for the
+repair; this is about watching it happen. Time alone never makes anybody furious: it takes time
+**and** a mistake, which is the combination worth being afraid of. And a car that arrived dented is
+not held against you, the same rule the payout has followed since Milestone 4.
+
+It reaches reputation directly, in parallel with the damage table rather than through it, and it can
+be **positive**: identical clean deliveries are worth 29 reputation with a happy owner and 22 with a
+furious one. A customer who could only ever cost you is one the player learns to ignore.
+
+### A motorcycle, and a car that arrived on its roof
+
+Neither is a harder version of a car.
+
+A **motorcycle** weighs 230 kg — less than the winch's own breaking strain, and its strongest
+hookable point (3.4 kN) is weaker than a car's weakest (4.5 kN). Pulling on it hard was never the
+problem: it has no side-to-side base, so it goes wherever the line points the instant the line comes
+tight. Rigged to its frame it comes up in 28 s at 6.1 kN. Rigged to a footpeg, the peg comes off and
+it does not move.
+
+A **car on its roof** is the same shell in the state the game already puts a car in when it rolls
+over mid-recovery, applied from the start. Same mass, same size, 0.55× the grip — and the same
+straight pull, same rig, same geometry, needs **17.3 kN upright and 28.7 kN on its roof**. That
+number is the whole argument for it being a different plan rather than a longer pull.
+
+Both are on the generated board. The motorcycle needs no reputation at all, because it is a small
+awkward job rather than advanced content.
+
+### Four bugs, all found by looking
+
+**⚠ Only crew seat 0 could ever slew the boom.** `stepRig` read the axis from
+`inputs.find(Boolean)` — the first non-null input, deterministically seat 0 — so on the one machine
+whose whole point is that two people work it, the second player could never move the fairleads.
+Collected per seat now, like every other machine control, and two people slewing opposite ways
+cancel.
+
+**⚠ The rollover drag penalty survived exactly one frame.** `resetAids` set `dragMul = 1` every step
+before the tire model ran, and `stepVehicle` only ever writes 1.6 once, guarded on `!veh.rolled`. So
+the penalty from *any* rollover — including the dynamic one, which has existed since Milestone 1 —
+was wiped immediately, every step, forever. `gripMul` was never reset and so never had the bug,
+which is why half the mechanic worked and nobody noticed.
+
+**⚠ A box truck's rear-wheel zones named wheels it does not have.** The zones said `part: 'wheelRL'`
+while the wheel list names the twins `wheelRLi`/`wheelRLo`, so `detachPart`'s `findIndex` returned
+−1 and the `attached = false` and drag penalty never fired: a truck that had just lost its rear
+wheels drove as though nothing had happened. **A zone's `part` must always resolve to something in
+the vehicle's own wheel list.**
+
+**⚠ `boggedFreeM` and `maxSteerRad` read `CONFIG.sedan` for every vehicle.** Both had per-vehicle
+values authored — a box truck frees itself over 0.86 m and steers 0.44 rad — and neither was ever
+read, so a seven-tonner dug itself out over the same 0.62 m a hatchback does. The Milestone 6 pass
+that moved the brake numbers onto the definitions missed these two. Fixing it moved a documented
+number: a light wrecker against a box truck is now dragged **29 m** rather than 14, and that figure
+is an assertion now rather than a remembered measurement.
+
+Plus the smaller finds: `CONFIG.net.room` was authored and the room name hardcoded twice instead;
+`CONFIG.anchors.fallenDragMul` was never read and is gone; the renderer re-derived the outrigger pad
+positions instead of calling `outriggerPads`; and `describeAnchor`'s own comment claimed it was for
+the inspect card when nothing called it — so **looking at a tree now tells you what it is rated for
+and what it is carrying**, and the HUD says the same while a line is routed through a block.
+
+
 ## Milestone 6 — heavy and procedural recovery — 2026-08-20
 
 **GDD §7:** *"Add heavy wreckers/rotators, multiple winches and outriggers, large vehicles, richer

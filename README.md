@@ -3,13 +3,13 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 6 — heavy and procedural recovery — is playable.** Pick a job off the board — a place, a
-forecast, a fee, and what is off the road — winch it out of the ditch, pick it up on the wheel lift,
-strap it down, drive it home through live traffic, reverse it into the bay, and get paid what the
-damage left of the fee. Then fix the truck, and save up for a bigger one, because a seven-tonner is
-not coming out on a light-duty drum. Two to four people, over a network if you like. Browser,
-Canvas 2D, ES modules, zero dependencies, and still zero external requests — including the
-multiplayer and the save file.
+**Milestone 7 — the scene, and everybody at it — is playable.** Pick a job off the board — a place,
+a forecast, a fee, and what is off the road — winch it out of the ditch while its owner watches from
+the verge, pick it up on the wheel lift, strap it down, drive it home through live traffic, reverse
+it into the bay, and get paid what the damage left of the fee. Then fix the truck, save up for a
+bigger one, and watch the afternoon go: a careful morning means the second job is in falling light.
+Two to four people, over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies,
+and still zero external requests — including the multiplayer and the save file.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
@@ -21,6 +21,8 @@ it, not the other way round.
 ![the county map and the board: four places, and what is on offer at each of them today](docs/m5-county.png)
 
 ![the heavy wrecker on its outriggers, boom slewed, both drums rigged to a box truck on the bank](docs/m6-heavy.png)
+
+![a car on its roof, late in the afternoon, with its owner watching from the verge](docs/m7-scene.png)
 
 ## Play it
 
@@ -66,6 +68,41 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 7 is
+
+The scene, and everybody at it. The GDD's roadmap ended at Milestone 6 — this one is **authored
+after the fact**, knowing what is actually on the ground, and drawn from §8's deferred list rather
+than invented.
+
+**A job clock.** Every decision in this game has cost something except the one a recovery operator
+actually spends most of. So the day runs while you work:
+
+| | |
+|---|---|
+| a clean 39 s recovery | **4.1 hours** of the working day |
+| a bad 90 s one | **9.5 hours** — most of it |
+| two ordinary jobs | finish at **16:13**, with the light at 0.80 |
+
+The last row is the feature. Milestone 5 already wired the light level to the traffic's sight
+distance and to the renderer, so dusk is a consequence of a slow morning rather than a filter over
+the screen. And nothing about it is a countdown: it never ends a job and never refuses one, it is
+checked only when a job is *taken*, and a day that ran into the evening leaves you with a slot you
+cannot use and a decision to close the day yourself.
+
+**The customer.** Somebody owns the car in the ditch. They stand on the verge, they do not move,
+and they never tell you what to do — but they have an opinion, and it is made of things that
+already happened: a clean job leaves them at 0.90, three dents takes them to 0.73, a part coming off
+to 0.70, and dropping it in the road to 0.60. Damage is weighted far more heavily here than the
+payout weights it, because the payout charges for the repair and this is about watching it happen.
+Time alone never makes anybody furious — it takes time *and* a mistake. Identical clean deliveries
+are worth 29 reputation with a happy owner and 22 with a furious one.
+
+**A motorcycle, and a car that arrived on its roof.** Neither is a harder car. A motorcycle weighs
+230 kg and its strongest hookable point is weaker than a car's weakest, so pulling hard was never
+the problem — it has no side-to-side base and goes wherever the line points. A car on its roof is
+the same shell with 0.55× the grip, and the same straight pull needs **17.3 kN upright and 28.7 kN
+on its roof**.
 
 ## What Milestone 6 is
 
@@ -398,8 +435,13 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m6-tests.js -Quiet
 ```
 
-**1055 assertions** across six suites in headless Chrome — 265 for Milestone 1, 219 for Milestone 2,
-160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 155 for Milestone 6.
+```bash
+.\tools\smoketest.ps1 -Tests tools\m7-tests.js -Quiet
+```
+
+**1150 assertions** across seven suites in headless Chrome — 265 for Milestone 1, 219 for
+Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
+93 for Milestone 7.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
@@ -458,6 +500,13 @@ being dragged 13.7 m and 0.52 m, and the box-truck recovery in two parks end to 
 water takes off the tyres. AM rolls two hundred situations and checks the five axes move
 independently, and that a generated job can reach no further into the simulation than an authored
 one. AK is determinism and the five milestones of numbers underneath all of it.
+
+[`tools/m7-tests.js`](tools/m7-tests.js) — AN is the working day: that the clock advances on jobs
+and on nothing else, that the exchange rate is believable at both ends, and that the second job of a
+day ends in falling light. AP is the customer, and most of it is about what must NOT happen —
+standing there is not enough to make anybody furious, and damage the car arrived with is not held
+against you. AR measures the two new casualties against a plain car, one fact at a time, including
+the pair of numbers that says a car on its roof is a different plan rather than a longer pull.
 
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
