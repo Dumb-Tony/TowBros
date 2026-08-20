@@ -61,6 +61,10 @@ export const EVENTS = Object.freeze({
   LOAD_SECURED:       'LOAD_SECURED',    // { gear, kind, straps, capacityN }
   JOB_PHASE:          'JOB_PHASE',       // { from, to }
   JOB_DELIVERED:      'JOB_DELIVERED',   // { payout, deductions, atMs }
+
+  /* Traffic and the county. GDD §7 Milestone 5. */
+  TRAFFIC_HORN:       'TRAFFIC_HORN',    // { car, what, speed } somebody has seen you too late
+  TRAFFIC_HIT:        'TRAFFIC_HIT',     // { car, what, impulseNs } and did not stop in time
   GEAR_PLACED:        'GEAR_PLACED',
   GEAR_USED:          'GEAR_USED',       // jack pumped
   GEAR_SCATTERED:     'GEAR_SCATTERED',  // cribbing kicked out by an impact
@@ -81,6 +85,7 @@ const STORY = new Set([
   'WINCH_STALLED', 'CABLE_SNAPPED', 'ZONE_FAILED', 'COMPONENT_DETACHED', 'COMPONENT_DAMAGED',
   'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
   'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
+  'TRAFFIC_HIT',
 ]);
 
 export class EventBus {

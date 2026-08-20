@@ -134,7 +134,9 @@ export function applyWheelForces(veh, terrain, dtSec) {
     // the extra drag computed below was clamped straight back down to mu*N and a lost wheel
     // cost the sedan nothing — m1 Hh measured a wheel-less car coming up FASTER than an intact
     // one. GDD §4 says a detached wheel "sharply increases drag", so the ceiling has to move too.
-    const mu = surf.mu * ws.gripMul * veh.gripMul
+    // Weather is one number and this is where it arrives: the whole county is greasier in the rain,
+  // which moves the parking spot that works and the rig that holds. See world/weather.js.
+  const mu = surf.mu * terrain.gripMul * ws.gripMul * veh.gripMul
       * (ws.attached ? 1 : CONFIG.damage.wheelLostDragMul);
     const fMax = mu * N;
 
@@ -243,7 +245,7 @@ export function gripBudgetN(veh, terrain) {
     const p = b.toWorld(w.local.x, w.local.y);
     const surf = terrain.surfaceAt(p.x, p.y);
     const slope = terrain.slopeAt(p.x, p.y);
-    total += surf.mu * (groundKg * CONFIG.sim.gravity / grounded) * slope.normalFrac;
+    total += surf.mu * terrain.gripMul * (groundKg * CONFIG.sim.gravity / grounded) * slope.normalFrac;
   });
   return total * veh.gripMul;
 }

@@ -27,6 +27,7 @@ import { stepVehicle } from './sim/vehicle.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
 import { stepLift, describeLift } from './recovery/lift.js';
+import { stepTraffic, trafficBodies, describeTraffic } from './world/traffic.js';
 import { stepAttachment, applyImpactDamage, stepDebris } from './recovery/attach.js';
 import { stepGearEffects } from './recovery/gear.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
@@ -241,8 +242,13 @@ export class Game {
     stepAttachment(st, this.bus, simTimeMs);
     stepCableBreak(st, this.bus, simTimeMs);
 
+    /* 4b. Traffic. Before the contact pass, so a car that has decided to brake has already had its
+     *     velocity changed by the time anything touches it — and it is driven from the FX stream,
+     *     which is the one stream no rule reads, so adding a car cannot shift the world layout. */
+    stepTraffic(st, dt, this.rng.fx, this.bus, simTimeMs);
+
     // 5. Contacts, as impulses. Before integration so the tires react to the new velocities.
-    const dynamics = [st.vehicles.truck, st.vehicles.sedan, ...st.debris];
+    const dynamics = [st.vehicles.truck, st.vehicles.sedan, ...trafficBodies(st), ...st.debris];
     st.fx.peakImpulse = stepCollisions(
       dynamics, st.scenery, this.bus, simTimeMs,
       (A, B, jn, hit) => applyImpactDamage(st, A, B, jn, hit, this.bus, simTimeMs),
@@ -299,6 +305,9 @@ export class Game {
 
       winch: describeWinch(st.winch),
       lift: describeLift(st.vehicles.truck.lift),
+      traffic: describeTraffic(st.traffic),
+      weather: st.terrain.weather ? st.terrain.weather.id : 'dry',
+      site: st.terrain.site.id,
       job: {
         phase: st.job.phase,
         bayCorners: st.job.bayCorners,

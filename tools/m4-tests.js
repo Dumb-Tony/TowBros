@@ -293,8 +293,14 @@ function sectionAA() {
   ok('AA6 and a different board once a job has been taken',
      JSON.stringify(moved.map((o) => o.seed)) !== JSON.stringify(board.map((o) => o.seed)));
 
-  ok('AA7 accepting a job moves the board on', acceptOffer(c, open[0]));
-  eq('AA8 by exactly one', c.dispatchCursor, 1);
+  /* Accepting strikes a job off TODAY's board and spends a slot; the cursor — and therefore the
+   * board — moves once, at the end of the day. It used to move per acceptance, and the consequence
+   * was that the rivals at day end were awarded jobs the player had never been shown. */
+  ok('AA7 accepting a job takes it', acceptOffer(c, open[0]));
+  eq('AA7b and strikes it off the board for today', offersFor(c).some((o) => o.id === open[0].id), false);
+  eq('AA8 while the rest of the day board stands', c.dispatchCursor, 0);
+  eq('AA8b so the other jobs are still there for the second slot',
+     offersFor(c).filter((o) => !o.locked).length, CONFIG.company.offerCount - 1);
   const locked = board.find((o) => o.locked);
   ok('AA9 a locked job cannot be accepted', locked ? !acceptOffer(c, locked) : true);
 

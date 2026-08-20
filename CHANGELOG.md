@@ -1,5 +1,100 @@
 # Changelog
 
+## Milestone 5 — the county — 2026-08-20
+
+Four places instead of one, weather that reaches the tyres, a carriageway with other people on it,
+and a day that ends whether or not you took the work.
+
+**GDD §7:** *"connect job scenes with a regional map or compact open county, dynamic dispatch,
+traffic/work zones, weather modifiers, and rival-job persistence."*
+
+### The county is four problems, not four skins
+
+| | takes away | leaves you |
+|---|---|---|
+| **the bend on Cold Ash Hill** | nothing — the Milestone 1 site, untouched to the last decimal | five trees, mud at the bottom |
+| **the ford at Marle Brook** | four of the five trees | the shallowest bank and the widest gap in the rail |
+| **the quarry approach** | every tree in the county | the steepest drop, loose rock, and five boulders to work around |
+| **the bridge abutment on Wenn Lane** | the width of the gap — 7.5 m against the bend's 15.9 | two trees and clean grass |
+
+A site is a **multiplier on the authored profile**, never a rewrite of it, which is what lets the
+bend still be the bend: `baseHeightAt(x, y)` and `baseHeightAt(x, y, 1)` are the same function and
+four suites of prior assertions still measure the same ground.
+
+The quarry is the interesting one. It has no trees at all, so the snatch-block side pull — the
+answer to half of Milestone 1 — simply does not exist there, and the steepest bank in the county is
+the one where you cannot have it.
+
+### Weather is one grip number and one light level
+
+Five forecasts, each of which is exactly two facts that reach the simulation and one that reaches
+the fee. Wet takes 20% off the grip everywhere, and the truck is the one that gives ground:
+**63.4 kN dry → 50.7 kN wet**, and in the same pull the wrecker slides 7.77 m instead of 7.41.
+
+Night barely touches grip, because darkness is not slippery. What it takes is **sight**, and sight
+is a traffic decision: a driver who cannot see you commits later. Measured, on a truck left across
+the road — the worst single arrival goes from **4 464 N·s in daylight to 14 989 N·s after dark**.
+
+Worse conditions pay more, and the board says which is which before you take it.
+
+### The road uses itself
+
+Cars, driven along the carriageway from the FX random stream — the one stream no rule reads, so
+adding traffic cannot shift where the mud or the casualty is. They are real bodies in the contact
+pass, they brake for what they can see, they queue, they cross the centre line to get round a
+stopped wrecker, and they eventually creep past anything that will not move.
+
+**Cones are the mechanic.** A work zone is a request rather than a wall, and it works:
+
+| | speed past the site |
+|---|---|
+| bare road | 78 km/h |
+| one cone | 63 km/h |
+| three cones | 40 km/h |
+
+Leave the truck across the road and you get hit — eleven times in a two-minute afternoon, hard
+enough to dent, and almost nobody gets past. That is a cost in money, through the damage, through
+the payout.
+
+### And a day that ends
+
+Two slots. Taking a job spends one; running out ends the day, and whatever was still on the board
+goes to somebody else — by name, with the fee, printed on tomorrow's board. The only thing that
+makes choosing between three jobs a choice is that the other two go away.
+
+The calendar advances when the *player* does something. A wall clock in a meta-layer is a game that
+plays itself while nobody is looking, and nothing in this project reads real time except
+presentation.
+
+### One bug, and one decision it forced
+
+**A hatchback was a wall with a number plate.** `stepTraffic` drives a car along x itself and read
+its own speed back as `Math.abs(b.vx)`, so a car shoved *backwards* read as one doing the same speed
+*forwards*, and `Math.max(0, next)` then threw the shove away entirely. Measured: a 6.8-tonne
+wrecker at full throttle, nose against a stopped 1 400 kg car, moved **0.24 m in two seconds** and
+got free only when the car's own creep logic took it round. Read signed, the driver can only claw a
+shove back at their own acceleration and the truck wins — 9.45 m in three seconds, with the car
+pushed 29 m up the road. It is the same class of mistake as the damping-sign inversion in
+Milestone 3: a magnitude used where a signed quantity was meant.
+
+It surfaced as *two* failures in the Milestone 1 suite, which is what forced the decision:
+
+**Milestone 1 and Milestone 3 now measure on an empty road, on purpose.** Those suites assert
+kilonewtons and centimetres — a comparison of two peak tensions flipped (23.7 against 32.9 kN) and
+"the drum stops taking line" landed 4.8 cm the wrong side of its bound, neither of which says
+anything about a winch. The claims themselves are re-made in section AE of the Milestone 5 suite,
+**with traffic live**: the far-lane recovery still finishes in the same 34 s, no park anywhere
+across the road parts the cable (9/9), and a load towed home in its own lane arrives with the
+numbers unchanged.
+
+Which turned up the one place the two milestones genuinely disagree, and it is worth keeping: tow a
+car down the **centre line** of a live carriageway and a westbound car meets it head-on at
+15 374 N·s and takes the load off the yoke after 17 m. Tow it in your own lane and it comes home.
+The lane you choose is now a decision.
+
+**900 assertions** across five suites — 265, 219, 160, 128, 128.
+
+
 ## Milestone 4 — the company — 2026-08-20
 
 The layer above the job: money, a truck that wears out, an equipment cupboard, a reputation, and a

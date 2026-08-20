@@ -180,6 +180,11 @@ export function buildScenery(terrain) {
   for (const t of terrain.trees) {
     items.push({ kind: 'tree', ref: t, box: staticBox(t.id, t.x, t.y, 0, t.r, t.r) });
   }
+  // Boulders (Milestone 5). Solid like a tree and, unlike a tree, no use to a snatch block —
+  // which is exactly the point of the quarry approach.
+  for (const b of terrain.boulders || []) {
+    items.push({ kind: 'rock', ref: b, box: staticBox(b.id, b.x, b.y, b.angle, b.r, b.r * 0.8) });
+  }
   for (const s of terrain.railSegments) {
     const mx = (s.ax + s.bx) / 2, my = (s.ay + s.by) / 2;
     const ang = Math.atan2(s.by - s.ay, s.bx - s.ax);
@@ -234,7 +239,7 @@ export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
       const hit = obbOverlap(A.body, S.box);
       if (!hit) continue;
       // A tree does not move and does not care. The rail is the opposite of that.
-      const rest = S.kind === 'tree' ? 0.22 : 0.05;
+      const rest = (S.kind === 'tree' || S.kind === 'rock') ? 0.22 : 0.05;
       const jn = resolveContact(A.body, S.box, hit, rest, 0.55);
       if (jn > peak) peak = jn;
 

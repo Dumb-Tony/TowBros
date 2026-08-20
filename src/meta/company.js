@@ -43,6 +43,14 @@ export function newCompany() {
     jobsDelivered: 0,
     /** Monotonic, and the ONLY thing dispatch draws its seeds from. Never a clock. */
     dispatchCursor: 0,
+    /* The county's calendar (Milestone 5). It advances when the PLAYER does something — taking a
+     * job costs a slot and running out of slots is the end of the day — because a wall clock in a
+     * meta-layer means a game that plays itself while nobody is looking. */
+    day: 1,
+    slotsLeft: 2,
+    takenToday: [],
+    /** What the outfits down the road picked up while you were busy. See dispatch.js endDay. */
+    rivalTook: [],
     fleet: [newTruck('t1', 'the old Ford')],
     activeTruckId: 't1',
     stock,
@@ -69,6 +77,10 @@ export function loadCompany() {
     fleet: Array.isArray(d.fleet) && d.fleet.length ? d.fleet.map(fixTruck) : base.fleet,
     stock: (d.stock && typeof d.stock === 'object') ? { ...base.stock, ...d.stock } : base.stock,
     ledger: Array.isArray(d.ledger) ? d.ledger.slice(-CONFIG.company.ledgerSize) : [],
+    day: Math.max(1, num(d.day, 1) | 0),
+    slotsLeft: Math.max(0, num(d.slotsLeft, 2) | 0),
+    takenToday: Array.isArray(d.takenToday) ? d.takenToday.slice(0, 8) : [],
+    rivalTook: Array.isArray(d.rivalTook) ? d.rivalTook.slice(0, 8) : [],
   };
   company.activeTruckId = company.fleet.some((t) => t.id === d.activeTruckId)
     ? d.activeTruckId : company.fleet[0].id;
@@ -240,6 +252,8 @@ export function describeCompany(c) {
     reputation: Math.round(c.reputation),
     jobsDone: c.jobsDone,
     jobsDelivered: c.jobsDelivered,
+    day: c.day,
+    slotsLeft: c.slotsLeft,
     truck: t.name,
     condition: { body: Math.round(t.condition.body * 100), winch: Math.round(t.condition.winch * 100) },
     repairDue: repairQuote(t).total,

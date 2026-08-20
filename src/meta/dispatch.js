@@ -19,6 +19,8 @@
 
 import { CONFIG } from '../config.js';
 import { mulberry32, hashStr } from '../core/rng.js';
+import { SITES } from '../data/terrain.js';
+import { rollWeather } from '../world/weather.js';
 
 /**
  * The job templates. Each is a shape, not a scenario — the terrain is the same site every time,
@@ -73,8 +75,14 @@ export const JOB_TYPES = Object.freeze([
  * Build the board.
  *
  * Seeded from the company's dispatch cursor and nothing else — no clock, so the same save always
- * shows the same three jobs until one is taken, and reloading the page does not reroll the board.
- * That matters: a board that rerolls on refresh is a board you refresh until you like it.
+ * shows the same board, and reloading the page does not reroll it. That matters: a board that
+ * rerolls on refresh is a board you refresh until you like it.
+ *
+ * The board belongs to the DAY, not to each acceptance. Taking a job strikes it off today's board
+ * and the rest are still there for the second slot; the cursor moves once, at the end of the day,
+ * when whatever is left goes to somebody else. It was per-acceptance at first, and the consequence
+ * was that the rivals were awarded jobs the player had never been shown — the board `endDay`
+ * looked at was a different board from the one on screen.
  */
 export function offersFor(company, count = CONFIG.company.offerCount) {
   const rnd = mulberry32((hashStr('dispatch') ^ (company.dispatchCursor * 0x9e3779b9)) >>> 0);
@@ -83,6 +91,7 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
 
   const out = [];
   const used = new Set();
+  const taken = new Set(company.takenToday || []);
   for (let i = 0; i < count; i++) {
     // Draw without replacement while there is anything left to draw, so a board of three is three
     // different jobs rather than the same one looked at from three angles.
@@ -94,41 +103,118 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
     pick = pick || pool[i % pool.length];
     used.add(pick.id);
 
-    const seed = (hashStr(`job:${company.dispatchCursor}:${i}`) ^ Math.floor(rnd() * 0xffffffff)) >>> 0;
+    const seed = (hashStr(`job:` + company.dispatchCursor + `:` + i) ^ Math.floor(rnd() * 0xffffffff)) >>> 0;
     const distanceKm = Math.round((6 + rnd() * 22) * 10) / 10;
+    /* WHERE and IN WHAT (Milestone 5). Both drawn from the same seeded stream as everything else,
+     * and both visible on the board before the job is taken — a wet night at the quarry pays more
+     * for exactly the reason it is worth more, and the player gets to decide whether it is. */
+    const site = SITES[Math.floor(rnd() * SITES.length) % SITES.length];
+    const weather = rollWeather(rnd);
     out.push({
-      id: `${company.dispatchCursor}-${i}`,
+      id: company.dispatchCursor + `-` + i,
       type: pick.id,
       title: pick.title,
       blurb: pick.blurb,
       seed,
-      feeMul: pick.feeMul,
+      siteId: site.id,
+      siteName: site.name,
+      siteBlurb: site.blurb,
+      weatherId: weather.id,
+      weatherLabel: weather.label,
+      weatherBlurb: weather.blurb,
+      feeMul: pick.feeMul * weather.feeMul,
       /** Presentation only — the drive to site is not simulated. It is why the fee differs. */
       distanceKm,
-      fee: Math.round(CONFIG.job.baseFee * pick.feeMul),
+      fee: Math.round(CONFIG.job.baseFee * pick.feeMul * weather.feeMul),
       mods: { ...pick.mods },
       locked: false,
     });
   }
+
+  // Jobs already taken today are off the board. They are not offered twice and they are not
+  // available to a rival at the end of the day either — you did them.
+  const live = out.filter((o) => !taken.has(o.id));
 
   /* The jobs the outfit is NOT good enough for, shown greyed out rather than hidden. A locked
    * offer with its reputation printed on it is the only thing in this game that tells the player
    * what reputation is for. */
   for (const t of JOB_TYPES) {
     if (company.reputation >= t.minRep) continue;
-    out.push({
+    live.push({
       id: `locked-${t.id}`, type: t.id, title: t.title, blurb: t.blurb,
       seed: 0, feeMul: t.feeMul, distanceKm: 0,
       fee: Math.round(CONFIG.job.baseFee * t.feeMul),
       mods: { ...t.mods }, locked: true, minRep: t.minRep,
     });
   }
-  return out;
+  return live;
 }
 
-/** Take one. The cursor moves, so the board is different next time and cannot be rerolled. */
+/* ── the day, and the rivals (Milestone 5) ────────────────────────────────────
+ *
+ * GDD §7 Milestone 5: "dynamic dispatch ... and rival-job persistence."
+ *
+ * ── WHY A DAY AND NOT A CLOCK ────────────────────────────────────────────────────────
+ * A wall clock in a meta-layer means a game that plays itself while you are not looking, and the
+ * one thing this project has held to across five milestones is that nothing reads real time except
+ * presentation. So the county's calendar advances when the player does something: taking a job
+ * costs a slot, and running out of slots is the end of the day.
+ *
+ * ── WHY RIVALS ───────────────────────────────────────────────────────────────────────
+ * Because otherwise a board is a menu that waits. The two jobs you did NOT take should not still be
+ * sitting there tomorrow — somebody else in the county wanted the work, and the only thing that
+ * makes choosing between three jobs a choice is that the other two go away.
+ *
+ * They are not a simulated competitor and they do not need to be. `rivalTook` is a name and a fee,
+ * recorded when the day turns, and shown on the board the next morning. It costs nothing, it is
+ * honest about what it is, and it does the whole job: you can see what you turned down.
+ */
+
+export const RIVALS = Object.freeze([
+  'Coastline Recovery', 'Bett & Sons', 'Marle Valley Motors', 'A38 Rescue', 'Hadley Commercials',
+]);
+
+/** How many jobs an outfit can run before the day is done. */
+export const SLOTS_PER_DAY = 2;
+
+/**
+ * End the day: whatever is still on the board goes to somebody else, and tomorrow's work appears.
+ *
+ * Called when the slots run out, and the record it leaves is the point — a player who spent the
+ * day on two routine recoveries can see that the fleet contract went to Bett & Sons.
+ */
+export function endDay(company) {
+  const rnd = mulberry32((hashStr('rivals') ^ (company.day * 0x85ebca6b)) >>> 0);
+  // offersFor already strikes off what was taken today, so what is left IS what was declined.
+  const left = offersFor(company).filter((o) => !o.locked);
+
+  company.rivalTook = left.map((o) => ({
+    title: o.title,
+    site: o.siteName,
+    fee: o.fee,
+    by: RIVALS[Math.floor(rnd() * RIVALS.length) % RIVALS.length],
+  }));
+
+  company.day += 1;
+  company.slotsLeft = SLOTS_PER_DAY;
+  company.takenToday = [];
+  // The board is keyed off the cursor, so moving it past the offers nobody took is what makes
+  // tomorrow's work genuinely new rather than the same three jobs with one crossed out.
+  company.dispatchCursor += 1;
+  return company.rivalTook;
+}
+
+/** Take a job and spend a slot. Ends the day when the last one goes. */
+export function useSlot(company, offer) {
+  if (!company.takenToday.includes(offer.id)) company.takenToday.push(offer.id);
+  company.slotsLeft = Math.max(0, company.slotsLeft - 1);
+  if (company.slotsLeft === 0) return endDay(company);
+  return null;
+}
+
+/** Take one. It comes off today's board; the cursor moves when the DAY does. */
 export function acceptOffer(company, offer) {
   if (offer.locked) return false;
-  company.dispatchCursor += 1;
+  if (!company.takenToday.includes(offer.id)) company.takenToday.push(offer.id);
   return true;
 }

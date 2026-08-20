@@ -18,7 +18,10 @@ param(
   [string]$Tests = "tools\m1-tests.js",
   [string]$Game  = "index.html",
   [int]$Port     = 8399,
-  [switch]$Keep
+  [switch]$Keep,
+  # Print only failures and the final tally. The full pass list is 250-odd lines and reading it
+  # costs more than it tells you once a suite is green.
+  [switch]$Quiet
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -92,9 +95,10 @@ $body = $m.Groups[1].Value.Trim() -replace '&lt;','<' -replace '&gt;','>' -repla
 foreach ($line in ($body -split "`n")) {
   $t = $line.Trim()
   if ($t -like 'FAIL*')          { Write-Host $t -ForegroundColor Red }
-  elseif ($t -like 'PASS*')      { Write-Host $t -ForegroundColor DarkGray }
+  elseif ($t -like 'PASS*')      { if (-not $Quiet) { Write-Host $t -ForegroundColor DarkGray } }
   elseif ($t -like '*ALL-PASS*') { Write-Host $t -ForegroundColor Green }
   elseif ($t -like '*FAILURES*') { Write-Host $t -ForegroundColor Red }
-  else                           { Write-Host $t }
+  elseif ($t -like '---*')       { if (-not $Quiet) { Write-Host $t } }
+  else                           { if (-not $Quiet) { Write-Host $t } }
 }
 if ($body -match 'ALL-PASS') { exit 0 } else { exit 1 }

@@ -63,6 +63,7 @@ const COL = {
   roadEdge: '#b9b6ad',
   yardApron: '#4a4338',      // graded hardstanding: browner and flatter than the blue-grey road
   bayPaint:  '#d8b13c',      // hazard yellow, the only saturated paint in the scene
+  rock: '#6b675f',
   liftBoom: '#2d3138',
   liftBoomLit: '#5b636e',
   strap: '#c8a86a',
@@ -185,7 +186,8 @@ export class Renderer {
         const md = terrain.mudDepthAt(wx, wy);
         if (md > MUD_EDGE_M) {
           const w = clamp01((md - MUD_EDGE_M) / MUD_FADE_M);
-          const M = terrain.surfaces.mud;
+          // The hazard's OWN colour, not always mud's — a ford paints as water and a quarry as rock.
+          const M = terrain.mud.surface || terrain.surfaces.mud;
           const mr = hex(M.tint, 0) * (1 - mix) + hex(M.tint2, 0) * mix;
           const mg = hex(M.tint, 1) * (1 - mix) + hex(M.tint2, 1) * mix;
           const mb = hex(M.tint, 2) * (1 - mix) + hex(M.tint2, 2) * mix;
@@ -413,6 +415,8 @@ export class Renderer {
     this._drawLift(ctx, st);              // under the truck: the yoke goes below the tail
     this._drawVehicle(ctx, st, st.vehicles.truck);
 
+    this._drawTraffic(ctx, st);             // on the road, under the recovery vehicles
+    this._drawBoulders(ctx, st.terrain);    // on the ground, so vehicles sit in front of them
     this._drawTrees(ctx, st.terrain);       // canopies overhang everything on the ground
     this._drawCable(ctx, st);
     this._drawCrew(ctx, st);
@@ -423,7 +427,43 @@ export class Renderer {
 
     this._drawWorldEdge(ctx, st.terrain);
     cam.resetTransform(ctx);
+    this._drawWeather(ctx, cam, st);
     this._drawVignette(ctx, cam);
+  }
+
+  /* Weather, as light and nothing else.
+   *
+   * It changes no force — the grip multiplier does that, in the tire model — so this is allowed to
+   * be exactly what it looks like: a wash of colour and a tighter vignette. Night is dark and blue
+   * and closes right in; fog is pale and closes in further; rain is a slight grey that mostly reads
+   * as the road looking wet. All of it goes over the world and under the HUD, so the numbers a
+   * player needs stay readable in the dark.
+   */
+  _drawWeather(ctx, cam, st) {
+    const w = st.terrain.weather;
+    if (!w || w.id === 'dry') return;
+    const W = cam.cssW, H = cam.cssH;
+    const dark = 1 - w.light;
+
+    if (w.id === 'fog') {
+      ctx.fillStyle = `rgba(196,200,206,${(0.16 + dark * 0.22).toFixed(3)})`;
+    } else {
+      ctx.fillStyle = `rgba(${w.id === 'night' ? '10,14,34' : '24,30,42'},${(dark * 0.82).toFixed(3)})`;
+    }
+    ctx.fillRect(0, 0, W, H);
+
+    /* How far you can see, drawn. A pool of light in the dark is the whole reason night is a
+     * different job rather than a darker one — and it is the same number the traffic uses to decide
+     * how late it commits, so what you can see and what a driver can see agree. */
+    if (dark > 0.1) {
+      const inner = Math.min(W, H) * (0.10 + w.light * 0.28);
+      const outer = Math.max(W, H) * (0.30 + w.light * 0.45);
+      const g = ctx.createRadialGradient(W / 2, H / 2, inner, W / 2, H / 2, outer);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, `rgba(${w.id === 'fog' ? '208,212,218' : '4,6,16'},${(dark * 0.92).toFixed(3)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 
   /** Fade the site into the dark at its boundary. Without it the world stops at a hard rectangle
@@ -530,6 +570,52 @@ export class Renderer {
    *  coin; five overlapping lobes, shaded by which side faces the light, read as foliage — and
    *  it costs five arcs. Lobe placement is hashed from the trunk position so a given tree looks
    *  the same on every frame and every replay of its seed. */
+  /* Boulders. Lit from the same vector as everything else, with a hard shadow, so they read as
+   * objects standing on the ground rather than as stains on it. */
+  /* Passing traffic. Deliberately plainer than the recovery vehicles — they are not the subject,
+   * and a road full of equally detailed cars would fight the thing the player is meant to be
+   * looking at. Brake lights are the exception, because a car braking for your work zone is
+   * information. */
+  _drawTraffic(ctx, st) {
+    if (!st.traffic) return;
+    for (const car of st.traffic.cars) {
+      const b = car.body;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.angle);
+      const L = b.halfL, W = b.halfW;
+      ctx.fillStyle = 'rgba(4,6,10,0.35)';
+      rect(ctx, -L - LIGHT.x * 0.2, -W - LIGHT.y * 0.2, L * 2, W * 2, true);
+      fillLit(ctx, b.x, b.y, W, car.tint, b.angle, 0.72, 1.2);
+      ctx.fillStyle = shadeHex(car.tint, 1.12);
+      rect(ctx, -L, -W, L * 2, W * 2, true);
+      ctx.fillStyle = 'rgba(24,28,36,0.55)';
+      rect(ctx, -L * 0.30, -W * 0.82, L * 0.72, W * 1.64, true);   // glass
+      if (car.braking) {
+        ctx.fillStyle = '#e0442c';
+        rect(ctx, -L, -W * 0.9, 0.18, W * 0.5, true);
+        rect(ctx, -L, W * 0.4, 0.18, W * 0.5, true);
+      }
+      ctx.restore();
+    }
+  }
+
+  _drawBoulders(ctx, terrain) {
+    for (const b of terrain.boulders || []) {
+      ctx.fillStyle = 'rgba(4,6,10,0.45)';
+      ctx.beginPath();
+      ctx.ellipse(b.x - LIGHT.x * b.r * 0.7, b.y - LIGHT.y * b.r * 0.7, b.r * 1.12, b.r * 0.92,
+                  b.angle, 0, Math.PI * 2);
+      ctx.fill();
+      fillLit(ctx, b.x, b.y, b.r, COL.rock, b.angle, 0.62, 1.3);
+      ctx.strokeStyle = 'rgba(20,22,28,0.5)';
+      ctx.lineWidth = 0.05;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   _drawTrees(ctx, terrain) {
     for (const t of terrain.trees) {
       const R = t.canopy;
@@ -581,6 +667,19 @@ export class Renderer {
       ctx.fillStyle = COL.shadow;
       rect(ctx, -def.sizeM.x / 2 + 0.06, -def.sizeM.y / 2 + 0.07, def.sizeM.x, def.sizeM.y, true);
       ctx.fillStyle = def.tint;
+
+      if (item.kind === 'cone') {
+        // A cone from above is a circle with a smaller circle in it, and the white band is what
+        // makes it read as hi-vis rather than as an orange dot.
+        const R = def.sizeM.x / 2;
+        ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#f2ead9';
+        ctx.beginPath(); ctx.arc(0, 0, R * 0.66, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = def.tint;
+        ctx.beginPath(); ctx.arc(0, 0, R * 0.38, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        continue;
+      }
 
       if (item.kind === 'chock') {
         // A wedge, drawn as a wedge, pointing the way it resists.
@@ -1008,6 +1107,8 @@ export class Renderer {
         const surf = st.terrain.surfaceAt(ws.x, ws.y);
         const colour = surf.id === 'pavement' ? 'rgba(200,200,205,0.5)'
           : surf.id === 'mud' ? '#5c4936'
+          : surf.id === 'water' ? '#3d5866'
+          : surf.id === 'scree' ? '#6e6960'
           : surf.id === 'wetGrass' ? '#5d7a44' : '#8a7d63';
         for (let i = 0; i < n; i++) {
           if (this.particles.length >= CONFIG.render.maxParticles) break;

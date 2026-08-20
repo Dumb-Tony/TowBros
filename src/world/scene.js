@@ -13,7 +13,9 @@
 
 import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
-import { createTerrain } from '../data/terrain.js';
+import { createTerrain, siteById } from '../data/terrain.js';
+import { weatherById } from './weather.js';
+import { createTraffic } from './traffic.js';
 import { SEDAN_DEF, TRUCK_DEF } from '../data/vehicles.js';
 import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
@@ -36,7 +38,15 @@ import { createCrewMember } from '../player/player.js';
  *   every approach that worked on the first job works on all of them.
  */
 export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
-  const terrain = createTerrain(rng);
+  // WHERE this job is. Milestone 5 gave the county four sites; a job with no site named is the
+  // bend, which is the Milestone 1 scene to the last decimal.
+  const site = siteById(job && job.siteId);
+  const terrain = createTerrain(rng, site);
+  // The forecast, which the player saw on the board before taking the job. One grip number and one
+  // light level — see world/weather.js for why it is deliberately not more than that.
+  const weather = weatherById(job && job.weatherId);
+  terrain.weather = weather;
+  terrain.gripMul = weather.gripMul;
   const mods = (job && job.mods) || {};
 
   // Which of the sedan's wheels are SEIZED — jammed hubs, not braked ones.
@@ -110,6 +120,9 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
     gear,
     crew,
     winch: createWinch(eff ? eff.cableMul : 1),
+    /* A live carriageway (Milestone 5). Absent when a job says so, because the yard's own approach
+     * road is not the A-road and a test that does not care should not have to step it. */
+    traffic: (job && job.traffic === false) ? null : createTraffic(),
     blocksById: {},
     debris: [],
     nextDebrisId: 1,

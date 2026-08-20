@@ -3,11 +3,12 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 4 — the company — is playable.** Take a job off the board, winch the car out of the
-ditch, pick it up on the wheel lift, strap it down, drive it to the yard, reverse it into the bay,
-and get paid what the damage left of the fee. Then fix the truck. Two to four people, over a network
-if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero external requests —
-including the multiplayer and the save file.
+**Milestone 5 — the county — is playable.** Pick a job off the board — a place, a forecast and a
+fee — winch the car out of the ditch, pick it up on the wheel lift, strap it down, drive it home
+through live traffic, reverse it into the bay, and get paid what the damage left of the fee. Then
+fix the truck, and see what the outfits down the road took while you were busy. Two to four people,
+over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero
+external requests — including the multiplayer and the save file.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
@@ -15,6 +16,8 @@ it, not the other way round.
 ![the sedan on the wheel lift, strapped down, backing into the yard bay](docs/m3-yard.png)
 
 ![the yard: money, a worn truck, the equipment cupboard, and three jobs on the board](docs/m4-yard-screen.png)
+
+![the county map and the board: four places, and what is on offer at each of them today](docs/m5-county.png)
 
 ## Play it
 
@@ -55,6 +58,53 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 5 is
+
+A county, and a road with other people on it. GDD §7: "connect job scenes with a regional map or
+compact open county, dynamic dispatch, traffic/work zones, weather modifiers, and rival-job
+persistence."
+
+**Four places, and each one takes away something different.**
+
+| | takes away | leaves you |
+|---|---|---|
+| **the bend on Cold Ash Hill** | nothing — the Milestone 1 site, untouched | five trees, mud at the bottom |
+| **the ford at Marle Brook** | four of the five trees | the shallowest bank, the widest gap in the rail |
+| **the quarry approach** | every tree in the county | the steepest drop, loose rock, five boulders |
+| **the bridge abutment on Wenn Lane** | the width of the gap — 7.5 m against 15.9 | two trees and clean grass |
+
+A site is a *multiplier on the authored profile*, never a rewrite of it, which is what lets the bend
+still be the bend to the last decimal. The quarry is the interesting one: no trees at all, so the
+snatch-block side pull that answers half of Milestone 1 does not exist there — and it is the
+steepest bank in the county.
+
+**Weather is one grip number and one light level**, and both reach the simulation. Wet takes 20% off
+the grip everywhere, and it is the *truck* that gives ground: 63.4 kN dry → 50.7 kN wet. Night
+barely touches grip, because darkness is not slippery; what it takes is sight, and sight is a
+traffic decision. On a truck left across the road, the worst single arrival goes from 4 464 N·s in
+daylight to 14 989 N·s after dark.
+
+**The road uses itself.** Cars drive it, brake for what they can see, queue, cross the centre line
+to get round a stopped wrecker, and creep past anything that will not move. They are real bodies in
+the contact pass. Cones are the mechanic:
+
+| | speed past the site |
+|---|---|
+| bare road | 78 km/h |
+| one cone | 63 km/h |
+| three cones | 40 km/h |
+
+Leave the truck across the carriageway and you are hit eleven times in an afternoon, hard enough to
+dent, and almost nobody gets past. **And the lane you tow home in is now a decision**: down the
+centre line a car meets the load head-on at 15 374 N·s and takes it off the yoke after 17 m; in your
+own lane it arrives with every number unchanged.
+
+**A day ends whether or not you took the work.** Two slots. Taking a job spends one, running out
+ends the day, and whatever was left on the board went to Bett & Sons or Coastline Recovery — by
+name, with the fee, printed on tomorrow's board. The only thing that makes choosing between three
+jobs a choice is that the other two go away. The calendar advances when the *player* does something,
+never on a clock: a wall clock in a meta-layer is a game that plays itself while nobody is looking.
 
 ## What Milestone 4 is
 
@@ -280,8 +330,12 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m4-tests.js
 ```
 
-**769 assertions** across four suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2,
-160 for Milestone 3, 126 for Milestone 4.
+```bash
+.\tools\smoketest.ps1 -Tests tools\m5-tests.js -Quiet
+```
+
+**900 assertions** across five suites in headless Chrome — 265 for Milestone 1, 219 for Milestone 2,
+160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5.
 There is no Node.js on this machine, so the harness *is* a browser: it injects the suite into a copy
 of the page, serves it over http, and greps the dumped DOM.
 
@@ -323,6 +377,13 @@ which six keys a dispatch offer is allowed to touch, so the Milestone 1 promise 
 content. AB is the join — the same seed, the same board, the same job, run twice, landing in the
 same place to nine decimals with a company attached.
 
+[`tools/m5-tests.js`](tools/m5-tests.js) — AC asks whether the four sites are four problems or one
+problem with four names, one measured difference at a time. AD follows the forecast from the roll to
+the tyre. AE is the carriageway: that traffic uses it, that cones slow it, that a truck left across
+it gets hit — and then it re-measures the Milestone 1 and 3 claims **with traffic live**, because
+those suites deliberately bench on an empty road. AF is the day, the rivals, the county map on the
+real screen, and four milestones' worth of prior numbers that must not have moved.
+
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
 measured, and recorded in `Dev\INDEX.md`. A test that waits for a frame count waits forever.
@@ -361,12 +422,16 @@ where more than one person can grab the same thing.
   positions is all one keyboard has room for. Over the wire each machine drives one seat, so three
   and four players work; four on one keyboard does not.
 - **The transport route is one straight road.** GDD §7 asks for a "short" one and this is 60-odd
-  metres of it; junctions, traffic and a regional map are Milestone 5.
+  metres of it, now with traffic on it and a county map beside it — but no junctions, and the drive
+  between sites is not simulated. The map says where a job is and what it pays; the distance is why
+  the fee differs, not something you drive.
 - **One truck, one kind of car.** The fleet is a list with one thing in it and buying a second is
   not implemented; every job is the same sedan on the same bank. Milestone 6 is where the vehicle
   library lives.
-- **The board is three jobs at one site.** GDD §7 Milestone 5 is where a regional map, dynamic
-  dispatch and travel between scenes go; this is the authored selection that comes before it.
+- **Traffic is a lane model, not a driver model.** Cars keep station, brake for what they can see,
+  overtake a stopped obstruction and creep round one that will not move — which is enough to make
+  the road a hazard and the cones worth putting out. They do not indicate, give way, or react to
+  each other beyond the car directly ahead.
 - The save is one browser's localStorage. Clear the site data and the company is gone.
 - A wrecker with a load on is governed to 9 m/s. That is partly realism and partly honesty: a
   two-wheeled trailer on a hitch is dynamically unstable above about ten metres a second no matter

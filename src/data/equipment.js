@@ -40,6 +40,15 @@ export const GEAR = Object.freeze({
     inspect: 'Bottle jack. Lifts a corner, if it has something solid to stand on.',
     effect: 'A lifted chassis stops ploughing: much less ground drag, and much less dug in.',
   },
+  /* A traffic cone. Milestone 5, and the only piece of equipment in the game that does nothing to
+   * the recovery at all — it is entirely about the OTHER road users, which is the point. Cones out
+   * means traffic slows through your work zone; no cones means it does not. */
+  cone: {
+    kind: 'cone', label: 'traffic cone', use: USE.PLACE, target: 'ground',
+    massKg: 2, sizeM: { x: 0.32, y: 0.32 }, tint: '#e2622c',
+    inspect: 'Hi-vis, and the only thing between you and the traffic.',
+    effect: 'Slows passing vehicles through the work zone. Does nothing whatsoever to the casualty.',
+  },
   chock: {
     kind: 'chock', label: 'wheel chock', use: USE.PLACE, target: 'wheel',
     massKg: 3, sizeM: { x: 0.30, y: 0.42 }, tint: '#e0a33c',
@@ -62,9 +71,15 @@ export const GEAR = Object.freeze({
 
 /** The pile as staged beside the truck, in the order the player will meet it.
  *  Two chocks and four cribbing blocks, exactly as the GDD lists. */
+/* What comes off the truck on a job with no company behind it.
+ *
+ * The Milestone 1 ten, plus three cones from Milestone 5 — the cones are appended rather than
+ * swapped in so the m1 assertions about the pile's contents (G1-G4) still describe what they always
+ * described, and so a single-job session has the option of setting a work zone out. */
 export const STARTER_PILE = Object.freeze([
   'strap', 'chain', 'jack', 'chock', 'chock',
   'cribbing', 'cribbing', 'cribbing', 'cribbing', 'snatchBlock',
+  'cone', 'cone', 'cone',
 ]);
 
 /**

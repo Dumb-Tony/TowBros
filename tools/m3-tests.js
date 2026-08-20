@@ -74,9 +74,24 @@ const kN = (n) => (n / 1000).toFixed(1);
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
+/**
+ * A fresh game, on a road with nothing else on it.
+ *
+ * ── WHY THE ROAD IS EMPTY ────────────────────────────────────────────────────────────
+ * Milestone 5 put live traffic on that carriageway, and this section measures a hinge to the
+ * millimetre. Those two do not belong in the same run: a straight tow down the centre line — which
+ * is where this suite poses the truck — met a westbound car head-on at 15 440 N·s and the load came
+ * off the yoke after 16.5 m. That is the RIGHT outcome, and it is asserted where it belongs, in
+ * section AE of the Milestone 5 suite, along with the fact that the same tow in its own lane
+ * delivers the car with the numbers unchanged (3.11 kN peak, 8.8 mm in the cradle, 83.8 m).
+ *
+ * What must not happen is this suite quietly re-measuring "what a passing car did" and calling it
+ * the lift. So: the lift is measured here, traffic is measured there.
+ */
 function newGame(seed = 4242, attempt = 1) {
   const g = new Game({ seed, seedLabel: 'test' });
   g.attempt = attempt - 1;
+  g.job = { traffic: false };
   g.startJob();
   return g;
 }

@@ -238,6 +238,21 @@ export function applyImpactDamage(st, A, B, impulseNs, hit, bus, simTimeMs) {
     }
   }
 
+  /* Was one of them a passing car? That is a different event and a much worse one: the whole point
+   * of the work zone is that this does not happen, so it is reported separately and counted, and
+   * the recap tells the story of it. (Milestone 5.) */
+  const trafficSide = [A, B].find((s) => s && !s.def && /^traffic_/.test(String(s.id)));
+  if (trafficSide && st.traffic) {
+    st.traffic.hits++;
+    const other = trafficSide === A ? B : A;
+    bus.emit(EVENTS.TRAFFIC_HIT, {
+      car: trafficSide.id,
+      what: (other && other.id) || 'something',
+      impulseNs: Math.round(imp),
+      speed: Math.round(Math.abs(trafficSide.body.vx) * 10) / 10,
+    }, simTimeMs);
+  }
+
   bus.emit(EVENTS.IMPACT, {
     a: A && A.id, b: B && B.id, impulseNs: Math.round(imp),
     x: hit.cx, y: hit.cy,

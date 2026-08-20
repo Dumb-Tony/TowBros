@@ -103,6 +103,55 @@ export function yardFrac(x) {
 /* Height of the road above the bottom of the ditch, for reference in the UI. */
 export const DROP_M = 4.57;
 
+/* ── the county: four places a car can end up (Milestone 5) ─────────────────
+ *
+ * GDD §7 Milestone 5: "connect job scenes with a regional map or compact open county".
+ *
+ * ── WHAT MAKES A SITE A DIFFERENT PLACE ──────────────────────────────────────────────
+ * Not scenery. The four below differ in the things that change which APPROACHES work, and each
+ * one takes away or adds something the player was relying on:
+ *
+ *   the bend     the Milestone 1 site, unchanged to the last decimal. Wooded, muddy bottom.
+ *   the ford     shallow, wide gap, standing water at the foot, and ONE tree. A side pull is
+ *                still possible but there is only one place to hang the block.
+ *   the quarry   the steepest drop, loose rock, and NO TREES AT ALL — so the snatch block is
+ *                dead weight and the answer has to come from parking and rigging alone.
+ *   the bridge   a narrow gap in the rail, so the pull line has to thread it, and a hard
+ *                abutment to bring the car past.
+ *
+ * `dropMul` scales the embankment, which scales the downslope force directly: at 1.25 the quarry
+ * pulls ~7.7 kN against the bend's 6.2. Everything else in config.js is untouched, so the tuning
+ * that made the bend work is the tuning that makes all four work.
+ */
+export const SITES = Object.freeze([
+  Object.freeze({
+    id: 'bend', name: 'the bend on Cold Ash Hill',
+    blurb: 'Wooded cut bank, wet grass, and a muddy hollow at the bottom.',
+    dropMul: 1.0, gapMul: 1.0, hazard: 'mud', trees: 'all', boulders: 0,
+    map: { x: 0.35, y: 0.60 }, short: 'Cold Ash Hill',
+  }),
+  Object.freeze({
+    id: 'ford', name: 'the ford at Marle Brook',
+    blurb: 'Shallow bank down to standing water. Only one tree worth rigging to.',
+    dropMul: 0.78, gapMul: 1.45, hazard: 'water', trees: 'one', boulders: 0,
+    map: { x: 0.09, y: 0.22 }, short: 'Marle Brook',
+  }),
+  Object.freeze({
+    id: 'quarry', name: 'the quarry approach',
+    blurb: 'The steepest drop in the county, loose rock, and nothing to hang a block on.',
+    dropMul: 1.28, gapMul: 0.75, hazard: 'scree', trees: 'none', boulders: 5,
+    map: { x: 0.63, y: 0.20 }, short: 'the quarry',
+  }),
+  Object.freeze({
+    id: 'bridge', name: 'the bridge abutment on Wenn Lane',
+    blurb: 'It went through a short section of rail. Threading the line back out is the job.',
+    dropMul: 1.08, gapMul: 0.55, hazard: 'none', trees: 'two', boulders: 2,
+    map: { x: 0.55, y: 0.78 }, short: 'Wenn Lane',
+  }),
+]);
+
+export const siteById = (id) => SITES.find((s) => s.id === id) || SITES[0];
+
 /** Mud depth at which the ground counts as mud. The renderer fades its colour in over the next
  *  few centimetres above this, so the painted edge and the behavioural edge stay together. */
 export const MUD_EDGE_M = 0.04;
@@ -120,6 +169,13 @@ export const SURFACES = Object.freeze({
   shoulder:  { id: 'shoulder',  label: 'gravel',       mu: 0.62, crr: 0.055, soft: 0.35, tint: '#6b6152', tint2: '#7a705e' },
   wetGrass:  { id: 'wetGrass',  label: 'wet grass',    mu: 0.34, crr: 0.090, soft: 0.70, tint: '#52683c', tint2: '#617a45' },
   mud:       { id: 'mud',       label: 'mud',          mu: 0.22, crr: 0.300, soft: 1.00, tint: '#41352a', tint2: '#4d3f30' },
+  /* Milestone 5. A ford or a flooded hollow: better grip than mud and far more drag, because water
+   * does not hold a tyre the way clay does but it takes a great deal more to push a car through.
+   * The two together make it a different problem rather than a worse one. */
+  water:     { id: 'water',     label: 'standing water', mu: 0.30, crr: 0.420, soft: 0.85, tint: '#2c3f4a', tint2: '#35505e' },
+  /* Loose rock on a quarry approach. Grips reasonably and drags like gravel, but the site it
+   * belongs to has no trees on it, which is where the difficulty actually lives. */
+  scree:     { id: 'scree',     label: 'loose rock',   mu: 0.52, crr: 0.130, soft: 0.45, tint: '#5a5650', tint2: '#69645c' },
 });
 
 /* Trees. Solid, and the only anchors a snatch block can be mounted to in Milestone 1.
@@ -167,7 +223,13 @@ const ANCHOR_PLAN = Object.freeze({
 
 /** Base height, before per-attempt features. Depends on y alone plus a road crown.
  *  Kept separate from createTerrain so tests can assert the profile on its own. */
-export function baseHeightAt(x, y) {
+/**
+ * @param {number} dropMul  how deep this site's embankment is, relative to the bend's 4.15 m.
+ *   Milestone 5 gave the county four sites and this is the only thing that varies about the
+ *   PROFILE — which is enough, because the drop scales the downslope force directly. Defaults to 1,
+ *   so every existing caller and every Milestone 1 assertion measures exactly what it always did.
+ */
+export function baseHeightAt(x, y, dropMul = 1) {
   const B = BANDS;
 
   // North cut bank: rises away from the road. Not decoration — it is why the north side
@@ -191,9 +253,9 @@ export function baseHeightAt(x, y) {
   // The embankment. Peak gradient is 1.5x the average by the shape of smoothstep:
   // 4.15 m over 11.4 m averages 0.364, so the steepest part is ~0.546 -> 28.6 degrees.
   const bank = y < B.embankmentS
-    ? -0.42 - 4.15 * smoothstep((y - B.shoulderS) / (B.embankmentS - B.shoulderS))
+    ? -0.42 - 4.15 * dropMul * smoothstep((y - B.shoulderS) / (B.embankmentS - B.shoulderS))
     // The bottom: still falling, gently, so water (and vehicles) collect at the low point.
-    : -4.57 - 0.34 * smoothstep((y - B.embankmentS) / 7.0);
+    : -0.42 - 4.15 * dropMul - 0.34 * smoothstep((y - B.embankmentS) / 7.0);
 
   /* East of the site that whole drop is graded away into the yard apron, blended over 20 m so the
    * ground is continuous everywhere and a vehicle driven along it behaves the way it looks. At the
@@ -213,10 +275,21 @@ export function baseHeightAt(x, y) {
  *
  * @param {import('../core/rng.js').Rng} rng  the world stream
  */
-export function createTerrain(rng) {
-  // The muddy low point. A bowl, so it both grabs and holds: reduced grip, heavy drag,
-  // and a gradient that points inward from every side.
+/**
+ *  {object} site  one of SITES. Defaults to the bend, which is the Milestone 1 scene laid out
+ *   to the last decimal — so every prior assertion still measures exactly what it measured.
+ */
+export function createTerrain(rng, site = SITES[0]) {
+  /* The hazard at the bottom. One bowl, four meanings.
+   *
+   * The same machinery — a smooth bowl with zero gradient at its rim — carries mud at the bend,
+   * standing water at the ford and loose rock at the quarry, and is simply absent at the bridge.
+   * Reusing it rather than writing three hazards is not laziness: the bowl is what makes the low
+   * point a TRAP rather than a stain, and that property is what all three have in common. */
+  const hazardSurface = site.hazard === 'none' ? null : SURFACES[site.hazard];
   const mud = {
+    surface: hazardSurface,
+    kind: site.hazard,
     x: 38.0 + rng.spread(6.0),
     y: 29.8 + rng.spread(1.6),
     rx: 6.6 + rng.range(0, 2.2),
@@ -224,10 +297,18 @@ export function createTerrain(rng) {
     // Deep enough for its own bowl to SHADE. At 0.42 m over a 7 m radius the gradient is 0.12
     // and the hillshade could not see it, so the mud painted as a flat brown stain rather than a
     // hollow. It is also a better trap at this depth, which is what it is for.
-    depth: 0.80 + rng.range(0, 0.30),
+    depth: hazardSurface ? (0.80 + rng.range(0, 0.30)) * (site.hazard === 'water' ? 1.25 : 1) : 0,
   };
 
-  const trees = TREE_PLAN.map((t) => ({
+  /* Trees, and how many of them there are is a DESIGN decision per site rather than decoration.
+   * A snatch block needs something to hang on, so a site with no trees has no side pull — the
+   * quarry's whole difficulty is that the answer has to come from parking and rigging alone.
+   * The useful one (tree_e1, at the foot of the slope east of the car) is kept wherever a site has
+   * any at all, because taking it away as well would make the ford unwinnable rather than harder. */
+  const treeCount = { all: 5, two: 2, one: 1, none: 0 }[site.trees] ?? 5;
+  const treeOrder = ['tree_e1', 'tree_n1', 'tree_s1', 'tree_n2', 'tree_s2'];
+  const keep = new Set(treeOrder.slice(0, treeCount));
+  const trees = TREE_PLAN.filter((t) => keep.has(t.id)).map((t) => ({
     ...t,
     x: t.x + rng.spread(1.7),
     y: t.y + rng.spread(1.0),
@@ -244,7 +325,7 @@ export function createTerrain(rng) {
   // it broke the recovery — with the sedan 1.8 m east of centre, the natural pull line crossed
   // the rail 10 cm outside the gap, and a 0.4 m/s brush with a post ended the job. Anchor the
   // hole to the story and the geometry follows.
-  const gapW = (RAIL.gapX1 - RAIL.gapX0) + rng.spread(1.4);
+  const gapW = ((RAIL.gapX1 - RAIL.gapX0) + rng.spread(1.4)) * (site.gapMul || 1);
   const gapC = sedanX + rng.spread(1.2);
   const rail = { ...RAIL, gapX0: gapC - gapW / 2, gapX1: gapC + gapW / 2 };
 
@@ -261,6 +342,23 @@ export function createTerrain(rng) {
     const a = railPosts[i], b = railPosts[i + 1];
     if (b.x - a.x > rail.postSpacingM * 1.6) continue;   // that is the gap; leave it open
     railSegments.push({ id: `rail_${i}`, ax: a.x, ay: a.y, bx: b.x, by: b.y, bend: 0, broken: false });
+  }
+
+  /* Boulders. Solid, immovable, and NOT anchors — a snatch block needs something to wrap a strap
+   * round and a rock the size of a suitcase is not it. They exist to make the quarry approach and
+   * the bridge abutment obstacle courses rather than open ground, and they are drawn from the same
+   * rng as everything else so a site is reproducible from its seed.
+   *
+   * Kept off the pavement deliberately. A rock in the road would be a different game. */
+  const boulders = [];
+  for (let i = 0; i < (site.boulders || 0); i++) {
+    boulders.push({
+      id: `rock_${i}`,
+      x: 20 + rng.range(0, 60),
+      y: BANDS.shoulderS + 1.5 + rng.range(0, 9),
+      r: 0.55 + rng.range(0, 0.65),
+      angle: rng.range(0, Math.PI),
+    });
   }
 
   const anchors = {
@@ -288,7 +386,7 @@ export function createTerrain(rng) {
 
   /** Height in metres above the road surface. THE function this file exists for. */
   function heightAt(x, y) {
-    return baseHeightAt(x, y) - mudDepthAt(x, y);
+    return baseHeightAt(x, y, site.dropMul) - mudDepthAt(x, y);
   }
 
   /**
@@ -334,7 +432,7 @@ export function createTerrain(rng) {
    *  Mud wins wherever the bowl is deeper than a token 4 cm, so the mud's painted edge and its
    *  behaviour are within a few centimetres of each other. */
   function surfaceAt(x, y) {
-    if (mudDepthAt(x, y) > MUD_EDGE_M) return SURFACES.mud;
+    if (hazardSurface && mudDepthAt(x, y) > MUD_EDGE_M) return hazardSurface;
     return bandSurfaceAt(x, y);
   }
 
@@ -354,7 +452,13 @@ export function createTerrain(rng) {
   }
 
   return {
-    world: WORLD, bands: BANDS, road: ROAD, surfaces: SURFACES,
+    world: WORLD, bands: BANDS, road: ROAD, surfaces: SURFACES, site,
+    boulders,
+    /* Weather, as the single number it is allowed to be. Written by buildScene from the job's
+     * forecast and read by the tire model; 1 is a dry day, which is what every prior milestone
+     * measured and still measures. */
+    gripMul: 1,
+    weather: null,
     mud, trees, rail, railPosts, railSegments, anchors,
     yard: YARD,
     heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, onRoad, clampToWorld, inYard, inBay,

@@ -27,7 +27,7 @@ import { LOAD } from './meta/save.js';
 import {
   loadCompany, saveCompany, settleJob, conditionEffects, activeTruck, loadOutFor,
 } from './meta/company.js';
-import { acceptOffer } from './meta/dispatch.js';
+import { acceptOffer, useSlot } from './meta/dispatch.js';
 import {
   BroadcastChannelPeer, ManualWebRtcPeer, broadcastAvailable, webRtcAvailable,
 } from './net/transports.js';
@@ -112,6 +112,10 @@ function takeJob(offer) {
   currentOffer = offer;
   settled = false;
   acceptOffer(company, offer);
+  // A slot, and the day turns when the last one goes — whatever is still on the board goes to an
+  // outfit down the road. See meta/dispatch.js: the only thing that makes choosing between three
+  // jobs a choice is that the other two go away.
+  useSlot(company, offer);
   saveCompany(company);
   garage.hide();
   hud.el.title.classList.remove('on');

@@ -99,6 +99,44 @@ export const CONFIG = {
   /* ── the crew ───────────────────────────────────────────────────────────── */
   // GDD §7 Milestone 2: "2-4 player networking, player stumble/ragdoll punctuation, shared
   // equipment ... and robust object authority."
+  /* Traffic. GDD §7 Milestone 5: "traffic/work zones".
+   *
+   * A passing car is a rigid body with a velocity, not a vehicle with a tire model — see
+   * world/traffic.js for why. What matters here is the numbers a player feels:
+   *
+   *   1400 kg at 22 m/s is 30 800 kg·m/s of momentum arriving at a 6 800 kg wrecker. It moves it.
+   *   `brakeMps2` at 6.5 is a firm but ordinary stop, so a driver who SEES you stops in about 37 m.
+   *   `sightM` is what the weather takes away: in fog it drops to about half, and a driver who
+   *   commits late is the whole reason a work zone is worth setting out.
+   *
+   * Each cone slows traffic through the zone by `zoneSlowPerCone`, down to `zoneSlowFloor`. Three
+   * cones bring a 22 m/s road to about 9 m/s, which is the difference between an incident and a
+   * near miss. */
+  traffic: {
+    massKg: 1400,
+    lengthM: 4.4, widthM: 1.78,
+    speedMps: 22,           // about 50 mph on a rural two-lane
+    accelMps2: 2.2,
+    brakeMps2: 6.5,
+    sightM: 46,             // in the dry. Scaled by the weather's light level.
+    laneHalfW: 2.1,         // how far off the lane centre something has to be to be "in the way"
+    stopGapM: 6.0,
+    maxCars: 3,
+    gapMinMs: 5200,
+    gapRangeMs: 9000,
+    zoneLeadM: 24,          // a driver starts slowing this far before the first cone
+    zoneSlowPerCone: 0.22,
+    zoneSlowFloor: 0.4,
+    creepAfterMs: 3500,     // stationary this long and a driver starts working their way round
+    creepMps: 2.2,          // at walking pace, which is what people actually do
+    creepPastM: 16,         // once edging, keep edging for this far rather than re-deciding
+    overtakeM: 30,          // start thinking about going round once this close
+    overtakeClearM: 70,     // and only if nothing is coming within this
+    laneSpring: 3.2,        // how hard a car steers back into its lane after being shoved
+    laneDamp: 0.90,
+    tints: ['#9aa6b4', '#7d8a72', '#a88a6a', '#8a7b96', '#6f8496'],
+  },
+
   /* The company. GDD §7 Milestone 4.
    *
    * ── EVERY NUMBER HERE HAS TO REACH THE SIMULATION ─────────────────────────────────
