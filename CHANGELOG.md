@@ -1,5 +1,61 @@
 # Changelog
 
+## Milestone 4 — the company — 2026-08-20
+
+The layer above the job: money, a truck that wears out, an equipment cupboard, a reputation, and a
+board with three jobs on it.
+
+**The rule the whole milestone is built on: every number has to reach the simulation, or it is
+bookkeeping with a user interface.**
+
+| | reaches | measured |
+|---|---|---|
+| truck condition | drive force, brakes | worn out does 3.82 m/s where new does 6.08 |
+| winch condition | what the cable holds | 42 kN → 29 kN |
+| equipment stock | the pile on the ground | own one chock, and there is one chock at the site |
+| reputation | which jobs exist at all | the fleet contract is not offered to an outfit nobody trusts |
+| money | all of the above | and it comes from the payout you earned |
+
+Nothing punishes you, and the penalties are deliberately not total — GDD §4 says no instant fail, so
+a written-off truck still drives at 65% and its cable still holds 29 kN. Neglect makes a job harder
+to do well, never impossible to attempt.
+
+**An offer may change how the car arrived and nothing else.** Six keys: how deep it is in, whether a
+hub has seized, how battered it turned up, how it is lying. A test asserts exactly that list, because
+GDD §4's "no scripted sequence and no mandatory tool" is a Milestone 1 promise and a dispatch board
+does not get to erode it with content.
+
+**The board is seeded from the save, not from a clock.** Same company, same three jobs, until one is
+taken. A board that rerolled on refresh would be a board you refresh until you like it.
+
+**The save file never takes the game down.** Corrupt JSON, a version from the future, a half-written
+object, a browser that refuses to store anything — each returns a playable company and a sentence
+saying what happened. A game that will not start because of its own save file is worse than a game
+with no save file.
+
+### Two bugs the tests found
+
+**The board advertised £1890 and paid £1320.** `computePayout` read `CONFIG.job.baseFee` straight out
+of config and never saw the offer's multiplier, so every job that paid more paid the standard fee
+instead. The board's number and the results card's number are the same promise.
+
+**The payout was charging the operator for the crash.** A car arrives with a damage state (GDD §4),
+and docking somebody for the dents it turned up with is not a consequence of any decision they made.
+The arriving damage is baselined now and only the difference comes off the fee — the same job went
+from £1810 to the £1890 it advertised.
+
+### Numbers
+
+| | |
+|---|---|
+| M1 suite | **264 / 264** |
+| M2 suite | **219 / 219** |
+| M3 suite | **160 / 160** |
+| M4 suite | **126 / 126** |
+| a new outfit | £900, reputation 20, one truck, the starter pile |
+| a written-off truck | drive 65%, brakes 70%, cable 29 kN |
+
+
 ## Milestone 3 — a complete job — 2026-08-20
 
 Getting the car out of the ditch turned out to be the middle of the job. GDD §7 asks for "a flatbed

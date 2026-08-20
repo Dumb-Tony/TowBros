@@ -78,6 +78,9 @@ export class Game {
     /** How many crew the scene builds. Settable because a networked session's HOST decides it and
      *  both peers must agree — a different crew size is a different world on step one. */
     this.crewCount = CONFIG.crew.count;
+    /** The dispatch offer this attempt is running, with the company's loadout and truck condition
+     *  folded in. Null for a plain job — see world/scene.js buildScene. */
+    this.job = null;
     this.state = this._newState();
     this._syncClockToMode();
   }
@@ -85,7 +88,7 @@ export class Game {
   static seedFromLabel(label) { return hashStr(label); }
 
   _newState() {
-    const st = buildScene(this.rng.world, this.crewCount);
+    const st = buildScene(this.rng.world, this.crewCount, this.job);
     st.version = 1;
     st.seed = this.seed;
     st.seedLabel = this.seedLabel;

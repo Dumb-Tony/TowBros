@@ -74,9 +74,16 @@ export const STARTER_PILE = Object.freeze([
  * @param {{x:number,y:number}} at        the staging anchor
  * @param {import('../core/rng.js').Rng} rng
  */
-export function createGearPile(at, rng) {
+/**
+ * @param {string[]|null} loadout  what is actually in the truck. Milestone 4 gave the player a
+ *   company with an equipment cupboard, so the pile on the ground is what they OWN rather than a
+ *   fixed list — run out of straps and you rig it bare. Null means the starter pile, which is what
+ *   every test and every single-job session gets.
+ */
+export function createGearPile(at, rng, loadout = null) {
   const items = [];
-  STARTER_PILE.forEach((kind, i) => {
+  const pile = loadout && loadout.length ? loadout : STARTER_PILE;
+  pile.forEach((kind, i) => {
     // Two rough rows, jittered, so the pile looks dumped rather than shelved.
     const col = i % 5, row = Math.floor(i / 5);
     items.push({

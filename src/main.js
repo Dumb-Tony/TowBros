@@ -21,6 +21,13 @@ import { WINCH } from './recovery/cable.js';
 import { seatOf } from './player/player.js';
 import { CommandLink, LoopbackTransport } from './net/commands.js';
 import { NetSession, NET } from './net/session.js';
+import { EVENTS } from './core/eventBus.js';
+import { Garage } from './ui/garage.js';
+import { LOAD } from './meta/save.js';
+import {
+  loadCompany, saveCompany, settleJob, conditionEffects, activeTruck, loadOutFor,
+} from './meta/company.js';
+import { acceptOffer } from './meta/dispatch.js';
 import {
   BroadcastChannelPeer, ManualWebRtcPeer, broadcastAvailable, webRtcAvailable,
 } from './net/transports.js';
@@ -74,13 +81,88 @@ window.addEventListener('pointerdown', wake, { once: true });
 for (const i of inputs) i.onBlur = () => game.pauseForBlur();
 document.addEventListener('visibilitychange', () => { if (document.hidden) game.pauseForBlur(); });
 
-function startJob() {
-  game.startJob();
+/* ── the company (Milestone 4) ───────────────────────────────────────────────
+ *
+ * The garage is the shell now: the title card leads to the yard, the yard hands out a job, the job
+ * settles back into the company, and the money it paid is in the bank before the results card is
+ * dismissed. Nothing about the simulation knows any of this exists — the company picks a seed and a
+ * loadout and hands them over, and from that point the fixed step is on its own.
+ */
+const loaded = loadCompany();
+let company = loaded.company;
+let currentOffer = null;
+let settled = false;
+
+const garage = new Garage(uiRoot, company, takeJob);
+garage.onChange = (c) => saveCompany(c);
+if (loaded.status !== LOAD.LOADED && loaded.status !== LOAD.FRESH) {
+  garage.note = `Save: ${loaded.note}.`;
+}
+
+/** Build the job packet the scene reads: the offer's modifiers plus what this outfit turned up in. */
+function jobPacketFor(offer) {
+  return {
+    ...offer,
+    loadout: loadOutFor(company),
+    effects: conditionEffects(activeTruck(company)),
+  };
+}
+
+function takeJob(offer) {
+  currentOffer = offer;
+  settled = false;
+  acceptOffer(company, offer);
+  saveCompany(company);
+  garage.hide();
+  hud.el.title.classList.remove('on');
+  game.job = jobPacketFor(offer);
+  // reroll:false with an explicit seed: the offer's seed IS the job, and taking the same offer
+  // twice would be the same site — which is why the board moves on when you accept one.
+  game.startJob({ reroll: false, seed: offer.seed, seedLabel: offer.type, attempt: 1 });
   const p = game.state.player;
   camera.follow(p.x, p.y, 0);
 }
-hud.onStart = startJob;
-hud.onReset = startJob;
+
+/** Replay the job you are on. Costs nothing and settles nothing — GDD §4: reset is always there. */
+function restartJob() {
+  settled = false;
+  game.job = currentOffer ? jobPacketFor(currentOffer) : null;
+  game.startJob(currentOffer
+    ? { reroll: false, seed: currentOffer.seed, seedLabel: currentOffer.type, attempt: 1 }
+    : {});
+  const p = game.state.player;
+  camera.follow(p.x, p.y, 0);
+}
+
+/* Settling up. Fires once, when the job reaches DELIVERED — and once only, which is what `settled`
+ * is for: the phase stays DELIVERED afterwards, so a check on the phase alone would bank the fee
+ * every frame for the rest of the session. */
+game.bus.on(EVENTS.JOB_DELIVERED, () => {
+  if (settled) return;
+  settled = true;
+  const recap = game.recap();
+  const st = game.state;
+  const result = settleJob(company, recap, {
+    impactsNs: st.fx.peakImpulse || 0,
+    peakTensionN: st.winch.peakTensionN || 0,
+    cableSnaps: game.bus.count(EVENTS.CABLE_SNAPPED),
+    // Gear destroyed rather than merely left lying about: what was strapped to a load that came off.
+    gearLost: [],
+  });
+  saveCompany(company);
+  hud.settlement = result;
+  garage.refresh();
+});
+
+function toYard() {
+  hud.el.title.classList.remove('on');
+  hud.el.done.classList.remove('on');
+  garage.show();
+}
+
+hud.onStart = toYard;
+hud.onReset = restartJob;
+hud.onYard = toYard;
 
 /* Co-op. main.js owns the transports because it is the only place mutable globals are allowed;
  * the HUD collects the intent and a blob of text and knows nothing else about it.
@@ -157,14 +239,20 @@ function startSession(p, { host }) {
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     e.preventDefault();
-    if (game.state.mode === MODES.TITLE) startJob();
+    if (garage.visible) { garage.hide(); hud.el.title.classList.add('on'); }
+    else if (game.state.mode === MODES.TITLE) toYard();
     else game.togglePause();
   }
   // Reset is always available (GDD §4) but takes two taps, because losing a rig you spent two
   // minutes building to a mistyped key would be its own kind of consequence.
-  if (e.code === 'KeyR' && game.state.mode !== MODES.TITLE) {
+  if (e.code === 'KeyR' && game.state.mode !== MODES.TITLE && !garage.visible) {
     e.preventDefault();
-    if (hud.armReset()) startJob();
+    if (hud.armReset()) restartJob();
+  }
+  // G is the yard. Available whenever a job is not the thing you are looking at.
+  if (e.code === 'KeyG' && !garage.visible && game.state.mode !== MODES.TITLE) {
+    e.preventDefault();
+    toYard();
   }
   if (e.code === 'Equal') { e.preventDefault(); camera.zoomBy(1 / 1.18); }
   if (e.code === 'Minus') { e.preventDefault(); camera.zoomBy(1.18); }
@@ -229,6 +317,8 @@ window.addEventListener('mousemove', (e) => {
  * Different: the smoke-test harness drives the real objects through this rather than reaching
  * into module scope. */
 window.__TB = {
-  game, camera, renderer, hud, debug, input, inputs, link, audio, CONFIG, startJob,
+  game, camera, renderer, hud, debug, input, inputs, link, audio, CONFIG,
+  garage, toYard, restartJob, takeJob,
+  get company() { return company; },
   get session() { return session; },
 };

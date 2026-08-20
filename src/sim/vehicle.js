@@ -72,6 +72,11 @@ export function createVehicle(def, spawn, opts = {}) {
     groundLoadMul: 1,            // fraction of its own weight still on its own wheels
     extraLoadKg: 0,              // somebody else's weight, sitting on this one
 
+    /* The company's condition, carried into the physics. 1 is a new machine, which is what every
+     * game without a company behind it gets — Milestones 1-3 behave exactly as they did. */
+    driveMul: 1,
+    brakeMul: 1,
+
     // multipliers written by src/recovery/gear.js every step, read here and by the tires
     gripMul: 1,
     dragMul: 1,
@@ -89,6 +94,11 @@ export function createVehicle(def, spawn, opts = {}) {
       parts: {},                 // partId -> 'bent' | 'lost' | 'dented'
       dents: 0,
       worstImpactNs: 0,
+      /* What it was ALREADY like when you got there. GDD §4: "the sedan arrives with a damage
+       * state" — and Milestone 4 started charging the operator for it. A payout that docks you for
+       * dents the customer's car already had is not a consequence of anything you did, so the
+       * baseline is recorded here and computePayout deducts only the difference. */
+      arrived: { dents: 0, parts: {} },
     },
 
     rolled: false,

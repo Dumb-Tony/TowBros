@@ -190,3 +190,58 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .pay-row.total{margin-top:7px;padding-top:8px;border-top:1px solid rgba(242,234,217,.14);
   font-size:14px}
 .pay-row.total b{color:#8fd6a2}
+
+/* ── the yard (Milestone 4) ────────────────────────────────────────────────
+   A screen, not a room. Facts and prices; no advice. */
+.screen-garage{display:none;overflow-y:auto;align-items:flex-start;padding:26px 16px}
+.screen-garage.on{display:flex}
+.garage-card{max-width:560px;width:100%;text-align:left}
+.garage-card h1{text-align:center;margin-bottom:16px}
+.garage-card h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#6a6684;
+  margin:0 0 9px}
+.gar-top{display:flex;gap:10px;margin-bottom:16px}
+.gar-stat{flex:1;background:rgba(10,12,18,.6);border:1px solid rgba(242,234,217,.10);
+  border-radius:9px;padding:9px 11px}
+.gar-stat span{display:block;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:#6a6684;margin-bottom:3px}
+.gar-stat b{font-size:19px;color:var(--paper)}
+.gar-panel{margin-bottom:16px;padding-top:13px;border-top:1px solid rgba(242,234,217,.10)}
+.gar-row{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--paper);
+  padding:5px 0}
+.gar-row>span:first-child{width:44px;opacity:.72}
+.gar-row em{flex:1;font-style:normal;font-size:11.5px;color:#8b93a4}
+.cond{display:inline-block;width:74px;height:7px;border-radius:4px;
+  background:rgba(242,234,217,.12);overflow:hidden}
+.cond i{display:block;height:100%}
+.cond i.ok{background:#6fae7f}
+.cond i.warn{background:#d8b13c}
+.cond i.bad{background:#c8503c}
+.gar-row>b{width:40px;text-align:right;font-size:12px}
+.screen-garage button{font:inherit;font-size:11.5px;padding:5px 10px;border-radius:6px;
+  cursor:pointer;background:rgba(30,34,44,.9);color:var(--paper);
+  border:1px solid rgba(242,234,217,.18);white-space:nowrap}
+.screen-garage button:hover:not(:disabled){background:rgba(44,50,64,.95)}
+.screen-garage button:disabled{opacity:.35;cursor:default}
+.screen-garage button.primary{background:#3c6b4a;border-color:#54946a}
+.gar-gear{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.gear-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--paper);
+  background:rgba(10,12,18,.5);border-radius:7px;padding:5px 8px}
+.gear-item span{flex:1;opacity:.78}
+.gear-item.none span{opacity:.4}
+.gear-item b{width:18px;text-align:right}
+.offer{background:rgba(10,12,18,.55);border:1px solid rgba(242,234,217,.12);border-radius:9px;
+  padding:11px 12px;margin-bottom:8px}
+.offer.locked{opacity:.5}
+.offer-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.offer-head b{font-size:14px;color:var(--paper)}
+.offer-head span{font-size:14px;color:#8fd6a2}
+.offer p{font-size:12px;color:#8b93a4;margin:5px 0 0;line-height:1.5}
+.offer-lock{color:#d8b13c!important}
+.offer-foot{display:flex;justify-content:space-between;align-items:center;margin-top:9px}
+.offer-foot em{font-style:normal;font-size:11.5px;color:#6a6684}
+.ledger{font-size:12px}
+.led-row{display:flex;gap:10px;align-items:baseline;padding:3px 0;color:var(--paper)}
+.led-row span{width:30px;opacity:.5}
+.led-row em{flex:1;font-style:normal;opacity:.78}
+.led-row b{color:#8fd6a2}
+.gar-note{font-size:12px;color:#d8b13c;text-align:center;margin:12px 0 0}

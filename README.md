@@ -3,15 +3,18 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 3 — a complete job — is playable.** Winch the car out of the ditch, pick it up on the
-wheel lift, strap it down, drive it to the yard, and reverse it into the bay. Two to four people,
-over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero
-external requests — including the multiplayer.
+**Milestone 4 — the company — is playable.** Take a job off the board, winch the car out of the
+ditch, pick it up on the wheel lift, strap it down, drive it to the yard, reverse it into the bay,
+and get paid what the damage left of the fee. Then fix the truck. Two to four people, over a network
+if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero external requests —
+including the multiplayer and the save file.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
 
 ![the sedan on the wheel lift, strapped down, backing into the yard bay](docs/m3-yard.png)
+
+![the yard: money, a worn truck, the equipment cupboard, and three jobs on the board](docs/m4-yard-screen.png)
 
 ## Play it
 
@@ -22,11 +25,15 @@ it, not the other way round.
 That serves the game over http and opens a tab. **It cannot be opened from disk** — ES modules
 are blocked on `file://`, and the page will tell you so if you try.
 
+The title card leads to **the yard**, which is where the company lives: what is in the bank, what
+state the truck is in, what is in the equipment cupboard, and three jobs on the board. Take one and
+it starts. `G` gets you back there from a job; the company saves itself as you go.
+
 Three ways to bring somebody, all on the title screen and none of them involving a server:
 
 | | |
 |---|---|
-| **one keyboard** | just start the job. Two hand positions, mirrored, no shared keys — the table below |
+| **one keyboard** | just take a job. Two hand positions, mirrored, no shared keys — the table below |
 | **two tabs** | press "open a second tab", then open the page again and press it there too |
 | **two machines** | one presses "host over the network" and sends the blob; the other presses "join somebody" and pastes it, then sends the reply back. Same LAN |
 
@@ -42,12 +49,52 @@ Two people, one keyboard. Mirrored hand positions, no shared keys.
 | parking brake | `space` | `\` |
 | winch in / out | `I` `O` | `]` `[` |
 
-`-` `=` zoom · `R` `R` reset · `Esc` pause · `F3` developer overlay. Those are shared, because
-they are about the screen rather than about a person.
+`-` `=` zoom · `R` `R` restart the job · `G` the yard · `Esc` pause · `F3` developer overlay. Those
+are shared, because they are about the screen rather than about a person.
 
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 4 is
+
+The layer above the job. GDD §7: "persistent garage lobby, a small fleet, equipment storage,
+repairs, money, organization reputation, and authored dispatch selection."
+
+**The rule the whole milestone is built on: every number has to reach the simulation, or it is
+bookkeeping with a user interface.** So:
+
+| | reaches | measured |
+|---|---|---|
+| **truck condition** | drive force, brakes | a worn-out truck does 3.82 m/s where a new one does 6.08 |
+| **winch condition** | what the cable holds | 42 kN → 29 kN |
+| **equipment stock** | the pile on the ground | own one chock and there is one chock at the site, and no strap anywhere |
+| **reputation** | which jobs exist | the fleet contract is not offered to an outfit nobody trusts |
+| **money** | all of the above | and it comes from the payout you earned |
+
+That loop is the milestone: a job you did badly costs money, which buys fewer repairs and less gear,
+which makes the next job harder. Nothing punishes you. The consequences are all the same kind of
+consequence the physics already produces — and the penalties are deliberately not total, because
+GDD §4 says no instant fail. A written-off truck still drives at 65% and its cable still holds 29 kN.
+
+**The board is seeded from the save, not from a clock.** The same company sees the same three jobs
+until it takes one — a board that rerolled on refresh would be a board you refresh until you like
+it. Taking a job moves the cursor on, so you cannot re-roll it either.
+
+**An offer may change how the car arrived and nothing else.** Its modifier surface is six keys —
+how deep it is in, whether a hub has seized, how battered it turned up, how it is lying — and a test
+asserts exactly that list. GDD §4's "no scripted sequence and no mandatory tool" is a Milestone 1
+promise, and a dispatch board does not get to take it back: every approach that worked on the first
+job works on all of them.
+
+**The save file never takes the game down.** Corrupt JSON, a version from the future, a
+half-written object, a private-browsing window that refuses to store anything — each returns a
+playable company and a sentence saying what happened. A game that will not start because of its own
+save file is worse than a game with no save file.
+
+**And the payout only charges you for what you did.** A car arrives with a damage state (GDD §4);
+docking the operator for the crash they were called out to is not a consequence of any decision they
+made. The arriving damage is baselined and only the difference comes off the fee.
 
 ## What Milestone 3 is
 
@@ -204,6 +251,8 @@ src/
   player/player.js   the crew: walking, driving, and the context-key priority chain
   crew/authority.js  who owns the hook, the gear and the seats — and nothing else does
   net/               the command frame, the lockstep scheduler, and two serverless transports
+  meta/              the save file, the company, and the dispatch board
+  ui/garage.js       the yard: money, condition, the cupboard, and the board
   recovery/lift.js   the wheel lift: a hitch constraint, and two ways to lose a load
   render/            camera, canvas renderer, synthesised audio
   ui/hud.js          tension gauge, context prompt, job log, inspect card
@@ -227,8 +276,12 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m3-tests.js
 ```
 
-**641 assertions** across three suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2,
-158 for Milestone 3.
+```bash
+.\tools\smoketest.ps1 -Tests tools\m4-tests.js
+```
+
+**769 assertions** across four suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2,
+160 for Milestone 3, 126 for Milestone 4.
 There is no Node.js on this machine, so the harness *is* a browser: it injects the suite into a copy
 of the page, serves it over http, and greps the dumped DOM.
 
@@ -262,6 +315,13 @@ its load-bearing measurement is the securement table above. W is the job's phase
 arithmetic. X re-measures the Milestone 1 recovery from scratch — 38 s at 10.7 kN, unchanged —
 because a wider world, a new constraint and a different tire-load accounting are all things that
 could have quietly retuned it.
+
+[`tools/m4-tests.js`](tools/m4-tests.js) — section Y throws four kinds of broken save at the loader
+and checks each one still yields a playable company. Z is the economy, and Z10-Z15 are the ones that
+matter: a worn truck is worse in three measurable ways and is still not a brick. AA asserts exactly
+which six keys a dispatch offer is allowed to touch, so the Milestone 1 promise cannot be eroded by
+content. AB is the join — the same seed, the same board, the same job, run twice, landing in the
+same place to nine decimals with a company attached.
 
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
@@ -302,8 +362,12 @@ where more than one person can grab the same thing.
   and four players work; four on one keyboard does not.
 - **The transport route is one straight road.** GDD §7 asks for a "short" one and this is 60-odd
   metres of it; junctions, traffic and a regional map are Milestone 5.
-- **One job, one seed, one car.** No dispatch, no garage, no fleet, no persistent money — the
-  payout is computed and shown and then the attempt ends. Milestone 4.
+- **One truck, one kind of car.** The fleet is a list with one thing in it and buying a second is
+  not implemented; every job is the same sedan on the same bank. Milestone 6 is where the vehicle
+  library lives.
+- **The board is three jobs at one site.** GDD §7 Milestone 5 is where a regional map, dynamic
+  dispatch and travel between scenes go; this is the authored selection that comes before it.
+- The save is one browser's localStorage. Clear the site data and the company is gone.
 - A wrecker with a load on is governed to 9 m/s. That is partly realism and partly honesty: a
   two-wheeled trailer on a hitch is dynamically unstable above about ten metres a second no matter
   how well the constraint is damped, and a governor is a better answer than pretending otherwise.

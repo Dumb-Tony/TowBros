@@ -150,9 +150,10 @@ export function applyWheelForces(veh, terrain, dtSec) {
      * pretending the physics holds. */
     if (w.drive && veh.throttle !== 0) {
       const thr = veh.throttle * (veh.throttle > 0 ? govMul : 1);
+      // driveMul is the company's truck condition (meta/company.js), 1 for a game without one.
       long += thr > 0
-        ? thr * (CONFIG.truck.driveForceN / nDriven)
-        : thr * (CONFIG.truck.reverseForceN / nDriven);
+        ? thr * (CONFIG.truck.driveForceN * veh.driveMul / nDriven)
+        : thr * (CONFIG.truck.reverseForceN * veh.driveMul / nDriven);
     }
 
     // How much this wheel is willing to resist rolling. A missing wheel is not a wheel: the
@@ -164,7 +165,7 @@ export function applyWheelForces(veh, terrain, dtSec) {
       const rolling = surf.crr * N * ws.dragMul * veh.dragMul;
       const locked = ws.locked || (w.park && veh.parkBrake) || veh.brakeInput > 0;
       const brake = veh.brakeInput > 0
-        ? veh.brakeInput * (veh.def.driven ? CONFIG.truck.brakeForceN : CONFIG.sedan.brakeForceN) / n
+        ? veh.brakeInput * (veh.def.driven ? CONFIG.truck.brakeForceN * veh.brakeMul : CONFIG.sedan.brakeForceN) / n
         : (veh.def.driven ? CONFIG.truck.parkBrakeForceN : CONFIG.sedan.brakeForceN) / n;
       resistAvail = locked ? Math.max(rolling, brake) : rolling;
     }

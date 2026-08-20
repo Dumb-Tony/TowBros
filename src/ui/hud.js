@@ -99,6 +99,9 @@ export class Hud {
     this.input = input;
     this.onStart = null;
     this.onReset = null;
+    this.onYard = null;
+    /** What the company made of the job, set by main.js when it settles. Shown on the card. */
+    this.settlement = null;
     this.onToggleAudio = null;
     this.logLines = [];
     this._resetArmedMs = 0;
@@ -156,6 +159,10 @@ export class Hud {
     root.querySelector('.btn-keep').addEventListener('click', () => {
       this.el.done.classList.remove('on');
       this._dismissedDone = true;
+    });
+    root.querySelector('.btn-yard').addEventListener('click', () => {
+      this._dismissedDone = true;
+      if (this.onYard) this.onYard();
     });
 
     /* Co-op setup. The HUD does not know what a peer is — it collects the three intents
@@ -458,6 +465,18 @@ export class Hud {
               + `<b>&pound;${pay.paid}</b></div>`);
       bits.push('</div>');
     }
+
+    /* What the company made of it. Wear and reputation are consequences of the same decisions the
+     * deductions above already named, so they go under the same rule: state them, do not advise. */
+    const s2 = this.settlement;
+    if (s2) {
+      bits.push('<div class="payout settle">');
+      if (s2.bodyWear > 0.005) bits.push(`<div class="pay-row minus"><span>wear on the truck</span><b>-${Math.round(s2.bodyWear * 100)}%</b></div>`);
+      if (s2.winchWear > 0.005) bits.push(`<div class="pay-row minus"><span>wear on the winch</span><b>-${Math.round(s2.winchWear * 100)}%</b></div>`);
+      if (s2.repairDue > 0) bits.push(`<div class="pay-row"><span>repairs waiting</span><b>&pound;${s2.repairDue}</b></div>`);
+      bits.push(`<div class="pay-row"><span>reputation</span><b>${s2.reputation}</b></div>`);
+      bits.push('</div>');
+    }
     this.el.doneBody.innerHTML = bits.join('');
   }
 
@@ -524,7 +543,7 @@ const TEMPLATE = `
       <kbd>-</kbd>/<kbd>=</kbd> zoom · <kbd>R</kbd> <kbd>R</kbd> reset · <kbd>Esc</kbd> pause · <kbd>F3</kbd> the numbers<br>
       One hook, one jack, one snatch block, two seats. Whoever gets there first gets it.
     </p>
-    <button class="btn-start primary">start the job</button>
+    <button class="btn-start primary">to the yard</button>
 
     <div class="coop">
       <div class="coop-head">or bring somebody</div>
@@ -562,9 +581,10 @@ const TEMPLATE = `
 
 <div class="screen screen-done">
   <div class="card wide">
-    <h2>on the road</h2>
+    <h2>delivered</h2>
     <div class="done-body"></div>
-    <button class="btn-keep primary">carry on</button>
+    <button class="btn-yard primary">back to the yard</button>
+    <button class="btn-keep">stay here</button>
     <button class="btn-reset">another go</button>
   </div>
 </div>

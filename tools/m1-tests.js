@@ -1390,8 +1390,10 @@ lines.push('--- I. project hygiene ---');
     'core/clock.js', 'core/eventBus.js', 'core/input.js', 'core/rng.js', 'core/vec.js',
     'data/terrain.js', 'data/vehicles.js', 'data/equipment.js',
     'sim/body.js', 'sim/tires.js', 'sim/vehicle.js', 'sim/collision.js',
-    'recovery/cable.js', 'recovery/attach.js', 'recovery/gear.js',
-    'world/scene.js', 'player/player.js',
+    'recovery/cable.js', 'recovery/attach.js', 'recovery/gear.js', 'recovery/lift.js',
+    'world/scene.js', 'player/player.js', 'crew/authority.js',
+    'net/commands.js', 'net/session.js', 'net/transports.js',
+    'meta/save.js', 'meta/company.js', 'meta/dispatch.js',
     'render/camera.js', 'render/renderer.js', 'render/audio.js',
     'ui/hud.js', 'dev/debugOverlay.js',
   ];
@@ -1407,9 +1409,10 @@ lines.push('--- I. project hygiene ---');
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/(^|[^:])\/\/.*$/gm, '$1');
       if (/Math\.random\s*\(/.test(src)) randoms.push(f);
-      // Simulation must not read wall-clock time; presentation may, so main/render/ui/dev are
-      // exempt, and clock.js is the one module whose whole job is to be handed real time.
-      if (!/^(main|render\/|ui\/|dev\/|core\/clock)/.test(f)
+      // Simulation must not read wall-clock time; presentation and the save file may, so main,
+      // render, ui, dev and meta/save are exempt, and clock.js is the one module whose whole
+      // job is to be handed real time.
+      if (!/^(main|render\/|ui\/|dev\/|meta\/save|core\/clock)/.test(f)
           && /(Date\.now|performance\.now)\s*\(/.test(src)) dates.push(f);
     } catch (e) { missing.push(f); }
   }

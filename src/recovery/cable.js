@@ -37,8 +37,17 @@ export const WINCH = Object.freeze({
   ATTACHED: 'attached',  // rigged to a zone on a vehicle
 });
 
-export function createWinch() {
+/**
+ * @param {number} strengthMul  what the outfit's cable is worth after however many jobs it has had.
+ *   Milestone 4: a neglected drum is a weaker drum, and this is the one number that carries the
+ *   company's winch condition into the physics. 1 is a new rope.
+ */
+export function createWinch(strengthMul = 1) {
   return {
+    strengthMul,
+    /** Worst tension this drum has seen this job. The company reads it as wear — a winch that
+     *  spent the afternoon at 30 kN needs a service sooner than one that never left 12. */
+    peakTensionN: 0,
     state: WINCH.STOWED,
     lineM: CONFIG.winch.minLineM,   // paid out; this is the spring's rest length
     motor: 0,                       // -1 paying out, 0 stopped, +1 reeling in
@@ -252,7 +261,8 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
   const applied = T * advantage;
 
   w.tensionN = T;
-  w.tensionFrac = clamp01(T / W.cableBreakN);
+  if (T > w.peakTensionN) w.peakTensionN = T;
+  w.tensionFrac = clamp01(T / (W.cableBreakN * w.strengthMul));
   // How violently the load is arriving. A chain multiplies this through to the attachment;
   // a strap absorbs it. See CONFIG.rigging.shockMul.
   const dT = (T - w.tensionPrevN) / dtSec;
@@ -285,7 +295,10 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
 export function stepCableBreak(st, bus, simTimeMs) {
   const w = st.winch;
   if (w.state !== WINCH.ATTACHED) return false;
-  if (w.tensionN <= CONFIG.winch.cableBreakN) return false;
+  // What THIS drum's rope is worth, not what a new one is worth. Milestone 4's winch condition
+  // arrives here and nowhere else, so a game with no company behind it uses strengthMul 1 and this
+  // is the line it always was.
+  if (w.tensionN <= CONFIG.winch.cableBreakN * w.strengthMul) return false;
   snapCable(st, w.tensionN, bus, simTimeMs);
   return true;
 }

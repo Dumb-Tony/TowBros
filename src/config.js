@@ -99,6 +99,47 @@ export const CONFIG = {
   /* ── the crew ───────────────────────────────────────────────────────────── */
   // GDD §7 Milestone 2: "2-4 player networking, player stumble/ragdoll punctuation, shared
   // equipment ... and robust object authority."
+  /* The company. GDD §7 Milestone 4.
+   *
+   * ── EVERY NUMBER HERE HAS TO REACH THE SIMULATION ─────────────────────────────────
+   * Otherwise it is bookkeeping with a user interface. Condition scales real forces, stock decides
+   * what gear is on site, reputation decides which jobs exist. The wear references below are the
+   * interesting ones: `bodyWearRefNs` is "the impulse that would write off a truck in one job", so
+   * an ordinary knock costs a percent or two and reversing into the guardrail costs real money.
+   *
+   * The penalties are deliberately mild and deliberately not total. GDD §4 says no instant fail; a
+   * neglected wrecker should make a job harder to do well, never impossible to attempt. At zero
+   * condition the truck still drives at 65% and the cable still holds 30 kN. */
+  company: {
+    startingMoney: 900,
+    startingReputation: 20,
+    ledgerSize: 12,
+    offerCount: 3,
+
+    bodyDrivePenalty: 0.35,     // fraction of drive force lost at zero condition
+    bodyBrakePenalty: 0.30,
+    winchStrengthPenalty: 0.30, // fraction of cable strength lost at zero winch condition
+
+    bodyWearRefNs: 260000,      // impulse absorbed that would write the body off in one job
+    winchWearRefN: 900000,      // peak tension x this many jobs before the drum needs a service
+    winchWearPerSnap: 0.22,     // a parted cable is most of a winch service on its own
+
+    bodyRepairFull: 1200,       // to put a written-off body back to new
+    winchRepairFull: 900,
+
+    repClean: 6,                // delivered without a mark on it
+    repDelivered: 3,
+    repAbandoned: -4,           // took the job, did not deliver
+    repPerPartLost: 2,
+    repPerDrop: 5,              // dropping a customer's car in the road is the worst thing here
+    repPerSnap: 1,
+
+    gearPrices: {
+      strap: 70, chain: 120, chock: 45, cribbing: 30, jack: 260, snatchBlock: 340,
+      default: 90,
+    },
+  },
+
   /* What the job pays. GDD §7 Milestone 3: "damage-based payout".
    *
    * A payout, not a grade — see computePayout in world/scene.js. The numbers are chosen so that

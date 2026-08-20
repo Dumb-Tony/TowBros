@@ -28,8 +28,16 @@ import { createCrewMember } from '../player/player.js';
  *
  * @param {import('../core/rng.js').Rng} rng  the world stream
  */
-export function buildScene(rng, crewCount = CONFIG.crew.count) {
+/**
+ *  {object|null} job  the dispatch offer's modifiers and loadout, or null for a plain job.
+ *   Milestone 4 lets a job vary how deep the car is in, how much of it is already broken and what
+ *   gear the outfit turned up with — and NOTHING ELSE. GDD §4's "no scripted sequence and no
+ *   mandatory tool" is a Milestone 1 promise, and a dispatch board does not get to take it back:
+ *   every approach that worked on the first job works on all of them.
+ */
+export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   const terrain = createTerrain(rng);
+  const mods = (job && job.mods) || {};
 
   // Which of the sedan's wheels are SEIZED — jammed hubs, not braked ones.
   //
@@ -41,12 +49,32 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
   //
   // A jammed front wheel is the genuinely stuck case, and it survives releasing the brake.
   const locked = [];
-  if (rng.chance(0.45)) locked.push(rng.chance(0.5) ? 'wheelFL' : 'wheelFR');
+  if (rng.chance(mods.seizedChance === undefined ? 0.45 : mods.seizedChance)) {
+    locked.push(rng.chance(0.5) ? 'wheelFL' : 'wheelFR');
+  }
 
-  const boggedN = CONFIG.sedan.boggedBaseN + rng.spread(CONFIG.sedan.boggedRangeN);
+  const boggedN = (CONFIG.sedan.boggedBaseN + rng.spread(CONFIG.sedan.boggedRangeN))
+    * (mods.boggedMul || 1);
 
-  const sedan = createVehicle(SEDAN_DEF, terrain.anchors.sedan, { boggedN, lockedWheels: locked });
+  /* How it is lying. The single biggest source of variety between jobs, so a dispatch offer is
+   * allowed to widen it — an "awkward lie" is a car across the slope, where the straight pull is
+   * not the answer. Drawn from the SAME rng, so the whole scene stays reproducible from its seed. */
+  const lieAnchor = { ...terrain.anchors.sedan };
+  const extraSpread = Math.max(0, (mods.lieSpread || 1) - 1) * 0.30;
+  if (extraSpread > 0) lieAnchor.angle += rng.spread(extraSpread);
+  if (mods.lieBias) lieAnchor.angle += mods.lieBias;
+
+  const sedan = createVehicle(SEDAN_DEF, lieAnchor, { boggedN, lockedWheels: locked });
   const truck = createVehicle(TRUCK_DEF, terrain.anchors.truck, {});
+
+  /* What the outfit's own truck is like. Milestone 4: a neglected wrecker is a worse wrecker, and
+   * these are the only three places that fact reaches the physics. Defaults of 1 mean a game with
+   * no company behind it behaves exactly as it did in Milestones 1-3. */
+  const eff = (job && job.effects) || null;
+  if (eff) {
+    truck.driveMul = eff.driveMul;
+    truck.brakeMul = eff.brakeMul;
+  }
   truck.parkBrake = true;
   truck.lift = createLift();
 
@@ -56,9 +84,13 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
 
   // A little pre-existing damage, sometimes. GDD §4: the sedan arrives with "a damage state",
   // and a job that starts with a dented car is a job with a history.
-  if (rng.chance(0.35)) sedan.damage.dents = rng.int(1, 3);
+  if (rng.chance(mods.dentChance === undefined ? 0.35 : mods.dentChance)) {
+    sedan.damage.dents = rng.int(1, mods.dentsMax || 3);
+  }
+  // Baseline it, so the payout charges for what the RECOVERY did and not for the crash.
+  sedan.damage.arrived = { dents: sedan.damage.dents, parts: { ...sedan.damage.parts } };
 
-  const gear = createGearPile(terrain.anchors.gearPile, rng);
+  const gear = createGearPile(terrain.anchors.gearPile, rng, job && job.loadout);
 
   // The crew. GDD §7 Milestone 2 puts two to four of them on site; they arrive together, spread
   // along the shoulder beside the truck rather than stacked on one spawn point.
@@ -77,7 +109,7 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
     vehicles: { truck, sedan },
     gear,
     crew,
-    winch: createWinch(),
+    winch: createWinch(eff ? eff.cableMul : 1),
     blocksById: {},
     debris: [],
     nextDebrisId: 1,
@@ -94,6 +126,13 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
      * assertions depend on it meaning that. */
     job: {
       phase: JOB.RECOVER,
+      /* What this particular callout is worth, relative to the standard fee. A dispatch offer that
+       * advertises £1890 has to PAY £1890 less deductions — the board's number and the results
+       * card's number are the same promise, and they were not: the payout read CONFIG.job.baseFee
+       * directly and quietly paid the standard fee for a job the player took because it paid more. */
+      feeMul: (job && job.feeMul) || 1,
+      offerId: (job && job.id) || null,
+      offerType: (job && job.type) || null,
       inBayMs: 0,
       deliveredAtMs: null,
       payout: null,
@@ -196,15 +235,22 @@ export function cornersInBay(veh, terrain) {
  */
 export function computePayout(st, bus) {
   const P = CONFIG.job;
+  const baseFee = Math.round(P.baseFee * (st.job.feeMul || 1));
   const sedan = st.vehicles.sedan;
-  const parts = Object.entries(sedan.damage.parts);
+  /* Only what THIS job did to it. The car arrives with a damage state (GDD §4), and charging the
+   * operator for the crash they were called out to is not a consequence of any decision they made.
+   * MEASURED: a "dug in overnight" job advertised at £1890 paid £1810, because the two dents it
+   * turned up with came off the fee. */
+  const arrived = sedan.damage.arrived || { dents: 0, parts: {} };
+  const causedDents = Math.max(0, sedan.damage.dents - (arrived.dents || 0));
+  const parts = Object.entries(sedan.damage.parts).filter(([p, s]) => arrived.parts[p] !== s);
   const lost = parts.filter(([, s]) => s === 'lost');
   const bent = parts.filter(([, s]) => s === 'bent');
 
   const deductions = [];
   const take = (label, amount) => { if (amount > 0) deductions.push({ label, amount: Math.round(amount) }); };
 
-  take(`${sedan.damage.dents} dent${sedan.damage.dents === 1 ? '' : 's'}`, sedan.damage.dents * P.dentCost);
+  take(`${causedDents} dent${causedDents === 1 ? '' : 's'}`, causedDents * P.dentCost);
   for (const [p] of lost) take(`lost the ${p}`, P.partLostCost);
   for (const [p] of bent) take(`bent the ${p}`, P.partBentCost);
   const snaps = bus.count(EVENTS.CABLE_SNAPPED);
@@ -215,15 +261,15 @@ export function computePayout(st, bus) {
   if (bus.count(EVENTS.ROLLED_OVER) > 0) take('rolled a vehicle', bus.count(EVENTS.ROLLED_OVER) * P.rollCost);
 
   const total = deductions.reduce((a, d) => a + d.amount, 0);
-  const paid = Math.max(P.minimumFee, P.baseFee - total);
+  const paid = Math.max(P.minimumFee, baseFee - total);
   return {
-    baseFee: P.baseFee,
+    baseFee,
     deductions,
     deducted: total,
     paid,
     clean: total === 0,
     /** True when the deductions bottomed out — the job cost more than it was worth. */
-    floored: P.baseFee - total < P.minimumFee,
+    floored: baseFee - total < P.minimumFee,
   };
 }
 
