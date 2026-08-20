@@ -113,6 +113,38 @@ function rideAlong(st) {
   p.facing = v.body.angle;
 }
 
+/**
+ * The casualty's own parking brake, reachable from outside through the driver's door.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT IS NOT MILESTONE 2 ────────────────────────────────────
+ * GDD §7 defers "an occupiable recovered vehicle for steering/braking" to Milestone 2. Reaching
+ * in and dropping the handbrake is not that: nobody gets in, nobody steers.
+ *
+ * It is here because of something the geometry forced into the open. A winch pulls the load TO
+ * THE DRUM, so from the last few metres of the road the car can never finish on the pavement by
+ * winch alone — its own footprint will not fit between the truck and the shoulder. Measured over
+ * fourteen parks: every one of them ends with the car against the truck. The move that finishes
+ * those jobs is a TOW, and a car whose rear wheels are locked does not tow, it ploughs. With the
+ * brake off it tows onto the road in one pass.
+ *
+ * And it cuts both ways, which is the part worth having. On the bank the downhill pull is ~6 kN
+ * against ~1.2 kN of rolling resistance, so a car released in the wrong place runs away downhill
+ * — straight into the mud if that is what is below it. Chock it first, or hold it on the line.
+ * The gear to do that is already lying in the pile.
+ *
+ * The player is never told any of this. The wheel inspection says "Locked by the parking brake",
+ * standing at the car offers the release, and the rest is theirs.
+ */
+function brakeReachable(st, p) {
+  for (const id of Object.keys(st.vehicles)) {
+    const v = st.vehicles[id];
+    if (v.def.driven) continue;             // the truck has a cab; get in it
+    const c = closestOnBox(v.body, p.x, p.y);
+    if (Math.hypot(p.x - c.x, p.y - c.y) <= CONFIG.player.reachM * 0.75) return v;
+  }
+  return null;
+}
+
 /* ── the hook ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -343,7 +375,19 @@ export function doContext(st, terrain, bus, simTimeMs) {
     return 'pickup';
   }
 
-  /* 8 — the drum */
+  /* 8 — the casualty's own parking brake. AFTER gear on purpose: if the player is standing on a
+   *     jack they just placed under the car, pumping it is what they meant. Walk round to the
+   *     door side and the brake is what is offered instead. */
+  const brakeTarget = brakeReachable(st, p);
+  if (brakeTarget) {
+    brakeTarget.parkBrake = !brakeTarget.parkBrake;
+    // NOTE: ws.locked is left alone. That flag is a SEIZED wheel, not a braked one — a handbrake
+    // does not un-jam a hub, so an attempt that seeded a jammed front wheel stays partly stuck.
+    bus.emit(EVENTS.BRAKE_SET, { vehicle: brakeTarget.id, on: brakeTarget.parkBrake }, simTimeMs);
+    return brakeTarget.parkBrake ? 'brake-on' : 'brake-off';
+  }
+
+  /* 9 — the drum */
   const truck = st.vehicles.truck;
   const fl = fairleadPos(truck);
   const hp = hookPos(w, st.vehicles);
@@ -496,6 +540,11 @@ function hintFor(st, terrain, p, carried) {
   }
   const ctx = contextFor(st, terrain, p.x, p.y, carried);
   if (ctx) return { key: 'E', label: ctx.label };
+
+  const brake = brakeReachable(st, p);
+  if (brake) {
+    return { key: 'E', label: brake.parkBrake ? "release the sedan's parking brake" : "set the sedan's parking brake" };
+  }
 
   const truck = st.vehicles.truck;
   const fl = fairleadPos(truck);

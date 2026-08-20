@@ -23,7 +23,7 @@ are blocked on `file://`, and the page will tell you so if you try.
 | | |
 |---|---|
 | `WASD` / arrows | walk on foot, drive in the seat. One set of keys, two readings. |
-| `E` | use whatever is in front of you: take the hook, hook it on, wrap a strap, place a block, pump the jack, run the line through the snatch block |
+| `E` | use whatever is in front of you: take the hook, hook it on, wrap a strap, place a block, pump the jack, run the line through the snatch block, drop the casualty's handbrake |
 | `Q` | look at something. Tells you facts, never what to do |
 | `F` | let go — unhook the line, or put down what you are carrying |
 | `Enter` | get in and out of the truck |
@@ -36,12 +36,19 @@ are blocked on `file://`, and the page will tell you so if you try.
 One situation, and no authored solution to it. The objective is *get the sedan onto the road* —
 all four corners on pavement, settled. How is entirely yours.
 
-**Where you park matters, and it is a decision rather than a puzzle.** The wrecker has to sit
-far enough up the road that the car has somewhere to land — the winch pulls it to a point about
-2.5 m short of the drum, so the drum needs roughly 3 m of pavement south of it. The northern two
-thirds of the 9.4 m road all work. Park in the last third and the pull stalls with the car
-against your own truck: the winch holds at its limit, the HUD goes red, the line stays attached,
-and you drive forward or re-park. A bad park costs time, not the attempt.
+**Where you park changes the job, and every park can finish it.** A winch pulls its load *to the
+drum*, so the drum needs about 3 m of pavement south of it for the car to have somewhere to land.
+From the northern two thirds of the 9.4 m road, winching alone does it.
+
+From the last third it cannot — measured over fourteen parks, the car always ends up against your
+own truck. So that job finishes the way a real one would: the winch gets it up the bank, you walk
+over and **drop the casualty's handbrake**, and you tow it clear. A rolling car tows out in about
+half the time a braked one does. Flooring it parts the cable.
+
+Releasing that brake cuts both ways, which is the point of having it. On the bank the downhill pull
+is ~6 kN against ~1.2 kN of rolling resistance, so a car let loose in the wrong place runs away
+downhill — into the mud, if that is what is below it. Chock it first, or hold it on the line. The
+chocks are in the pile.
 
 Four approaches are verified to work, and they are not variations on one:
 
@@ -105,7 +112,7 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1
 ```
 
-249 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
+258 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
 browser: it injects [`tools/m1-tests.js`](tools/m1-tests.js) into a copy of the page, serves it,
 and greps the dumped DOM.
 
@@ -113,9 +120,10 @@ Sections A–G test the machinery numerically. Section H drives **whole recoveri
 GDD's nine completion criteria one at a time — including that two runs of one seed are identical,
 that six attempts produce six different layouts, and that at least three meaningfully different
 approaches work. Section Hk sweeps a grid of parking positions across the road and asserts both
-halves of the claim above: the northern two thirds recover the car, and **no** park anywhere on
-the road costs you the cable. Section J presses keys, because a player cannot call
-`attachHook()` — and it is the section that found the worst bug in the project.
+halves of the claim above: the northern two thirds recover the car on the winch, the last third
+finishes with a tow, and **no** park anywhere on the road costs you the cable. Section J presses
+keys, because a player cannot call `attachHook()` — and it is the section that found the worst bug
+in the project.
 
 Every live test drives `game.skipMs()` rather than waiting for frames. Headless Chrome in
 `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total — measured, and
@@ -140,8 +148,8 @@ the damped two-body cable constraint (`recovery/cable.js`).
 
 - Must be served over http. `play.bat` does it.
 - Single player. Networking is Milestone 2 — see GDD §7.
-- The recovered vehicle cannot be occupied, so its handbrake stays on for the whole job. Also
-  Milestone 2.
+- The recovered vehicle cannot be occupied — no steering it, no braking it from inside. Milestone 2.
+  Reaching in through the door to drop its handbrake is not that, and is in.
 - No economy, payout, transport, garage or dispatch. GDD §8 defers all of it, and the empty
   boundaries in `config.js` say so rather than half-implementing them.
 - Contacts are single-point impulses with no stacking. Deliberate: see the note at the top of

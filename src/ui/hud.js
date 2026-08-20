@@ -50,6 +50,7 @@ function phrase(e) {
     case EVENTS.ROLLED_OVER:        return `rolled the ${e.vehicle}`;
     case EVENTS.GEAR_SCATTERED:     return `the ${e.kind} was knocked out of place`;
     case EVENTS.GEAR_USED:          return e.kind === 'jack' ? `jack at ${e.liftStep} of ${e.of}` : null;
+    case EVENTS.BRAKE_SET:          return e.on ? "set the sedan's parking brake" : "released the sedan's parking brake";
     case EVENTS.VEHICLE_ENTERED:    return 'got in the truck';
     case EVENTS.VEHICLE_EXITED:     return 'got out';
     case EVENTS.RECOVERY_COMPLETE:  return 'the sedan is on the road';

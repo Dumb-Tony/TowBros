@@ -1028,12 +1028,79 @@ emit('running H...');
   for (const row of nearRows) note(`Hk  ${row}`);
   eq(`Hk3 a near-lane park stalls rather than ending the job (${survived}/4)`, survived, 4);
 
-  // The parks that DO fail must fail for a reason on screen: the car visibly grinds to a halt
-  // against something, and the winch says STALLED. Silence would be the actual gate.
+  // The parks that DO fail on the winch must fail for a reason on screen: the car visibly grinds
+  // to a halt against the truck, and the winch says STALLED. Silence would be the actual gate.
   const bad = tryPark(2001, 10, BANDS.roadS - 1.4);
   ok('Hk4 a stalled pull leaves the line attached, so the player still has options',
      !bad.done && bad.snaps === 0);
   gt('Hk5 and it loaded the line hard enough to be obvious', bad.peak, CONFIG.winch.motorMaxN * 0.9);
+
+  /* ── and the last third of the road finishes with a TOW ──────────────────────────────
+   * A winch pulls its load TO THE DRUM, so from the southernmost few metres of pavement the car
+   * can never finish on the road by winching: measured over fourteen parks, every one ends with
+   * the car against the truck's own flank. The move that finishes those jobs is the one a real
+   * operator would make — drop the casualty's handbrake and tow it clear. */
+  function towSequence(seed, dxEast, throttle = 0.5, releaseBrake = true) {
+    const g = newGame(seed, 1);
+    const st = g.state;
+    operatorPark(g, dxEast, BANDS.roadS - 1.4);
+    rigTo(g, 'sedan', 'towHook');
+    reel(g, 100000, done);
+    const afterWinch = cornersOnRoad(st.vehicles.sedan, st.terrain).on;
+    if (done(g)) return { done: true, how: 'winch', afterWinch, snaps: 0, peak: peakTensionN, secs: 0 };
+
+    if (releaseBrake) st.vehicles.sedan.parkBrake = false;   // what E does standing at the car
+    const tr = st.vehicles.truck;
+    tr.occupied = true; tr.parkBrake = false;
+    st.winch.motor = 0;
+    const t0 = st.simTimeMs;
+    let peak = 0;
+    for (let i = 0; i < 60 * 60 && !done(g); i++) {
+      tr.throttle = throttle;
+      g.step(STEP, st.simTimeMs + STEP, null);
+      peak = Math.max(peak, st.winch.tensionN);
+    }
+    tr.throttle = 0; tr.occupied = false;
+    return {
+      done: done(g), how: 'tow', afterWinch,
+      on: cornersOnRoad(st.vehicles.sedan, st.terrain).on,
+      snaps: g.bus.count(EVENTS.CABLE_SNAPPED),
+      peak,
+      secs: +((st.simTimeMs - t0) / 1000).toFixed(1),
+    };
+  }
+
+  let towed = 0, towTotal = 0;
+  const towRows = [];
+  for (const dx of [8, 11]) {
+    for (const seed of [2001, 2002, 2003]) {
+      const r = towSequence(seed, dx);
+      towTotal++; if (r.done) towed++;
+      towRows.push(`s${seed} dx${dx}: ${r.done ? `done ${r.secs}s by ${r.how}` : `no (${r.on}/4)`}`);
+    }
+  }
+  for (const row of towRows) note(`Hk  ${row}`);
+  eq(`Hk6 the last third of the road finishes with a tow (${towed}/${towTotal})`, towed, towTotal);
+
+  // Dropping the casualty's handbrake is an ADVANTAGE, not a gate — a 6.8 t truck can drag a
+  // braked car along dry pavement if it insists. (This assertion originally claimed the tow was
+  // impossible with the brake on; it measured 4/4 and the claim was simply wrong. What is true is
+  // that a rolling car tows for less.)
+  const free = towSequence(2001, 11, 0.5, true);
+  const held = towSequence(2001, 11, 0.5, false);
+  lt(`Hk7 a rolling car tows clear in about half the time (${free.secs}s vs ${held.secs}s)`,
+     free.secs, held.secs * 0.8);
+  // Not in peak tension, though: a rolling car snatches as it takes up, so the brief peak is
+  // slightly HIGHER (36.2 vs 34.4 kN). Both sit at the winch's stall limit, held there by the
+  // overload relief. The benefit is that it goes, not that it goes softly — which is the second
+  // time this comparison has been asserted backwards, so the number is written down here.
+  note(`Hk  brake off ${kN(free.peak)} kN over ${free.secs}s · brake on ${kN(held.peak)} kN over ${held.secs}s`);
+
+  // Impatience is not free.
+  const floored = towSequence(2001, 11, 1.0);
+  ok('Hk8 flooring it parts the line instead of finishing the job',
+     !floored.done && floored.snaps > 0);
+  note('Hk  a tow is a tow: gentle throttle recovers it, full throttle snaps a 42 kN cable');
 }
 emit('running H...');
 
@@ -1183,6 +1250,27 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
   eq('J25 and puts it down', p.carryingGearId, null);
   ok(`J26 where the player was standing (${carried.x.toFixed(1)},${carried.y.toFixed(1)})`,
      Math.hypot(carried.x - 30, carried.y - 20) < 2.0);
+
+  // The casualty's own handbrake, reached through the door. This is what turns a dragged weight
+  // into a towable one, so it has to be reachable with the same one key as everything else.
+  const sedanB = sedan.body;
+  p.x = sedanB.x + Math.cos(sedanB.angle + Math.PI / 2) * 1.5;
+  p.y = sedanB.y + Math.sin(sedanB.angle + Math.PI / 2) * 1.5;
+  p.vx = 0; p.vy = 0;
+  idle(STEP * 2);
+  eq('J36 the sedan arrives with its handbrake on', sedan.parkBrake, true);
+  ok('J37 standing at the car, the prompt offers the brake',
+     !!p.contextHint && /parking brake/.test(p.contextHint.label), p.contextHint && p.contextHint.label);
+  tap('KeyE');
+  eq('J38 pressing it releases the brake', sedan.parkBrake, false);
+  gt('J39 and the job log records it as a decision', g.bus.count(EVENTS.BRAKE_SET), 0);
+  tap('KeyE');
+  eq('J40 pressing it again puts the brake back on', sedan.parkBrake, true);
+  // A seized hub is not a braked wheel, and a handbrake does not un-seize one.
+  sedan.wheelState[0].locked = true;
+  tap('KeyE');
+  eq('J41 releasing the brake does not un-jam a seized wheel', sedan.wheelState[0].locked, true);
+  sedan.wheelState[0].locked = false;
 
   // Get in, drive, get out. Same movement keys.
   const c = closestOnBox(truck.body, truck.body.x, truck.body.y + truck.def.widthM / 2 + 0.5);

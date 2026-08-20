@@ -127,7 +127,14 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
    * load still outruns the relief and still parts the line. Slow jams stall; shocks break. */
   if (w.state === WINCH.ATTACHED && w.tensionN > CONFIG.winch.motorMaxN) {
     const over = w.tensionN - CONFIG.winch.motorMaxN;
-    const give = Math.min(CONFIG.winch.reliefMps * dtSec, over / rigNow.springK);
+    // The slip rate RISES with the overload, because that is what a brake band does. A flat rate
+    // was enough to stop a slow jam destroying the line but not enough to survive TOWING on it:
+    // driving away with a load attached built tension faster than 0.55 m/s of payout could shed,
+    // so any tow above a crawl parted the cable. Scaling with overload lets a steady tow work at
+    // ~1.6 m/s of slip near the limit, while a genuine snatch — a step change in velocity — still
+    // outruns it and still breaks the line, which is the failure worth keeping.
+    const rate = CONFIG.winch.reliefMps * (1 + (over / CONFIG.winch.motorMaxN) * CONFIG.winch.reliefGain);
+    const give = Math.min(rate * dtSec, over / rigNow.springK);
     w.lineM = Math.min(CONFIG.winch.spoolLengthM, w.lineM + give);
     w.relieving = true;
   } else {

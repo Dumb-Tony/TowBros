@@ -1,5 +1,48 @@
 # Changelog
 
+## The near lane, and grass that looks like grass — 2026-08-19
+
+### Every park on the road can now finish the job
+
+Instrumented rather than guessed at, and the instrumentation killed the obvious answer: a winch
+pulls its load **to the drum**, so from the last few metres of pavement the car can never finish
+on the road by winching — measured over fourteen parks, every one ends against the truck's own
+flank. No amount of widening or retuning changes that; it is what winching *is*.
+
+So the last third finishes the way a real job would. The winch gets the car up the bank, and then:
+
+- **The casualty's handbrake can be released from outside**, through the door, on the context key.
+  It is not the occupiable-vehicle feature GDD §7 defers to Milestone 2 — nobody gets in and
+  nobody steers. A rolling car tows clear in about half the time a braked one does (9.4 s vs
+  15.6 s, measured). It also runs away downhill if you drop it in the wrong place, which is the
+  half of the feature worth having: ~6 kN of downhill pull against ~1.2 kN of rolling resistance.
+  Chock it first, or hold it on the line.
+- **Fixed: the handbrake was inert.** The scene marked the rear wheels *seized* as well as
+  handbrake-held, so they were locked twice and only one lock was the player's to undo. The comment
+  there had claimed the distinction for three commits without the code making it.
+- **The drum's brake now slips faster the harder it is pulled**, as a brake band does. A flat slip
+  rate was enough to stop a slow jam destroying the line but not enough to *tow* on it — driving
+  away built tension faster than 0.55 m/s of payout could shed, so any tow above a crawl parted the
+  cable. Flooring it still does.
+
+Section Hk now asserts all of it: 6/6 for the northern two thirds on the winch, 6/6 for the last
+third by tow, 9/9 that no park costs you the cable. 258 assertions.
+
+Two assertions of mine were wrong along the way and are recorded as such in the suite: towing was
+*not* impossible with the brake on (a 6.8 t truck will drag a braked car if it insists), and a
+rolling car does *not* tow at lower peak tension — it snatches as it takes up, so the peak is
+slightly higher and the *time* is what halves.
+
+### Looks
+
+- **Grass tufts.** 26,000 deterministic blades over everything that is not pavement, which is what
+  finally makes the bank read as a field rather than a shaded gradient. The first version drew a
+  few dozen: a hand-rolled hash multiplied a 32-bit state without `Math.imul`, ran past 2^53, and
+  lost its low bits before the next xor could use them. It uses `mulberry32` from `core/rng.js`
+  now, which is what the reuse rule said to do in the first place.
+- Worn wheel paths polished into the asphalt, and reeds instead of grass at the mud's edge.
+- A world-edge fade, so the site recedes into the dark instead of stopping at a rectangle.
+
 ## Parking, and a graphics pass — 2026-08-19
 
 ### Where you park is a decision, not a gate

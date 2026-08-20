@@ -30,10 +30,16 @@ import { createPlayer } from '../player/player.js';
 export function buildScene(rng) {
   const terrain = createTerrain(rng);
 
-  // Which of the sedan's wheels are seized. Both rears always: the handbrake is on, and that
-  // is a fact the player can discover by inspection. Sometimes a front wheel is jammed too,
-  // which is the difference between a car that rolls up the bank and one that ploughs.
-  const locked = ['wheelRL', 'wheelRR'];
+  // Which of the sedan's wheels are SEIZED — jammed hubs, not braked ones.
+  //
+  // The rear pair are deliberately NOT in here. They are held by the parking brake, which
+  // `createVehicle` already sets for an undriven vehicle, and the tire model reads as
+  // `w.park && veh.parkBrake`. Listing them as seized as well made the handbrake inert: a player
+  // who reached in and released it changed nothing, because the wheels were locked twice and only
+  // one of the locks was theirs to undo. The distinction this comment always claimed now exists.
+  //
+  // A jammed front wheel is the genuinely stuck case, and it survives releasing the brake.
+  const locked = [];
   if (rng.chance(0.45)) locked.push(rng.chance(0.5) ? 'wheelFL' : 'wheelFR');
 
   const boggedN = CONFIG.sedan.boggedBaseN + rng.spread(CONFIG.sedan.boggedRangeN);
@@ -172,6 +178,9 @@ export function recapFrom(bus, st) {
         }
         break;
       case EVENTS.BLOCK_MOUNTED: lines.push([t, 'mounted the snatch block on a tree']); break;
+      case EVENTS.BRAKE_SET:
+        lines.push([t, e.on ? "set the sedan's parking brake" : "released the sedan's parking brake"]);
+        break;
       case EVENTS.CABLE_ROUTED:
         lines.push([t, e.removed ? 'took the line back out of the block' : 'ran the line through the block']);
         break;

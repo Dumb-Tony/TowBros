@@ -164,6 +164,10 @@ export const CONFIG = {
     // recovery/cable.js. Keep it MODEST: it has to be slower than a real snatch load, or nothing
     // could ever part the line and the most dramatic failure in the game would be unreachable.
     reliefMps: 0.55,
+    // How much faster the drum slips as the overload grows (a brake band, not a clutch). At 8, a
+    // line near its breaking point pays out ~1.6 m/s, which is enough to TOW on and not enough to
+    // survive a snatch. See the overload relief note in recovery/cable.js.
+    reliefGain: 8,
     cableBreakN: 42000,
     // The cable is a damped spring, NOT a rope simulation (GDD §4 simplification
     // contract). Stiffness comes from the rigging below; this is the shared safety cap.

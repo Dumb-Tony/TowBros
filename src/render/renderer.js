@@ -26,6 +26,7 @@ import { WINCH, cablePath, fairleadPos, hookPos } from '../recovery/cable.js';
 import { clamp, clamp01, lerp, unit, norm } from '../core/vec.js';
 import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
+import { mulberry32 } from '../core/rng.js';
 
 /** Resolution of the painted terrain, pixels per metre. A sharpness/build-time trade, paid once
  *  per attempt: 20 px/m paints the 92x48 m site in ~250 ms and holds up at the default zoom,
@@ -215,10 +216,46 @@ export class Renderer {
     }
     cx.putImageData(img, 0, 0);
 
-    // Road markings, as vectors on top of the paint.
-    const road = terrain.road;
     cx.save();
     cx.scale(TERRAIN_PPM, TERRAIN_PPM);
+    const road = terrain.road;
+
+    // Worn wheel paths. Two darker, polished bands per lane where every tyre has been — the
+    // cheapest thing that makes a road look used rather than drawn.
+    cx.globalAlpha = 0.10;
+    cx.strokeStyle = '#20242c';
+    cx.lineWidth = 0.55;
+    for (const y of [road.y0 + 2.1, road.y0 + 3.9, road.y1 - 3.9, road.y1 - 2.1]) {
+      line(cx, road.x0, y, road.x1, y);
+    }
+    cx.globalAlpha = 1;
+
+    // Grass tufts on everything that is not pavement. Deterministic from a hash so a site looks
+    // the same on every frame and every replay of its seed. Dither says "not flat"; tufts say
+    // "this is a field", and they are what makes the bank look like somewhere a car could slide.
+    // mulberry32 from core/rng.js, not a hand-rolled hash. The first attempt multiplied a 32-bit
+    // state by a large constant WITHOUT Math.imul, so the product ran past 2^53, the low bits were
+    // gone before the next xor could use them, and the "random" scatter came out clustered — a few
+    // dozen tufts where twenty thousand were asked for. Math.imul is the whole difference, and the
+    // house PRNG already does it right (Dev\INDEX.md: copy it, do not rewrite it).
+    const rnd = mulberry32(0x7043ec21);
+    cx.lineWidth = 0.05;
+    for (let n = 0; n < 26000; n++) {
+      const gx2 = rnd() * terrain.world.widthM;
+      const gy2 = rnd() * terrain.world.heightM;
+      const surf = terrain.bandSurfaceAt(gx2, gy2);
+      if (surf.id === 'pavement') continue;
+      const inMud = terrain.mudDepthAt(gx2, gy2) > MUD_EDGE_M;
+      if (inMud && rnd() > 0.15) continue;             // reeds at the mud's edge, not in it
+      const lean = (rnd() - 0.5) * 0.5;
+      const len2 = 0.13 + rnd() * 0.15;
+      cx.strokeStyle = rnd() > 0.5
+        ? `rgba(${inMud ? '96,104,58' : '122,150,84'},0.5)`
+        : 'rgba(38,52,28,0.45)';
+      line(cx, gx2, gy2, gx2 + lean, gy2 - len2);
+    }
+
+    // Road markings last, so nothing is drawn over them.
     cx.strokeStyle = COL.roadEdge; cx.lineWidth = 0.12; cx.globalAlpha = 0.75;
     line(cx, road.x0, road.y0 + 0.34, road.x1, road.y0 + 0.34);
     line(cx, road.x0, road.y1 - 0.34, road.x1, road.y1 - 0.34);
@@ -321,8 +358,31 @@ export class Renderer {
 
     if (this.showForces) this._drawForces(ctx, st);
 
+    this._drawWorldEdge(ctx, st.terrain);
     cam.resetTransform(ctx);
     this._drawVignette(ctx, cam);
+  }
+
+  /** Fade the site into the dark at its boundary. Without it the world stops at a hard rectangle
+   *  and the eye reads "end of the texture" rather than "somewhere further away". */
+  _drawWorldEdge(ctx, terrain) {
+    const w = terrain.world, F = 5.5;
+    const bands = [
+      [0, 0, w.widthM, F, 0, 1],           // north
+      [0, w.heightM - F, w.widthM, F, 0, -1],
+      [0, 0, F, w.heightM, 1, 0],           // west
+      [w.widthM - F, 0, F, w.heightM, -1, 0],
+    ];
+    for (const [x, y, bw, bh, dx, dy] of bands) {
+      const g = ctx.createLinearGradient(
+        x + (dx > 0 ? 0 : dx < 0 ? bw : 0), y + (dy > 0 ? 0 : dy < 0 ? bh : 0),
+        x + (dx > 0 ? bw : dx < 0 ? 0 : 0), y + (dy > 0 ? bh : dy < 0 ? 0 : 0),
+      );
+      g.addColorStop(0, 'rgba(9,10,16,0.82)');
+      g.addColorStop(1, 'rgba(9,10,16,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, bw, bh);
+    }
   }
 
   /** A soft corner darkening in SCREEN space. It is doing one job: pulling the eye to the middle
