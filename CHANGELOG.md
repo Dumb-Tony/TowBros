@@ -1,5 +1,98 @@
 # Changelog
 
+## Milestone 2 — a crew, not a player — 2026-08-20
+
+Two to four people on one site, and exactly one winch hook between them. The whole milestone is
+that sentence: the interesting problems in co-op are not about drawing a second person, they are
+about what happens when both of them reach for the same object in the same simulation step.
+
+**Ownership lives on the object.** `winch.heldBy`, `item.carriedBy`, `vehicle.occupiedBy` — and
+nowhere else. `src/crew/authority.js` is a set of guarded transitions on those three fields and
+nothing more. The obvious design is a parallel `owners` map, and it is the wrong one for the same
+reason `recovery/gear.js` recomputes its multipliers every step instead of caching them: two
+records of one fact will eventually disagree, and the disagreement is invisible until something
+reads the stale half. There is nowhere else to look here, so there is nothing to desync.
+
+`validateAuthority()` runs in the F3 overlay every frame, not just in the tests. An authority bug
+is far easier to see live than to reconstruct from a trace afterwards — the lesson from Airport
+Baggage Crew's `validateChain`.
+
+**One drum, several hands.** GDD §5 makes the winch reachable by anyone at any time, so two people
+can fight over it. When they do — one reeling in, one paying out, in the same step — the drum stops
+and the HUD says `TWO HANDS ON THE DRUM`. It does not pick a winner. Silently resolving that in
+somebody's favour is worse than a stopped winch, because you cannot see it happen.
+
+**The casualty has a seat.** Its front wheels now steer, which they did not before. Measured on the
+standard far-lane pull over 20 s:
+
+| | travelled | climbed | yaw |
+|---|---|---|---|
+| nobody at the wheel | 5.41 m | 3.91 m | −131° |
+| full right lock held | 7.55 m | 3.29 m | −137° |
+
+You trade climb for lateral travel. There is no engine in it — flooring the throttle moves the car
+2.77 m in two seconds, and so does not touching it, because all of that is gravity.
+
+**Getting knocked down drops what you are holding.** A moving vehicle puts you on the ground for
+0.4–2.4 s scaled by how fast it hit you; a parked one you just bump into. The mechanically
+load-bearing half is the dropping: a crew member flattened while carrying the hook releases the
+claim, so the hook is never stranded on somebody who is face-down. Done on the way *down*, not on
+the way up.
+
+**Everything goes through a command seam.** GDD §6 asks for multiplayer authority above
+"deterministic-ish simulation commands", so `src/net/commands.js` is that and nothing else: a
+two-mask frame per seat per step (`held`, `pressed`), an adapter that is duck-typed to `Input` so
+`stepCrew` cannot tell the difference, and a transport interface. Four bytes per seat per step.
+Frames carry intent, never state — the simulation is seeded and fixed-step, so the same commands
+give the same world everywhere, and sending positions would throw that away.
+
+The local keyboards go through it too. A local seat that bypassed the command path would be the one
+seat whose bugs nobody found until the first real session.
+
+**No wire yet, deliberately.** The transport is the least interesting part of multiplayer and the
+only part that cannot be playtested alone, so it is last. It is also a genuine conflict rather than
+a gap: the standing rule for this project is zero external requests, and WebRTC needs a signalling
+server to introduce two browsers. `LoopbackTransport` is a real implementation of the interface with
+a settable delay, so latency is testable today with no server at all — six steps of delay delivers
+the same commands and therefore the same result, asserted to 1e-9.
+
+### Bugs found on the way, all of them by measuring
+
+**A queue-depth delay never drains.** `LoopbackTransport` first held a frame back "until more than
+N are waiting", which reads correctly and is quietly wrong: the queue then keeps N frames forever,
+so the last N commands of a session are never delivered at all. Stamping each frame with the step
+it is due on fixed it, and made the delay exact rather than approximate.
+
+**Two sends per step halve the duty cycle.** The screenshot harness pushed its own winch frame and
+`link.pump()` pushed the keyboard's, and the transport delivers at most one per step — so the drum
+ran on 330 of 660 steps and 660 frames backed up unqueued. The fix was to hold a virtual button
+instead, which is the real path. One send per seat per step is the rule.
+
+**No input must not mean "everybody let go".** With the drum resolved from the crew's hands every
+step, a headless harness that sets `winch.motor` directly had it zeroed the next step, and every
+M1 pull measured 0 kN. `stepCrew` now leaves the drum and the drive controls alone when a seat has
+no input source at all — which is also what a remote seat looks like between packets, and holding
+the last command is what a held key means.
+
+**`occupied` had to stop being writable.** It is derived from `occupiedBy` now, so the M1 suite's
+`truck.occupied = true` threw. Worth it: two records of one fact, again.
+
+**The door prompt hid a whole mechanic.** Standing at the casualty satisfies both "reach in for the
+handbrake" (`E`) and "get in" (`V`), and the hint chain returned only the first. A prompt can now
+name two keys, and does.
+
+### Numbers
+
+| | |
+|---|---|
+| M1 suite | **264 / 264** — every recovery number unchanged |
+| M2 suite | **175 / 175** |
+| far lane, winch only | 36 s @ 12 kN |
+| mid-road | 42 s, winch then tow |
+| near lane | 40–45 s |
+| parks that cost you the cable | 0 of 9 |
+
+
 ## The mid-road pull, and a drum that knows when to stop — 2026-08-19
 
 The mid-road recovery was taking 56–67 seconds against the far lane's 36, and most of that was a

@@ -11,13 +11,15 @@
 
 import { CONFIG } from './config.js';
 import { Game, MODES } from './game.js';
-import { Input } from './core/input.js';
+import { Input, CREW_BINDINGS } from './core/input.js';
 import { Camera } from './render/camera.js';
 import { Renderer } from './render/renderer.js';
 import { Audio } from './render/audio.js';
 import { Hud } from './ui/hud.js';
 import { DebugOverlay } from './dev/debugOverlay.js';
 import { WINCH } from './recovery/cable.js';
+import { seatOf } from './player/player.js';
+import { CommandLink, LoopbackTransport } from './net/commands.js';
 
 const canvas = document.getElementById('stage');
 const uiRoot = document.getElementById('ui');
@@ -36,7 +38,25 @@ const camera = new Camera({
 });
 
 const renderer = new Renderer(canvas, camera).bind(game.bus, camera);
-const input = new Input(window).attach();
+
+/* One Input per crew seat, all listening to the same keyboard through different binding maps.
+ * Seat 0 is the local player and owns the WASD cluster; seat 1 is on the arrows. Seats past the
+ * end of CREW_BINDINGS get no keyboard at all: those are the seats a network drives, and they are
+ * fed through the command link below rather than from here. */
+const inputs = CREW_BINDINGS.slice(0, CONFIG.crew.count)
+  .map((bindings) => new Input(window, bindings).attach());
+const input = inputs[0];        // the local player, for the HUD's on-screen winch buttons
+
+/* Everything goes through the command seam, including the keyboards in front of you.
+ *
+ * GDD §6 wants multiplayer authority above "deterministic-ish simulation commands", and the way
+ * to make sure that actually holds is to have no second path: the local seats are sampled into
+ * command frames and delivered back through a loopback transport at zero delay, so a single-player
+ * session exercises the same plumbing a networked one would. Swap LoopbackTransport for a real
+ * one and nothing else here changes. See src/net/commands.js. */
+const link = new CommandLink(CONFIG.crew.maxCount, new LoopbackTransport(CONFIG.crew.maxCount, 0));
+inputs.forEach((inp, seat) => link.bindLocal(seat, inp));
+game.link = link;
 const audio = new Audio().bind(game.bus);
 const hud = new Hud(uiRoot, game, input);
 const debug = new DebugOverlay(uiRoot, game, renderer);
@@ -47,7 +67,7 @@ window.addEventListener('keydown', wake, { once: true });
 window.addEventListener('pointerdown', wake, { once: true });
 
 /* Focus loss auto-pauses. Never auto-resumes. */
-input.onBlur = () => game.pauseForBlur();
+for (const i of inputs) i.onBlur = () => game.pauseForBlur();
 document.addEventListener('visibilitychange', () => { if (document.hidden) game.pauseForBlur(); });
 
 function startJob() {
@@ -88,7 +108,8 @@ function frame(now) {
   camera.resize(canvas);
   if (input.pointer.seen) input.pointerWorld = camera.screenToWorld(input.pointer.x, input.pointer.y);
 
-  game.frame(dtMs, input);
+  // No inputs argument: game.link supplies one per seat, pumped inside each fixed step.
+  game.frame(dtMs);
 
   const st = game.state;
 
@@ -96,8 +117,17 @@ function frame(now) {
    * loaded — because the interesting thing during a pull is usually happening at the other end
    * from the thing you are holding. Presentation only; it feeds nothing back. */
   const p = st.player;
+  const seated = seatOf(st, p);
   let cx = p.x, cy = p.y;
-  if (p.inVehicleId) { const b = st.vehicles[p.inVehicleId].body; cx = b.x; cy = b.y; }
+  if (seated) { cx = seated.body.x; cy = seated.body.y; }
+  // With a crew, the camera also has to keep the others in frame — otherwise seat 1 walks off the
+  // edge of the world. Pull toward the crew's midpoint, weighted so the local player still leads.
+  if (st.crew.length > 1) {
+    let mx = 0, my = 0;
+    for (const q of st.crew) { mx += q.x; my += q.y; }
+    mx /= st.crew.length; my /= st.crew.length;
+    cx += (mx - cx) * 0.35; cy += (my - cy) * 0.35;
+  }
   if (st.winch.state === WINCH.ATTACHED && st.winch.tensionFrac > 0.04) {
     const s = st.vehicles.sedan.body;
     const k = Math.min(0.42, st.winch.tensionFrac * 0.9);
@@ -106,8 +136,8 @@ function frame(now) {
   camera.follow(cx, cy, dtSec);
 
   // Showing where the attachment zones are only while the hook is in hand keeps the car clean
-  // to look at the rest of the time.
-  renderer.showZones = p.holdingHook || st.winch.state === WINCH.LOOSE;
+  // to look at the rest of the time. Anybody's hand, not just the local player's.
+  renderer.showZones = st.winch.heldBy !== null || st.winch.state === WINCH.LOOSE;
 
   renderer.render(st, dtSec);
   hud.update();
@@ -125,4 +155,4 @@ window.addEventListener('mousemove', (e) => {
 /* Debug/test handle. Mirrors `__ABC` in Airport Baggage Crew and `__SD` in Something's
  * Different: the smoke-test harness drives the real objects through this rather than reaching
  * into module scope. */
-window.__TB = { game, camera, renderer, hud, debug, input, audio, CONFIG, startJob };
+window.__TB = { game, camera, renderer, hud, debug, input, inputs, link, audio, CONFIG, startJob };

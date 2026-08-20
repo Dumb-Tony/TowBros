@@ -23,14 +23,23 @@ import { EVENTS } from '../core/eventBus.js';
 import { describeWinch, WINCH } from '../recovery/cable.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
+import { seatOf, holdsHook, carriedItem } from '../player/player.js';
 
 /** One readable sentence per event. The job log is the GDD's north star made literal, so the
  *  wording matters: it says what happened, never what to do about it. */
 function phrase(e) {
   const kN = (n) => `${(n / 1000).toFixed(1)} kN`;
+  // 'crew0' -> 'crew 1', matching createCrewMember's default name. With more than one person on
+  // site the log has to say WHO, or half of it becomes unattributable.
+  const who = (id) => {
+    const m = /^crew(\d+)$/.exec(String(id || ''));
+    return m ? `crew ${+m[1] + 1}` : 'somebody';
+  };
   switch (e.type) {
-    case EVENTS.HOOK_TAKEN:        return 'took the hook off the drum';
-    case EVENTS.HOOK_STOWED:       return 'set the hook down';
+    case EVENTS.HOOK_TAKEN:        return `${who(e.crew)} took the hook off the drum`;
+    // 'dropped' means they were knocked over. CREW_STUMBLED already says that, so saying it twice
+    // would read as two events.
+    case EVENTS.HOOK_STOWED:       return e.where === 'dropped' ? null : `${who(e.crew)} set the hook down`;
     case EVENTS.HOOK_ATTACHED:     return `hooked the ${e.zoneLabel}${e.rig !== 'bare' ? ` through the ${e.rig}` : ''}`;
     case EVENTS.HOOK_DETACHED:     return e.reason === 'player' ? 'unhooked' : null;
     case EVENTS.RIG_APPLIED:       return `wrapped the ${e.rig} round the ${e.zone}`;
@@ -51,8 +60,9 @@ function phrase(e) {
     case EVENTS.GEAR_SCATTERED:     return `the ${e.kind} was knocked out of place`;
     case EVENTS.GEAR_USED:          return e.kind === 'jack' ? `jack at ${e.liftStep} of ${e.of}` : null;
     case EVENTS.BRAKE_SET:          return e.on ? "set the sedan's parking brake" : "released the sedan's parking brake";
-    case EVENTS.VEHICLE_ENTERED:    return 'got in the truck';
-    case EVENTS.VEHICLE_EXITED:     return 'got out';
+    case EVENTS.CREW_STUMBLED:      return `${who(e.crew)} was knocked off their feet`;
+    case EVENTS.VEHICLE_ENTERED:    return `${who(e.crew)} got in the ${e.vehicle}`;
+    case EVENTS.VEHICLE_EXITED:     return `${who(e.crew)} got out of the ${e.vehicle}`;
     case EVENTS.RECOVERY_COMPLETE:  return 'the sedan is on the road';
     default: return null;
   }
@@ -82,6 +92,7 @@ export class Hud {
       clock: root.querySelector('.hud-time'),
 
       bottom: root.querySelector('.hud-bottom'),
+      crewStrip: root.querySelector('.crew-strip'),
       prompt: root.querySelector('.prompt'),
       held: root.querySelector('.held'),
       winchBtns: root.querySelector('.winch-controls'),
@@ -173,10 +184,11 @@ export class Hud {
     // "Blocked" and "stalled" are different facts and the player needs the difference: one means
     // the load has nowhere left to go, the other means the motor cannot beat it. Both stop the
     // drum, and only one of them is worth pulling harder at.
-    if (st.winch.blocked) ws += ' — AGAINST THE TRUCK';
-    else if (st.winch.stalled) ws += ' — STALLED';
+    if (st.winch.contested) ws += " — TWO HANDS ON THE DRUM";
+    else if (st.winch.blocked) ws += " — AGAINST THE TRUCK";
+    else if (st.winch.stalled) ws += " — STALLED";
     this._set(this.el.winchState, ws);
-    this.el.winchState.classList.toggle('stalled', st.winch.stalled || st.winch.blocked);
+    this.el.winchState.classList.toggle("stalled", st.winch.stalled || st.winch.blocked || st.winch.contested);
 
     this._set(this.el.clock, GameClock.formatMs(st.simTimeMs));
 
@@ -187,22 +199,38 @@ export class Hud {
       ? 'the sedan is on the road'
       : `get the sedan onto the road — ${on}/4 corners up`);
 
-    const hint = st.player.contextHint;
-    const driving = !!st.player.inVehicleId;
-    if (driving) {
-      this._set(this.el.prompt, 'W/S drive · A/D steer · Space parking brake · Enter get out · I/O winch');
+    /* The prompt line belongs to the LOCAL player — crew[0]. Everything about their state is
+     * read back off the world objects rather than out of a field on the person: whether they are
+     * in a seat, holding the hook, or carrying gear are all answered by asking the object who owns
+     * it. That is the M2 authority rule, and the HUD obeys it like everything else does. */
+    const me = st.player;
+    const seat = seatOf(st, me);
+    const hint = me.contextHint;
+    if (me.stumbleMs > 0) {
+      this._set(this.el.prompt, 'down — getting up');
+    } else if (seat) {
+      this._set(this.el.prompt, seat.id === 'truck'
+        ? 'W/S drive · A/D steer · Space parking brake · V get out · I/O winch'
+        : "W/S roll · A/D steer · Space this car's brake · V get out");
     } else if (hint) {
-      this._set(this.el.prompt, `[${hint.key}] ${hint.label}`);
+      // A hint can name two keys at once: standing at the casualty's door, E reaches in for the
+      // handbrake and V gets you into the seat. Showing only the first would hide a mechanic.
+      this._set(this.el.prompt, `[${hint.key}] ${hint.label}`
+        + (hint.alt ? ` · [${hint.alt.key}] ${hint.alt.label}` : ''));
     } else {
-      this._set(this.el.prompt, 'WASD walk · Q look · E use · F let go · Enter get in · I/O winch');
+      this._set(this.el.prompt, 'WASD walk · Q look · E use · F let go · V get in · I/O winch');
     }
 
-    const carried = st.player.carryingGearId
-      ? st.gear.find((g) => g.id === st.player.carryingGearId) : null;
-    const heldText = st.player.holdingHook ? 'winch hook'
+    const carried = carriedItem(st, me);
+    const heldText = holdsHook(st, me) ? 'winch hook'
       : carried ? carried.kind.replace(/([A-Z])/g, ' $1').toLowerCase() : '';
     this.el.held.classList.toggle('on', !!heldText);
     if (heldText) this._set(this.el.held, `carrying: ${heldText}`);
+
+    // The crew strip. One chip per person, saying what they have hold of — because with two to
+    // four people on site the question "who has the hook" is asked constantly, and walking over
+    // to look is a poor way to answer it.
+    if (st.crew.length > 1) this._updateCrewStrip(st);
 
     if (this._logDirty) {
       this._logDirty = false;
@@ -240,6 +268,31 @@ export class Hud {
     if (this._resetArmedMs > 0) { this._resetArmedMs = 0; return true; }
     this._resetArmedMs = 900;
     return false;
+  }
+
+  /* One chip per crew member: their tint, their name, and what they are holding.
+   *
+   * Written from the objects, never from a table. `st.winch.heldBy`, `item.carriedBy` and
+   * `vehicle.occupiedBy` ARE the truth about who has what — if this display and the simulation
+   * ever disagreed it would mean the authority layer had a second copy of the answer somewhere,
+   * which is the bug the whole design is arranged to make impossible.
+   */
+  _updateCrewStrip(st) {
+    const parts = [];
+    for (const p of st.crew) {
+      const seat = seatOf(st, p);
+      const item = carriedItem(st, p);
+      const what = p.stumbleMs > 0 ? 'down'
+        : seat ? `in the ${seat.id}`
+        : holdsHook(st, p) ? 'the hook'
+        : item ? item.kind.replace(/([A-Z])/g, ' $1').toLowerCase()
+        : 'empty-handed';
+      const cls = `crew-chip${p === st.player ? ' me' : ''}${p.stumbleMs > 0 ? ' down' : ''}`;
+      parts.push(`<div class="${cls}"><i style="background:${p.tint}"></i>` +
+                 `<b>${escapeHtml(p.name)}</b><span>${escapeHtml(what)}</span></div>`);
+    }
+    const html = parts.join('');
+    if (this._crewHtml !== html) { this._crewHtml = html; this.el.crewStrip.innerHTML = html; }
   }
 
   _renderRecap() {
@@ -294,6 +347,7 @@ const TEMPLATE = `
 <div class="inspect-card"><h3></h3><div class="lines"></div></div>
 
 <div class="hud-bottom">
+  <div class="crew-strip"></div>
   <div class="held"></div>
   <div class="prompt"></div>
   <div class="winch-controls">
@@ -306,16 +360,19 @@ const TEMPLATE = `
 <div class="screen screen-title on">
   <div class="card">
     <h1>TOW BROS</h1>
-    <p class="tag">One vehicle. One ditch. One recovery.</p>
-    <p class="milestone">Milestone 1 — recovery sandbox</p>
+    <p class="tag">Two of you. One ditch. One winch.</p>
+    <p class="milestone">Milestone 2 — a crew, not a player</p>
     <p class="hint">
       A sedan is nose-down on a wet grassy embankment. A tow truck is on the road.<br>
       Nothing here tells you how to do this, because there is no correct way to do it.
     </p>
     <p class="scope">
-      <kbd>WASD</kbd> walk / drive · <kbd>Q</kbd> look at something · <kbd>E</kbd> use what is in front of you<br>
-      <kbd>F</kbd> let go · <kbd>Enter</kbd> get in and out · <kbd>I</kbd>/<kbd>O</kbd> winch in and out<br>
-      <kbd>Space</kbd> parking brake · <kbd>-</kbd>/<kbd>=</kbd> zoom · <kbd>R</kbd> <kbd>R</kbd> reset · <kbd>Esc</kbd> pause
+      <b>crew 1</b> &nbsp;<kbd>WASD</kbd> walk / drive · <kbd>Q</kbd> look · <kbd>E</kbd> use ·
+      <kbd>F</kbd> let go · <kbd>V</kbd> get in · <kbd>Space</kbd> brake · <kbd>I</kbd>/<kbd>O</kbd> winch<br>
+      <b>crew 2</b> &nbsp;<kbd>↑←↓→</kbd> walk / drive · <kbd>.</kbd> look · <kbd>/</kbd> use ·
+      <kbd>,</kbd> let go · <kbd>⇧</kbd> get in · <kbd>\</kbd> brake · <kbd>]</kbd>/<kbd>[</kbd> winch<br>
+      <kbd>-</kbd>/<kbd>=</kbd> zoom · <kbd>R</kbd> <kbd>R</kbd> reset · <kbd>Esc</kbd> pause · <kbd>F3</kbd> the numbers<br>
+      One hook, one jack, one snatch block, two seats. Whoever gets there first gets it.
     </p>
     <button class="btn-start primary">start the job</button>
   </div>

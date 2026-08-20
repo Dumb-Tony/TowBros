@@ -17,7 +17,9 @@
 import { CONFIG } from '../src/config.js';
 import { GameClock } from '../src/core/clock.js';
 import { EventBus, EVENTS } from '../src/core/eventBus.js';
-import { Input, DEFAULT_BINDINGS } from '../src/core/input.js';
+import { Input, DEFAULT_BINDINGS, CREW_BINDINGS } from '../src/core/input.js';
+import { holdsHook, seatOf, carriedItem } from '../src/player/player.js';
+import { validateAuthority, releaseAll, claimHook, claimGear, claimSeat } from '../src/crew/authority.js';
 import { mulberry32, Rng, hashStr } from '../src/core/rng.js';
 import { rot, unrot, cross, capMag, smoothstep } from '../src/core/vec.js';
 import { Game, MODES } from '../src/game.js';
@@ -195,7 +197,7 @@ function reel(g, ms, stop = null) {
 /** Drive the truck as if someone were in the cab holding the throttle. */
 function drive(g, throttle, ms) {
   const t = g.state.vehicles.truck;
-  t.occupied = true;
+  t.occupiedBy = 'crew0';
   t.parkBrake = false;
   t.throttle = throttle;
   const chunk = 250;
@@ -204,7 +206,7 @@ function drive(g, throttle, ms) {
     g.skipMs(chunk);
   }
   t.throttle = 0;
-  t.occupied = false;
+  t.occupiedBy = null;
   return ms;
 }
 
@@ -1065,7 +1067,7 @@ emit('running H...');
 
     if (releaseBrake) st.vehicles.sedan.parkBrake = false;   // what E does standing at the car
     const tr = st.vehicles.truck;
-    tr.occupied = true; tr.parkBrake = false;
+    tr.occupiedBy = 'crew0'; tr.parkBrake = false;
     st.winch.motor = 0;
     const t0 = st.simTimeMs;
     let peak = 0;
@@ -1074,7 +1076,7 @@ emit('running H...');
       g.step(STEP, st.simTimeMs + STEP, null);
       peak = Math.max(peak, st.winch.tensionN);
     }
-    tr.throttle = 0; tr.occupied = false;
+    tr.throttle = 0; tr.occupiedBy = null;
     return {
       done: done(g), how: 'tow', afterWinch,
       on: cornersOnRoad(st.vehicles.sedan, st.terrain).on,
@@ -1255,7 +1257,7 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
      !!p.contextHint && /hook/.test(p.contextHint.label), p.contextHint && p.contextHint.label);
   tap('KeyE');
   eq('J4 pressing it takes the hook', st.winch.state, WINCH.HELD);
-  eq('J5 and the player is carrying it', p.holdingHook, true);
+  eq('J5 and the player is carrying it', holdsHook(st, p), true);
 
   // Walk it to the car. The drum free-spools to whoever is carrying it, and the line must end up
   // as long as the walk was — see the note on carryHook in src/player/player.js.
@@ -1275,7 +1277,7 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
   tap('KeyE');
   eq('J10 pressing it attaches', st.winch.state, WINCH.ATTACHED);
   ok('J11 to a real zone on the car', !!findZone(sedan.def, st.winch.zoneId));
-  eq('J12 and the player is no longer holding it', p.holdingHook, false);
+  eq('J12 and the player is no longer holding it', holdsHook(st, p), false);
   eq('J13 the attachment was logged for the recap', g.bus.count(EVENTS.HOOK_ATTACHED), 1);
 
   // The winch is reachable on foot — GDD §5 says always.
@@ -1308,13 +1310,13 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
   const expect = nearestGear(st, p.x, p.y);
   ok('J22 there is gear within reach of the staging area', !!expect);
   tap('KeyE');
-  eq('J23 the context key picks up the nearest item', p.carryingGearId, expect && expect.item.id);
+  eq('J23 the context key picks up the nearest item', carriedItem(st, p) && carriedItem(st, p).id, expect && expect.item.id);
   eq('J24 one object at a time — no inventory', st.gear.filter((q) => q.carriedBy).length, 1);
-  const carried = st.gear.find((q) => q.id === p.carryingGearId);
+  const carried = carriedItem(st, p);
   p.x = 30; p.y = 20; p.facing = 0;
   idle(STEP * 2);
   tap('KeyE');
-  eq('J25 and puts it down', p.carryingGearId, null);
+  eq('J25 and puts it down', carriedItem(st, p), null);
   ok(`J26 where the player was standing (${carried.x.toFixed(1)},${carried.y.toFixed(1)})`,
      Math.hypot(carried.x - 30, carried.y - 20) < 2.0);
 
@@ -1344,7 +1346,7 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
   p.x = c.x; p.y = c.y + 0.5; p.vx = 0; p.vy = 0;
   idle(STEP * 2);
   tap('Enter');
-  eq('J27 Enter gets in the truck', p.inVehicleId, 'truck');
+  eq('J27 Enter gets in the truck', seatOf(st, p) && seatOf(st, p).id, 'truck');
   const t0 = { x: truck.body.x, y: truck.body.y };
   hold('KeyW', 1500);
   gt('J28 the same key that walked now drives', Math.hypot(truck.body.x - t0.x, truck.body.y - t0.y), 1.0);
@@ -1353,7 +1355,7 @@ lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---
   hold('KeyD', 400);
   ok('J30 and steers', truck.steerRad !== steer0);
   tap('Enter');
-  eq('J31 Enter gets out again', p.inVehicleId, null);
+  eq('J31 Enter gets out again', seatOf(st, p), null);
   eq('J32 leaving the truck stops it being driven', truck.throttle, 0);
 
   // The parking brake, and the fact that touching the throttle releases it.

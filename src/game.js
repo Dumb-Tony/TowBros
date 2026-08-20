@@ -21,7 +21,8 @@ import { GameClock } from './core/clock.js';
 import { EventBus, EVENTS } from './core/eventBus.js';
 import { Rng, hashStr } from './core/rng.js';
 import { buildScene, stepGoal, stepEscalation, recapFrom } from './world/scene.js';
-import { stepPlayer, describeVehicle } from './player/player.js';
+import { stepCrew, describeVehicle, seatOf, holdsHook, carriedItem } from './player/player.js';
+import { validateAuthority } from './crew/authority.js';
 import { stepVehicle } from './sim/vehicle.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
@@ -59,6 +60,10 @@ export class Game {
 
     this._listeners = new Set();
     this.frames = 0;
+    /** Optional CommandLink (src/net/commands.js). When set, it supplies one input per seat every
+     *  step and whatever the caller passed to frame()/step() is ignored. Null means "the keyboard
+     *  is the input", which is what the M1 suite drives. */
+    this.link = null;
     this.state = this._newState();
     this._syncClockToMode();
   }
@@ -149,12 +154,40 @@ export class Game {
 
   /* ── simulation ───────────────────────────────────────────────────────── */
 
+  /**
+   * Normalise whatever the caller passed into an array indexed by crew SEAT.
+   *
+   * Milestone 2 needs one input source per crew member, but every existing caller — main.js, and
+   * the whole m1 suite — hands over a single Input. Accepting both keeps those working and means
+   * a one-player game is honestly just a crew of one.
+   */
+  _asInputs(input) {
+    /* A CommandLink, if one is attached, OVERRIDES whatever was passed in.
+     *
+     * Every seat then runs off a command frame — the local keyboard included, sampled and pushed
+     * through the transport like everybody else. One code path, so a local seat cannot quietly
+     * work while a remote one is broken. See src/net/commands.js.
+     *
+     * pump() runs from here, INSIDE the step, because sampling has to see the same input edges
+     * stepCrew is about to read. A step later and every tap is gone. */
+    if (this.link) return this.link.pump();
+    if (!input) return null;
+    return Array.isArray(input) ? input : [input];
+  }
+
   /** One real render frame. Called from requestAnimationFrame ONLY. */
   frame(realDeltaMs, input = null) {
     this.frames++;
+    // Deliberately NOT hoisted when a link is attached: each step needs its own freshly pumped
+    // frames, and _asInputs (called inside step) is what pumps them.
+    const inputs = this.link ? null : this._asInputs(input);
     return this.clock.advance(realDeltaMs, (stepMs, simTimeMs) => {
-      this.step(stepMs, simTimeMs, input);
-      if (input) input.endStep();     // input edges are consumed per SIM step, not per frame
+      this.step(stepMs, simTimeMs, inputs);
+      // Input edges are consumed per SIM step, not per frame — and per SEAT, or crew 1's tap
+      // would survive into a step where crew 0 had already consumed theirs.
+      if (inputs) for (const i of inputs) if (i) i.endStep();
+      // With a link attached the real keyboards sit behind it, so they need clearing from here.
+      if (this.link) for (const b of this.link.localSeats) b.input.endStep();
     });
   }
 
@@ -165,9 +198,11 @@ export class Game {
     const st = this.state;
     st.simTimeMs = simTimeMs;
     const dt = stepMs / 1000;
+    const inputs = this._asInputs(input);
 
-    // 1. Intent. Moves the player, sets driver inputs and the winch motor, carries the hook.
-    stepPlayer(st, st.terrain, dt, input, this.bus, simTimeMs);
+    // 1. Intent, for every crew member. Moves them, sets driver inputs, resolves the one drum
+    //    between several pairs of hands, carries the hook.
+    stepCrew(st, st.terrain, dt, inputs, this.bus, simTimeMs);
 
     // 2. Equipment. Rebuilds every multiplier and the block routing table from what is
     //    lying where, so the cable and the tires below read a current world.
@@ -201,9 +236,10 @@ export class Game {
 
   /** Fast-forward without real frames. Also how the test suite runs a whole recovery. */
   skipMs(ms, input = null) {
+    const inputs = this._asInputs(input);
     return this.clock.skipMs(ms, (stepMs, t) => {
-      this.step(stepMs, t, input);
-      if (input) input.endStep();
+      this.step(stepMs, t, inputs);
+      if (inputs) for (const i of inputs) if (i) i.endStep();
     });
   }
 
@@ -236,12 +272,15 @@ export class Game {
       events: this.bus.emitted,
 
       winch: describeWinch(st.winch),
-      player: {
-        x: r2(st.player.x), y: r2(st.player.y),
-        driving: !!st.player.inVehicleId,
-        holdingHook: st.player.holdingHook,
-        carrying: st.player.carryingGearId,
-      },
+      crew: st.crew.map((p) => ({
+        id: p.id, seat: p.seat,
+        x: r2(p.x), y: r2(p.y),
+        driving: seatOf(st, p)?.id ?? null,
+        holdingHook: holdsHook(st, p),
+        carrying: carriedItem(st, p)?.id ?? null,
+        stumbleMs: Math.round(p.stumbleMs),
+      })),
+      authority: (() => { const problems = validateAuthority(st); return { ok: problems.length === 0, problems }; })(),
       sedan: {
         ...sedan.body.describe(),
         surface: t.surfaceAt(sedan.body.x, sedan.body.y).id,

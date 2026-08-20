@@ -109,8 +109,8 @@ const TRUCK_ZONES = [
  * handbrake-locked sedan being dragged sideways.
  */
 const SEDAN_WHEELS = [
-  { id: 'wheelFL', local: { x: 1.34, y: -0.75 }, steer: false, drive: false, park: false, radiusM: 0.31 },
-  { id: 'wheelFR', local: { x: 1.34, y: 0.75 }, steer: false, drive: false, park: false, radiusM: 0.31 },
+  { id: 'wheelFL', local: { x: 1.34, y: -0.75 }, steer: true,  drive: false, park: false, radiusM: 0.31 },
+  { id: 'wheelFR', local: { x: 1.34, y: 0.75 }, steer: true,  drive: false, park: false, radiusM: 0.31 },
   { id: 'wheelRL', local: { x: -1.34, y: -0.75 }, steer: false, drive: false, park: true, radiusM: 0.31 },
   { id: 'wheelRR', local: { x: -1.34, y: 0.75 }, steer: false, drive: false, park: true, radiusM: 0.31 },
 ];

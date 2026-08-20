@@ -44,6 +44,34 @@ export const DEFAULT_BINDINGS = Object.freeze({
   zoomOut:   ['Minus'],
 });
 
+/**
+ * One binding map per crew seat, for people sharing a keyboard.
+ *
+ * GDD §7 Milestone 2 wants 2-4 players. The network transport is not the interesting part of that
+ * and it is the part that cannot be playtested alone, so local co-op comes first: seat 0 lives on
+ * the WASD cluster, seat 1 on the arrows and the punctuation keys to their left. Two hand
+ * positions, mirrored, which is how couch co-op has always worked.
+ *
+ * Seat 0 loses the arrow keys and the bracket keys it used to share — one seat cannot own both
+ * halves of the keyboard, and seat 1 needs somewhere to live. Seats 2 and 3 have no keyboard map
+ * at all: they exist for the network layer to drive, and a member with no input source simply
+ * takes no action, which is exactly what a client looks like between packets.
+ */
+export const CREW_BINDINGS = Object.freeze([
+  Object.freeze({
+    moveUp: ['KeyW'], moveDown: ['KeyS'], moveLeft: ['KeyA'], moveRight: ['KeyD'],
+    context: ['KeyE'], inspect: ['KeyQ'], detach: ['KeyF'],
+    enterExit: ['KeyV', 'Enter'], brake: ['Space'],
+    winchIn: ['KeyI'], winchOut: ['KeyO'],
+  }),
+  Object.freeze({
+    moveUp: ['ArrowUp'], moveDown: ['ArrowDown'], moveLeft: ['ArrowLeft'], moveRight: ['ArrowRight'],
+    context: ['Slash'], inspect: ['Period'], detach: ['Comma'],
+    enterExit: ['ShiftRight'], brake: ['Backslash'],
+    winchIn: ['BracketRight'], winchOut: ['BracketLeft'],
+  }),
+]);
+
 export class Input {
   constructor(target = window, bindings = DEFAULT_BINDINGS) {
     this.target = target;

@@ -89,6 +89,21 @@ export const CONFIG = {
     hookCarryOffsetM: 0.5,
   },
 
+  /* ── the crew ───────────────────────────────────────────────────────────── */
+  // GDD §7 Milestone 2: "2-4 player networking, player stumble/ragdoll punctuation, shared
+  // equipment ... and robust object authority."
+  crew: {
+    // How many people are on site. Two is the interesting number: it is the smallest crew where
+    // one can drive while the other rigs, and where two hands can want one hook.
+    count: 2,
+    maxCount: 4,
+    // Being clipped by a moving vehicle. PUNCTUATION, not damage — there is no health here, and
+    // the mechanical cost is that you drop what you were holding.
+    knockdownMps: 1.6,     // slower than this and a vehicle is just something you bumped into
+    stumbleMs: 900,        // base time on the ground, scaled by how fast it hit you
+    stumbleMaxMs: 2400,
+  },
+
   /* ── vehicle dynamics, shared ───────────────────────────────────────────── */
   vehicle: {
     // Lateral grip is applied as an impulse cancelling sideways wheel velocity, clamped
@@ -135,6 +150,11 @@ export const CONFIG = {
     massKg: 1400,
     lengthM: 4.55, widthM: 1.80,
     brakeForceN: 9000,      // the parking brake holding its rear wheels
+    // M2: somebody can now sit in the casualty and steer it while it is dragged (GDD §7,
+    // "an occupiable recovered vehicle for steering/braking"). A car steers further than a
+    // 7-tonne truck does, and the point of the feature is to keep it tracking up the bank
+    // rather than slewing, so it needs the lock to actually correct with.
+    maxSteerRad: 0.62,      // ~36°
     // "Bogged in": the resistance of a nose buried in wet ground. It is a real force in a
     // real recovery and it is why the first metre is the hard one. Decays with distance
     // travelled, so breaking a vehicle free genuinely frees it.

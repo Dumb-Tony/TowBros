@@ -85,7 +85,7 @@ export function createGearPile(at, rng) {
       x: at.x - col * 0.85 + rng.spread(0.14),
       y: at.y + row * 0.78 + rng.spread(0.12),
       angle: rng.range(0, Math.PI * 2),
-      carriedBy: null,        // 'player' while carried
+      carriedBy: null,        // crew id while carried — see src/crew/authority.js
       placed: false,          // set down somewhere it does work
       attachedTo: null,       // vehicle id (cribbing/jack) or anchor id (snatch block)
       liftStep: 0,            // jack only

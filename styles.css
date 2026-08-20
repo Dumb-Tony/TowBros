@@ -81,6 +81,18 @@ canvas{display:block;width:100%;height:100%}
   border:1px solid var(--line);border-radius:999px;padding:4px 13px}
 .held.on{display:block}
 .prompt{font-size:13.5px;color:var(--paper);text-shadow:0 1px 4px rgba(0,0,0,.9);text-align:center}
+/* Crew strip — one chip per person on site. Reads left to right in seat order, so the local
+   player is always the leftmost chip and stays where your eye already is. */
+.crew-strip{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:2px}
+.crew-chip{display:flex;align-items:center;gap:5px;font-size:11px;line-height:1;
+  padding:4px 8px 4px 6px;border-radius:11px;background:rgba(14,17,23,.78);
+  border:1px solid rgba(242,234,217,.16);color:var(--paper);white-space:nowrap}
+.crew-chip.me{border-color:rgba(242,234,217,.55);background:rgba(20,24,32,.88)}
+.crew-chip.down{border-color:rgba(232,120,90,.7)}
+.crew-chip i{width:8px;height:8px;border-radius:50%;display:block;
+  box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+.crew-chip b{font-weight:700;letter-spacing:.02em}
+.crew-chip span{opacity:.66}
 
 /* Large on-screen winch controls — required by GDD §5, not a mobile afterthought. */
 .winch-controls{display:flex;gap:10px}

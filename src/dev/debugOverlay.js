@@ -76,6 +76,24 @@ export class DebugOverlay {
       `       throttle ${d.truck.throttle}  steer ${d.truck.steerRad}  slip ${(truck.maxSlipMps || 0).toFixed(2)} m/s`,
       `       aids chocks ${truck.aids ? truck.aids.chocks : 0}   ${st.escalation.truckSlipping ? 'SLIPPING' : ''}${st.escalation.truckInDitch ? ' IN THE DITCH' : ''}`,
       '',
+      ...d.crew.map((c) => `CREW${c.seat}  ${c.id}${c.id === st.player.id ? ' (me)' : '     '}  ` +
+        `(${c.x.toFixed(1)}, ${c.y.toFixed(1)})  ` +
+        `${c.driving ? 'in the ' + c.driving : c.holdingHook ? 'HAS THE HOOK' : c.carrying ? 'carrying ' + c.carrying : '-'}` +
+        `${c.stumbleMs > 0 ? '   DOWN ' + c.stumbleMs + ' ms' : ''}`),
+      // The authority audit. "ok" is the only acceptable answer: anything else means two people
+      // believe they own the same object, which is a bug in a claim/release pair rather than a
+      // situation to recover from at runtime. Printing it every frame is how it gets noticed.
+      `AUTH   ${d.authority.ok ? 'ok' : 'BROKEN — ' + d.authority.problems.join('; ')}${st.winch.contested ? '   drum CONTESTED' : ''}`,
+      // The command seam. `local` is which seats this machine supplies; `pending` is frames queued
+      // but not yet delivered, which is latency made visible — the number a real transport would
+      // make interesting.
+      g.link
+        ? `LINK   ${g.link.seats} seats, local [${g.link.localSeats.map((b) => b.seat).join(',')}]`
+          + `  delay ${g.link.transport.delaySteps ?? 0} steps`
+          + `  sent ${g.link.transport.sent} recv ${g.link.transport.received}`
+          + `  pending [${(g.link.transport.pending || []).join(',')}]`
+        : 'LINK   none — keyboard straight into the step',
+      '',
       `GOAL   ${d.goal.cornersOnRoad}/4 corners  settled ${d.goal.settledMs} ms  ${d.goal.complete ? 'COMPLETE' : ''}`,
       `MISC   debris ${d.debris}  gear placed ${d.gear.placed}  blocks ${d.gear.blocks}  particles ${this.renderer.particles.length}`,
       '',

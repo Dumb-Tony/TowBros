@@ -21,7 +21,8 @@ export const EVENTS = Object.freeze({
   VEHICLE_ENTERED:    'VEHICLE_ENTERED',
   VEHICLE_EXITED:     'VEHICLE_EXITED',
   INSPECTED:          'INSPECTED',
-  BRAKE_SET:          'BRAKE_SET',      // { vehicle, on } — reached in through the window
+  BRAKE_SET:          'BRAKE_SET',      // { crew, vehicle, on } — reached in through the window
+  CREW_STUMBLED:      'CREW_STUMBLED',  // { crew, speed } knocked down by something moving
 
   // rigging
   HOOK_TAKEN:         'HOOK_TAKEN',      // carried off the drum on foot
@@ -69,7 +70,7 @@ export const EVENTS = Object.freeze({
 const STORY = new Set([
   'HOOK_ATTACHED', 'HOOK_DETACHED', 'RIG_APPLIED', 'BLOCK_MOUNTED', 'CABLE_ROUTED', 'BRAKE_SET',
   'WINCH_STALLED', 'CABLE_SNAPPED', 'ZONE_FAILED', 'COMPONENT_DETACHED', 'COMPONENT_DAMAGED',
-  'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED',
+  'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
   'RECOVERY_COMPLETE',
 ]);
 

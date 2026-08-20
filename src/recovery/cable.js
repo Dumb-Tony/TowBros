@@ -55,6 +55,9 @@ export function createWinch() {
     broken: false,
     spooledOut: false,              // hit the end of the drum
     blocked: false,                 // the load is against the truck; the drum will not pull harder
+    contested: false,               // two crew are pulling the controls opposite ways
+    // WHO is carrying the hook, or null. Ownership lives on the object — src/crew/authority.js.
+    heldBy: null,
     lastEffectiveN: 0,              // tension as the ATTACHMENT feels it, after shock
     _stallSaidMs: -9999,
   };

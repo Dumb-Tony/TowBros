@@ -58,7 +58,11 @@ export function createVehicle(def, spawn, opts = {}) {
     throttle: 0,
     brakeInput: 0,
     parkBrake: !def.driven,       // the sedan arrives with its handbrake on
-    occupied: false,
+    // WHO is in the seat, not whether somebody is — Milestone 2 has a crew, and ownership lives
+    // on the object it owns (src/crew/authority.js). `occupied` stays as a derived getter so the
+    // tire model, the audio mix and the escalation watch keep asking the question they always did.
+    occupiedBy: null,
+    get occupied() { return this.occupiedBy !== null; },
 
     // multipliers written by src/recovery/gear.js every step, read here and by the tires
     gripMul: 1,
@@ -295,12 +299,15 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
  *  self-centres when released, so a parked truck does not hold full lock forever. */
 export function applyDriverInput(veh, steerAxis, throttleAxis, parkBrakeToggle, dtSec) {
   const T = CONFIG.truck;
-  const target = steerAxis * T.maxSteerRad;
+  // The lock belongs to the vehicle — a car turns its wheels further than a 7-tonne wrecker.
+  // The RATES do not: they are how fast one pair of hands can spin a wheel, and it is the same
+  // pair of hands in either seat.
+  const maxSteer = veh.def.driven ? T.maxSteerRad : CONFIG.sedan.maxSteerRad;
+  const target = steerAxis * maxSteer;
   const rate = (steerAxis === 0 ? T.steerReturnRad : T.steerRateRad) * dtSec;
   const d = target - veh.steerRad;
   veh.steerRad += clamp(d, -rate, rate);
-  veh.steerRad = clamp(veh.steerRad, -T.maxSteerRad, T.maxSteerRad);
-
+  veh.steerRad = clamp(veh.steerRad, -maxSteer, maxSteer);
   // Pressing away from travel is braking, not reverse, until the vehicle has nearly stopped
   // — otherwise a tap of S at 8 m/s throws a 7-tonne truck into reverse.
   const fwd = veh.body.forward;

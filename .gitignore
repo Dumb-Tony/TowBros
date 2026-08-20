@@ -1,5 +1,6 @@
-# harness scratch — tools\smoketest.ps1 builds and deletes this
+# harness scratch — tools\smoketest.ps1 and tools\shot.ps1 build and delete these
 _smoketest.html
+_shot.html
 
 # OS / editor
 Thumbs.db

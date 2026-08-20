@@ -56,16 +56,39 @@ const len = pathLength(cablePath(st.winch, truck, st.vehicles, st.blocksById));
 st.winch.state = WINCH.LOOSE;
 attachHook(st, sedan, zone, g.bus, 0);
 st.winch.lineM = len;
+/* Pull for a while, so the line is loaded, the tires have laid tracks, and the car is on its way
+ * up the bank. This is the frame worth showing.
+ *
+ * Held through the LOCAL INPUT, not by setting winch.motor and not by pushing frames at the
+ * transport by hand. Two reasons, both learned the hard way:
+ *
+ *   winch.motor  the live page drives every seat through the command link, so stepCrew resolves
+ *                the drum from the crew's hands every step and overwrites anything set directly.
+ *   raw frames   link.pump() already sends one frame per seat per step, and the transport
+ *                delivers at most one per step. A second hand-rolled send per step therefore
+ *                interleaves with the keyboard's, halving the duty cycle (measured: the drum ran
+ *                on 330 of 660 steps) and backing up 660 frames that never arrive.
+ *
+ * A virtual button is exactly what the HUD's on-screen winch control does, so this is the real
+ * path with no extra machinery.
+ */
+TB.inputs[0].virtualDown('winchIn');
+for (let i = 0; i < Math.round(11000 / CONFIG.sim.stepMs); i++) {
+  g.step(CONFIG.sim.stepMs, st.simTimeMs + CONFIG.sim.stepMs, null);
+}
+TB.inputs[0].virtualUp('winchIn');
 
-// Pull for a while, so the line is loaded, the tires have laid tracks, and the car is on its
-// way up the bank. This is the frame worth showing.
-st.winch.motor = 1;
-g.skipMs(11000);
-
-// The player stands beside the rig, watching, which is where they would be.
-st.player.x = s.x + 4.6;
-st.player.y = s.y - 6.4;
-st.player.facing = Math.atan2(s.y - st.player.y, s.x - st.player.x);
+/* The crew stand beside the rig, watching, which is where they would be: one at the winch end and
+ * one down by the car, because that is how two people actually cover a recovery. */
+const poses = [
+  { x: s.x + 4.6, y: s.y - 6.4 },
+  { x: s.x - 2.2, y: s.y - 3.1 },
+];
+st.crew.forEach((c, i) => {
+  const q = poses[i % poses.length];
+  c.x = q.x; c.y = q.y; c.vx = 0; c.vy = 0;
+  c.facing = Math.atan2(s.y - c.y, s.x - c.x);
+});
 
 TB.camera.setViewWidth(58);
 TB.camera.follow((s.x + t.x) / 2, (s.y + t.y) / 2 + 2.5, 0);

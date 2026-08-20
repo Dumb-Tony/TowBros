@@ -19,7 +19,7 @@ import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
 import { buildScenery } from '../sim/collision.js';
 import { createWinch } from '../recovery/cable.js';
-import { createPlayer } from '../player/player.js';
+import { createCrewMember } from '../player/player.js';
 
 /**
  * Build one attempt. Every draw from `rng` is a variation the GDD asked for; none of them
@@ -57,14 +57,23 @@ export function buildScene(rng) {
   if (rng.chance(0.35)) sedan.damage.dents = rng.int(1, 3);
 
   const gear = createGearPile(terrain.anchors.gearPile, rng);
-  const player = createPlayer(terrain.anchors.player);
 
-  return {
+  // The crew. GDD §7 Milestone 2 puts two to four of them on site; they arrive together, spread
+  // along the shoulder beside the truck rather than stacked on one spawn point.
+  const crew = [];
+  for (let i = 0; i < CONFIG.crew.count; i++) {
+    crew.push(createCrewMember(`crew${i}`, i, {
+      x: terrain.anchors.player.x - i * 1.5,
+      y: terrain.anchors.player.y + (i % 2) * 0.9,
+    }));
+  }
+
+  const st = {
     terrain,
     scenery: buildScenery(terrain),
     vehicles: { truck, sedan },
     gear,
-    player,
+    crew,
     winch: createWinch(),
     blocksById: {},
     debris: [],
@@ -85,6 +94,15 @@ export function buildScene(rng) {
     /** Presentation-only, written by the sim and read by the renderer. */
     fx: { particles: [], impacts: [], snapFlashMs: 0, peakImpulse: 0 },
   };
+
+  /* `st.player` is crew[0], BY REFERENCE not by copy.
+   *
+   * The renderer, the HUD and the m1 suite were all written against a single player, and there is
+   * no reason to churn them to prove a point: the first crew member IS the local player, and a
+   * reference cannot fall out of sync the way a duplicate would. Anything that genuinely has to
+   * handle several people — drawing them, the authority checks — reads `st.crew`. */
+  st.player = crew[0];
+  return st;
 }
 
 /**

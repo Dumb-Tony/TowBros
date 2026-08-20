@@ -27,6 +27,7 @@ import { clamp, clamp01, lerp, unit, norm } from '../core/vec.js';
 import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 import { mulberry32 } from '../core/rng.js';
+import { seatOf, carriedItem } from '../player/player.js';
 
 /** Resolution of the painted terrain, pixels per metre. A sharpness/build-time trade, paid once
  *  per attempt: 20 px/m paints the 92x48 m site in ~250 ms and holds up at the default zoom,
@@ -352,7 +353,7 @@ export class Renderer {
 
     this._drawTrees(ctx, st.terrain);       // canopies overhang everything on the ground
     this._drawCable(ctx, st);
-    this._drawPlayer(ctx, st);
+    this._drawCrew(ctx, st);
     this._spawnTireFx(st, dtSec);
     this._drawParticles(ctx, dtSec);
 
@@ -831,29 +832,44 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawPlayer(ctx, st) {
-    const p = st.player;
-    if (p.inVehicleId) return;      // in the cab; the truck is the avatar now
+  /* Draw the whole crew, not one player.
+   *
+   * Each member is the same shape in a different hi-vis tint (player.js CREW_TINT), because on a
+   * dark green hillside at twenty pixels across, colour is the only thing that reads. The local
+   * player — crew[0] — gets a brighter ring so you can find yourself in a scrum without counting.
+   *
+   * Ownership is read off the objects here exactly as it is everywhere else: `winch.heldBy`,
+   * `gear.carriedBy`, `vehicle.occupiedBy`. The renderer keeps no idea of its own about who has
+   * what, which is the whole point of doing authority this way.
+   */
+  _drawCrew(ctx, st) {
+    for (const p of st.crew) {
+      if (seatOf(st, p)) continue;    // in a cab; the vehicle is the avatar now
+      const me = p === st.player;
+      const stumbling = p.stumbleMs > 0;
 
-    // The player is 0.64 m across on a dark green hillside — about twenty pixels. The dark ring
-    // is not decoration, it is the only reason they can be found at a glance.
-    ctx.fillStyle = 'rgba(4,6,10,0.4)';
-    ctx.beginPath(); ctx.arc(p.x - LIGHT.x * 0.16, p.y - LIGHT.y * 0.16, p.radiusM * 1.05, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM * 1.18, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(10,12,18,0.85)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM, 0, Math.PI * 2);
-    fillLit(ctx, p.x, p.y, p.radiusM, COL.playerCoat, 0, 0.72, 1.24);
-    // Hard hat, lit from the same direction as everything else.
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM * 0.52, 0, Math.PI * 2);
-    fillLit(ctx, p.x, p.y, p.radiusM * 0.52, COL.player, 0, 0.8, 1.15);
-    // Facing wedge: which way "place it ahead of me" means.
-    ctx.strokeStyle = 'rgba(20,22,28,0.75)'; ctx.lineWidth = 0.1;
-    line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * 0.56, p.y + Math.sin(p.facing) * 0.56);
-    ctx.strokeStyle = 'rgba(242,234,217,0.95)'; ctx.lineWidth = 0.06;
-    line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * 0.55, p.y + Math.sin(p.facing) * 0.55);
+      // A stumble squashes the silhouette and tips the facing line over. It is the only place the
+      // renderer editorialises about state, and it is worth it: being knocked down has to be
+      // legible from across the map or it reads as a physics glitch.
+      const squash = stumbling ? 0.62 : 1;
+      const rad = p.radiusM * squash;
 
-    if (p.carryingGearId) {
-      const item = st.gear.find((g) => g.id === p.carryingGearId);
+      ctx.fillStyle = 'rgba(4,6,10,0.4)';
+      ctx.beginPath(); ctx.arc(p.x - LIGHT.x * 0.16, p.y - LIGHT.y * 0.16, rad * 1.05, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, rad * 1.18, 0, Math.PI * 2);
+      ctx.fillStyle = me ? 'rgba(242,234,217,0.75)' : 'rgba(10,12,18,0.85)'; ctx.fill();
+      fillLit(ctx, p.x, p.y, rad, COL.playerCoat, 0, 0.72, 1.24);
+      // Hard hat in this member's tint — the identity marker.
+      fillLit(ctx, p.x, p.y, rad * 0.52, p.tint, 0, 0.8, 1.15);
+
+      // Facing wedge: which way "place it ahead of me" means. Flat on the ground when stumbling.
+      const fl = stumbling ? 0.34 : 0.56;
+      ctx.strokeStyle = 'rgba(20,22,28,0.75)'; ctx.lineWidth = 0.1;
+      line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * fl, p.y + Math.sin(p.facing) * fl);
+      ctx.strokeStyle = stumbling ? 'rgba(232,120,90,0.95)' : 'rgba(242,234,217,0.95)'; ctx.lineWidth = 0.06;
+      line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * (fl - 0.01), p.y + Math.sin(p.facing) * (fl - 0.01));
+
+      const item = carriedItem(st, p);
       if (item) {
         const def = GEAR[item.kind];
         const cx = p.x + Math.cos(p.facing) * 0.42, cy = p.y + Math.sin(p.facing) * 0.42;
