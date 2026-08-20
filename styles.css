@@ -1,0 +1,139 @@
+/* Tow Bros — interface chrome. The world is Canvas 2D; these are the DOM panels over it.
+ *
+ * Token contract inherited from Chameleon / Something's Different / Airport Baggage Crew
+ * (Dev\INDEX.md "UI / shell" -> style tokens), so all four games look like one studio's work.
+ * Fonts are NOT fetched — no external requests at runtime. Quicksand and Baloo 2 are used when
+ * the player happens to have them; the stack falls back cleanly.
+ */
+
+:root{
+  --bg:#0b0a12; --panel:#171522; --panel2:#211e30; --line:#332f47;
+  --text:#eae6f4; --dim:#8d87a3; --paper:#f2ead9;
+  --lime:#a8d93a; --violet:#8a7ff0; --coral:#ff5a5a;
+  --amber:#f2c14e; --steel:#b9c2cc; --rust:#c8552f;
+
+  --font-ui:Quicksand,'Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-display:'Baloo 2','Segoe UI',system-ui,sans-serif;
+  --font-mono:ui-monospace,'Cascadia Mono',Consolas,monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:var(--bg);
+  font-family:var(--font-ui);color:var(--text)}
+canvas{display:block;width:100%;height:100%}
+
+#stage{position:fixed;inset:0}
+#ui{position:fixed;inset:0;pointer-events:none}
+#ui button,#ui .screen.on{pointer-events:auto}
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.hud-top{position:absolute;top:0;left:0;right:0;display:none;
+  gap:20px;align-items:flex-start;padding:10px 16px;
+  background:linear-gradient(180deg,rgba(11,10,18,.9),rgba(11,10,18,0))}
+.hud-top.on{display:flex}
+.hud-clock{font-family:var(--font-mono)}
+.hud-time{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--dim)}
+.objective{font-size:14px;letter-spacing:.02em;padding-top:3px}
+.hud-slot{flex:1;display:flex;justify-content:flex-end}
+
+/* ── the tension gauge: the one number that is always on screen ──────────── */
+.winch-panel{min-width:230px;background:rgba(23,21,34,.82);border:1px solid var(--line);
+  border-radius:9px;padding:7px 11px 8px}
+.winch-state{font-size:11px;letter-spacing:.06em;color:var(--dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.winch-state.stalled{color:var(--coral);font-weight:700}
+.gauge{position:relative;height:9px;margin:6px 0 4px;background:#0e0d16;
+  border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.gauge-fill{position:absolute;inset:0 auto 0 0;width:0%;background:var(--steel);
+  transition:background-color .18s linear}
+.gauge[data-level="warn"] .gauge-fill{background:var(--amber)}
+.gauge[data-level="danger"] .gauge-fill{background:var(--coral)}
+/* Where the winch motor gives up, marked once so the player can see a stall coming. */
+.gauge-warn{position:absolute;top:0;bottom:0;left:81%;width:2px;background:rgba(242,234,217,.4)}
+.winch-nums{display:flex;justify-content:space-between;font-family:var(--font-mono);
+  font-size:11px;color:var(--dim)}
+.tension-val{color:var(--text);font-weight:700}
+
+/* ── job log: the answer to the north-star question, bottom left ─────────── */
+.joblog{position:absolute;left:16px;bottom:16px;display:none;max-width:38ch;
+  font-family:var(--font-mono);font-size:11.5px;line-height:1.6}
+.joblog.on{display:block}
+.logline{color:var(--dim);text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.logline .t{display:inline-block;min-width:4.6em;color:#5f5b77}
+.logline.loud{color:var(--paper);font-weight:700}
+
+/* ── inspect card ────────────────────────────────────────────────────────── */
+.inspect-card{position:absolute;right:16px;top:96px;display:none;max-width:31ch;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--violet);
+  border-radius:9px;padding:11px 14px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.inspect-card.on{display:block}
+.inspect-card h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--violet);margin-bottom:6px;font-weight:700}
+.inspect-card p{font-size:12.5px;line-height:1.55;color:var(--text);margin-bottom:5px}
+.inspect-card p:last-child{margin-bottom:0;color:var(--dim)}
+
+/* ── bottom bar ──────────────────────────────────────────────────────────── */
+.hud-bottom{position:absolute;left:0;right:0;bottom:0;display:none;
+  flex-direction:column;align-items:center;gap:9px;padding:0 16px 16px;
+  background:linear-gradient(0deg,rgba(11,10,18,.82),rgba(11,10,18,0))}
+.hud-bottom.on{display:flex}
+.held{display:none;font-size:12px;color:var(--paper);background:var(--panel);
+  border:1px solid var(--line);border-radius:999px;padding:4px 13px}
+.held.on{display:block}
+.prompt{font-size:13.5px;color:var(--paper);text-shadow:0 1px 4px rgba(0,0,0,.9);text-align:center}
+
+/* Large on-screen winch controls — required by GDD §5, not a mobile afterthought. */
+.winch-controls{display:flex;gap:10px}
+.winch-btn{font-family:var(--font-ui);font-size:13px;font-weight:700;cursor:pointer;
+  border-radius:9px;padding:9px 18px;background:var(--panel2);color:var(--text);
+  border:1px solid var(--line);user-select:none;touch-action:none}
+.winch-btn kbd{margin-left:6px}
+.winch-btn.pressed{background:var(--violet);border-color:var(--violet);color:#12101d}
+.winch-btn.primary{background:#2a3320;border-color:#3f4d30}
+.winch-btn.primary.pressed{background:var(--lime);border-color:var(--lime);color:#151a08}
+.reset-hint{display:none;font-size:11.5px;color:var(--coral)}
+.reset-hint.on{display:block}
+
+/* ── full-screen cards ───────────────────────────────────────────────────── */
+.screen{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(11,10,18,.84);backdrop-filter:blur(3px)}
+.screen.on{display:flex}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:32px 36px;max-width:560px;text-align:center;
+  box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.card.wide{max-width:620px;text-align:left}
+.card h1{font-family:var(--font-display);font-size:44px;font-weight:800;
+  letter-spacing:.02em;margin-bottom:4px}
+.card h2{font-family:var(--font-display);font-size:28px;font-weight:800;margin-bottom:8px}
+.card .tag{color:var(--dim);font-size:14px;margin-bottom:4px}
+.card .milestone{color:var(--lime);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;margin:14px 0 18px}
+.card .hint{color:var(--dim);font-size:13px;margin-top:16px;line-height:1.65}
+.card .scope{color:#6a6684;font-size:12px;margin-top:14px;line-height:1.9}
+.card.wide h2{text-align:center}
+
+/* the recap: every line is something the player did or caused */
+ul.recap{list-style:none;margin:10px 0 4px;max-height:38vh;overflow:auto;
+  font-family:var(--font-mono);font-size:12px;line-height:1.75}
+ul.recap li{color:var(--text);border-bottom:1px solid rgba(51,47,71,.5);padding:2px 0}
+ul.recap li span{display:inline-block;min-width:4.4em;color:#5f5b77}
+
+kbd{font-family:var(--font-mono);font-size:11px;background:var(--panel2);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px}
+
+button{font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;
+  border-radius:9px;padding:11px 22px;margin:14px 4px 0;
+  background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+button:hover{border-color:var(--violet)}
+button.primary{background:var(--lime);color:#151a08;border-color:transparent}
+button.primary:hover{filter:brightness(1.08)}
+button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+
+/* ── developer overlay (never player-facing) ─────────────────────────────── */
+.debug{position:absolute;top:0;left:0;display:none;white-space:pre;
+  font-family:var(--font-mono);font-size:11px;line-height:1.42;
+  color:#5ce1e6;background:rgba(6,10,12,.88);border-right:1px solid #17414a;
+  border-bottom:1px solid #17414a;padding:9px 13px;max-width:62ch;pointer-events:none}
+.debug.on{display:block}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

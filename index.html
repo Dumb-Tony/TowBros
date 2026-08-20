@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tow Bros</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:,">
+<script>
+/* Crash banner — copied from SomethingsDifferent:444 via AirportBaggageCrew, where it has
+   caught real bugs repeatedly (Dev\INDEX.md "UI / shell"). Keeps the FIRST error and tallies
+   follow-ons, because the first one is nearly always the cause.
+
+   Inline and FIRST on purpose: it must exist before any module is fetched, or a module that
+   fails to parse produces a silent white page. */
+window.onerror = function (msg, src, line) {
+  let b = document.getElementById('err-banner');
+  if (!b) {
+    b = document.createElement('div'); b.id = 'err-banner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#7a1f1f;' +
+      'color:#ffd9d9;font:700 13px system-ui,sans-serif;padding:10px 16px;text-align:center';
+    (document.body || document.documentElement).appendChild(b);
+  }
+  if (!b.dataset.first) {
+    b.dataset.first = '1';
+    b.textContent = '⚠ Game error (send this to Claude): ' + msg + ' [line ' + line + ']';
+  } else if (b.textContent.length < 420) {
+    b.dataset.n = (+b.dataset.n || 1) + 1;
+    b.textContent += '  ·  then: ' + msg + ' [line ' + line + ']';
+  }
+};
+/* Module load/parse failures and rejected promises do not always reach window.onerror. */
+window.addEventListener('error', function (e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window.onerror('Failed to load script: ' + (e.target.src || '(inline)'), '', 0);
+  }
+}, true);
+window.addEventListener('unhandledrejection', function (e) {
+  window.onerror('Unhandled promise rejection: ' + (e.reason && e.reason.message || e.reason), '', 0);
+});
+/* ES modules are blocked by CORS on file:// — the page must be served over http. play.bat does
+   that. See README "Known limitations". */
+if (location.protocol === 'file:') {
+  window.onerror('This page must be served over http, not opened from disk — ES modules are ' +
+                 'blocked on file://. Run play.bat (or tools\\serve.ps1).', '', 0);
+}
+</script>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="ui"></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

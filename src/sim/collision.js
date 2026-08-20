@@ -1,0 +1,236 @@
+/* Contacts: box-vs-box, box-vs-tree, box-vs-guardrail.
+ *
+ * Separating-axis test for the overlap, then ONE impulse at the deepest point. No manifold,
+ * no warm starting, no stacking. GDD §4 simplification contract: "damped planar rigid
+ * bodies", and this is the contact model that matches that promise.
+ *
+ * One point of contact is enough because of what contacts are FOR in this game. They are
+ * not a physics showcase; they are the moment a recovery goes wrong — a sedan swinging into
+ * the guardrail, a truck sliding into the vehicle it came to collect, a torn-off bumper
+ * getting run over. Each of those needs a believable shove, a rotation, and an IMPULSE
+ * NUMBER that the damage system can compare against a threshold. It does not need
+ * penetration-free stacking.
+ *
+ * Everything static (trees, rail) is expressed as a Body with invMass 0, so there is one
+ * code path rather than three.
+ */
+
+import { CONFIG } from '../config.js';
+import { cross, clamp } from '../core/vec.js';
+
+/** Half-thickness used to turn a guardrail segment into a thin box. */
+const RAIL_HALF_W = 0.09;
+
+/**
+ * Separating-axis overlap test between two oriented boxes.
+ * @returns {{nx:number, ny:number, depth:number, cx:number, cy:number}|null}
+ *   normal points from a toward b; (cx,cy) is the contact point.
+ */
+export function obbOverlap(a, b) {
+  // Broad phase first: two circumscribed circles. Most pairs die here.
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const rr = a.boundRadius + b.boundRadius;
+  if (dx * dx + dy * dy > rr * rr) return null;
+
+  const axes = [];
+  const ca = Math.cos(a.angle), sa = Math.sin(a.angle);
+  const cb = Math.cos(b.angle), sb = Math.sin(b.angle);
+  axes.push({ x: ca, y: sa }, { x: -sa, y: ca }, { x: cb, y: sb }, { x: -sb, y: cb });
+
+  const ac = a.corners(), bc = b.corners();
+  let best = null;
+
+  for (const ax of axes) {
+    let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
+    for (const p of ac) { const d = p.x * ax.x + p.y * ax.y; if (d < aMin) aMin = d; if (d > aMax) aMax = d; }
+    for (const p of bc) { const d = p.x * ax.x + p.y * ax.y; if (d < bMin) bMin = d; if (d > bMax) bMax = d; }
+    if (aMax < bMin || bMax < aMin) return null;          // a separating axis: done
+    const overlap = Math.min(aMax - bMin, bMax - aMin);
+    if (!best || overlap < best.depth) {
+      // Orient the axis from a to b so callers never have to guess the sign.
+      const sign = (dx * ax.x + dy * ax.y) < 0 ? -1 : 1;
+      best = { nx: ax.x * sign, ny: ax.y * sign, depth: overlap };
+    }
+  }
+  if (!best) return null;
+
+  // Contact point: b's corner furthest along -n, which is its deepest point inside a.
+  let deep = bc[0], deepD = Infinity;
+  for (const p of bc) {
+    const d = p.x * best.nx + p.y * best.ny;
+    if (d < deepD) { deepD = d; deep = p; }
+  }
+  best.cx = deep.x; best.cy = deep.y;
+  return best;
+}
+
+/** Closest point on an oriented box to a world point, plus whether it was inside. */
+export function closestOnBox(box, wx, wy) {
+  const l = box.toLocal(wx, wy);
+  const cx = clamp(l.x, -box.halfL, box.halfL);
+  const cy = clamp(l.y, -box.halfW, box.halfW);
+  const inside = cx === l.x && cy === l.y;
+  const w = box.toWorld(cx, cy);
+  return { x: w.x, y: w.y, inside, localX: cx, localY: cy };
+}
+
+/**
+ * Resolve one contact with a single impulse plus positional correction.
+ *
+ * @param {number} restitution  0 is a dead thud, which is what two vehicles at 3 m/s are
+ * @param {number} friction     tangential impulse as a fraction of the normal one
+ * @returns {number} normal impulse magnitude in N·s — the number the damage system reads
+ */
+export function resolveContact(a, b, hit, restitution = 0.12, friction = 0.45) {
+  const { nx, ny, depth, cx, cy } = hit;
+  const invSum = a.invMass + b.invMass;
+  if (invSum <= 0) return 0;
+
+  const raX = cx - a.x, raY = cy - a.y;
+  const rbX = cx - b.x, rbY = cy - b.y;
+
+  const va = a.velocityAt(cx, cy);
+  const vb = b.velocityAt(cx, cy);
+  const rvx = vb.x - va.x, rvy = vb.y - va.y;
+  const vn = rvx * nx + rvy * ny;
+
+  // Separating already: no impulse, but still push them apart below.
+  let jn = 0;
+  if (vn < 0) {
+    const rnA = cross(raX, raY, nx, ny);
+    const rnB = cross(rbX, rbY, nx, ny);
+    const denom = invSum + rnA * rnA * a.invInertia + rnB * rnB * b.invInertia;
+    jn = -(1 + restitution) * vn / denom;
+    a.applyImpulseAt(-jn * nx, -jn * ny, cx, cy);
+    b.applyImpulseAt(jn * nx, jn * ny, cx, cy);
+
+    // Tangential friction, Coulomb-clamped to the normal impulse. This is what makes a
+    // glancing hit spin a vehicle instead of sliding it cleanly along.
+    const tx = -ny, ty = nx;
+    const va2 = a.velocityAt(cx, cy), vb2 = b.velocityAt(cx, cy);
+    const vt = (vb2.x - va2.x) * tx + (vb2.y - va2.y) * ty;
+    const rtA = cross(raX, raY, tx, ty);
+    const rtB = cross(rbX, rbY, tx, ty);
+    const denomT = invSum + rtA * rtA * a.invInertia + rtB * rtB * b.invInertia;
+    let jt = -vt / denomT;
+    const maxT = friction * Math.abs(jn);
+    jt = clamp(jt, -maxT, maxT);
+    a.applyImpulseAt(-jt * tx, -jt * ty, cx, cy);
+    b.applyImpulseAt(jt * tx, jt * ty, cx, cy);
+  }
+
+  // Positional correction. 80% of the overlap, leaving a little so resting bodies do not
+  // buzz between overlapping and separated every step.
+  const corr = depth * 0.8;
+  a.x -= nx * corr * (a.invMass / invSum);
+  a.y -= ny * corr * (a.invMass / invSum);
+  b.x += nx * corr * (b.invMass / invSum);
+  b.y += ny * corr * (b.invMass / invSum);
+
+  return jn;
+}
+
+/** A static Body-shaped stand-in for scenery, built once per attempt and reused. */
+function staticBox(id, x, y, angle, halfL, halfW) {
+  return {
+    id, x, y, angle, halfL, halfW,
+    vx: 0, vy: 0, omega: 0, invMass: 0, invInertia: 0, massKg: Infinity,
+    get boundRadius() { return Math.hypot(this.halfL, this.halfW); },
+    corners() {
+      const c = Math.cos(this.angle), s = Math.sin(this.angle);
+      const L = this.halfL, W = this.halfW;
+      return [[L, -W], [L, W], [-L, W], [-L, -W]].map(([lx, ly]) => ({
+        x: this.x + lx * c - ly * s, y: this.y + lx * s + ly * c,
+      }));
+    },
+    toLocal(wx, wy) {
+      const c = Math.cos(-this.angle), s = Math.sin(-this.angle);
+      const dx = wx - this.x, dy = wy - this.y;
+      return { x: dx * c - dy * s, y: dx * s + dy * c };
+    },
+    toWorld(lx, ly) {
+      const c = Math.cos(this.angle), s = Math.sin(this.angle);
+      return { x: this.x + lx * c - ly * s, y: this.y + lx * s + ly * c };
+    },
+    velocityAt() { return { x: 0, y: 0 }; },
+    applyImpulseAt() {},
+  };
+}
+
+/** Build the static collision set for a scene. Trees become square boxes (a round trunk in
+ *  a box world is close enough at this scale); rail segments become thin ones. */
+export function buildScenery(terrain) {
+  const items = [];
+  for (const t of terrain.trees) {
+    items.push({ kind: 'tree', ref: t, box: staticBox(t.id, t.x, t.y, 0, t.r, t.r) });
+  }
+  for (const s of terrain.railSegments) {
+    const mx = (s.ax + s.bx) / 2, my = (s.ay + s.by) / 2;
+    const ang = Math.atan2(s.by - s.ay, s.bx - s.ax);
+    const half = Math.hypot(s.bx - s.ax, s.by - s.ay) / 2;
+    items.push({ kind: 'rail', ref: s, box: staticBox(s.id, mx, my, ang, half, RAIL_HALF_W) });
+  }
+  return items;
+}
+
+/**
+ * All contacts for one step: dynamic-vs-dynamic, then dynamic-vs-scenery.
+ *
+ * @param {Array<{body:Body, id:string}>} dynamics  vehicles and debris, in a stable order
+ * @param {Array} scenery  from buildScenery
+ * @param {object} bus
+ * @param {number} simTimeMs
+ * @param {(a,b,impulse,hit)=>void} [onImpact]  damage hook; kept out of here on purpose
+ * @returns {number} the largest impulse of the step, for camera kick and audio
+ */
+export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
+  let peak = 0;
+
+  for (let i = 0; i < dynamics.length; i++) {
+    for (let j = i + 1; j < dynamics.length; j++) {
+      const A = dynamics[i], B = dynamics[j];
+      const hit = obbOverlap(A.body, B.body);
+      if (!hit) continue;
+      const jn = resolveContact(A.body, B.body, hit, 0.12, 0.45);
+      if (jn > peak) peak = jn;
+      if (onImpact) onImpact(A, B, jn, hit);
+    }
+  }
+
+  for (const A of dynamics) {
+    for (const S of scenery) {
+      if (S.kind === 'rail' && S.ref.broken) continue;
+      const hit = obbOverlap(A.body, S.box);
+      if (!hit) continue;
+      // A tree does not move and does not care. The rail is the opposite of that.
+      const rest = S.kind === 'tree' ? 0.22 : 0.05;
+      const jn = resolveContact(A.body, S.box, hit, rest, 0.55);
+      if (jn > peak) peak = jn;
+
+      if (S.kind === 'rail') {
+        // The rail is weak on purpose — GDD §4 lists it among the things that "create
+        // options". It yields first, sagging out of the way and getting easier to push, and
+        // only then lets go. Judged on impulse, for the reason in CONFIG.damage.
+        const imp = Math.abs(jn);
+        if (imp > CONFIG.damage.guardrailBreakNs && !S.ref.broken) {
+          S.ref.broken = true;
+          bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: true, impulseNs: Math.round(imp) }, simTimeMs);
+        } else if (imp > CONFIG.damage.guardrailYieldNs) {
+          const add = Math.min(0.28, (imp - CONFIG.damage.guardrailYieldNs) / CONFIG.damage.guardrailYieldNs * 0.20);
+          if (add > 0.004) {
+            S.ref.bend = Math.min(1.1, S.ref.bend + add);
+            S.box.y += add * 0.5;              // it sags south, out of the recovery lane
+            S.ref.ay += add * 0.5; S.ref.by += add * 0.5;
+            if (S.ref.bend > 0.12 && !S.ref._reported) {
+              S.ref._reported = true;
+              bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: false, impulseNs: Math.round(imp) }, simTimeMs);
+            }
+          }
+        }
+      }
+      if (onImpact) onImpact(A, { id: S.box.id, kind: S.kind, ref: S.ref }, jn, hit);
+    }
+  }
+
+  return peak;
+}
