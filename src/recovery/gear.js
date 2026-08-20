@@ -23,7 +23,12 @@ import { drumsOf } from './cable.js';
 function resetAids(st) {
   for (const id of Object.keys(st.vehicles)) {
     const v = st.vehicles[id];
-    v.dragMul = 1;
+    /* Back to what the VEHICLE is worth, not to 1. A car on its roof drags 1.6x, and that is a
+     * fact about the car rather than about the gear lying near it — resetting to 1 here meant the
+     * rollover penalty applied for exactly one frame before this wiped it, every step, for as long
+     * as the rollover mechanic has existed. `gripMul` was never reset and so never had the bug,
+     * which is why it survived and this did not. */
+    v.dragMul = v.rolled ? CONFIG.vehicle.rolledDragMul : 1;
     v.boggedMul = 1;
     v.spinResistN = 0;
     v.chockAids = [];

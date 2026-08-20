@@ -333,6 +333,12 @@ export const CONFIG = {
     rollThresholdG: 1.9,    // lateral g at which a vehicle starts going over
     rollSustainMs: 220,     // ...and how long it has to stay there. A rollover is a rotation,
                             // not an instant: see the note in sim/vehicle.js.
+    /* What being on its roof costs, either way round: a car that goes over mid-recovery and one
+     * that arrived that way (Milestone 7's `arrivesRolled`) are the same state and must read the
+     * same numbers, or the two would drift. Measured: the same straight pull on the same car needs
+     * 17.3 kN upright and 28.1 kN on its roof. */
+    rolledGripMul: 0.55,
+    rolledDragMul: 1.6,
   },
 
   truck: {
@@ -441,6 +447,22 @@ export const CONFIG = {
     brakeForceN: 15000,
     maxSteerRad: 0.54,
     boggedFreeM: 0.70,
+  },
+  /* A motorcycle (Milestone 7). 230 kg — less than the winch's own breaking strain and a fraction
+   * of what any zone on any other vehicle is rated for, which is the point: pulling on it hard is
+   * not the problem. It has no side-to-side base at all, so it goes wherever the line points the
+   * instant the line comes tight, and the plan is a straight rig rather than more force.
+   *
+   * Its rollover thresholds are its own rather than CONFIG.vehicle's shared pair, because two
+   * wheels on the centreline is exactly the case those numbers were never chosen for. */
+  motorcycle: {
+    massKg: 230,
+    lengthM: 2.10, widthM: 0.78,
+    brakeForceN: 1500,
+    maxSteerRad: 0.70,
+    boggedFreeM: 0.35,
+    rollThresholdG: 0.55,
+    rollSustainMs: 140,
   },
   boxTruck: {
     massKg: 7200,
@@ -617,8 +639,10 @@ export const CONFIG = {
     recoverPerSec: 9000,
     /** Below this fraction of its rating nothing accumulates at all — a loaded anchor is normal. */
     creepFrac: 1.0,
-    /** What an uprooted tree leaves behind: it stops being an anchor and it stops being solid. */
-    fallenDragMul: 1.0,
+    /* An uprooted tree stops being an anchor and stops being solid — it is simply skipped in the
+     * contact pass (src/sim/collision.js). There was a `fallenDragMul` here for a while, authored
+     * against a version where you could drive over the trunk; nothing ever read it, so it is gone
+     * rather than sitting in config looking like a tuning knob. */
   },
 
   /* ── damage ─────────────────────────────────────────────────────────────── */

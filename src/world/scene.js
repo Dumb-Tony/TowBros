@@ -94,6 +94,15 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   // st.vehicles.sedan, and winch.targetId still says 'sedan', which is what keeps four milestones
   // of code and a network protocol from having to care what turned up.
   const sedan = createVehicle(casualtyDef, lieAnchor, { boggedN, lockedWheels: locked, id: 'sedan' });
+  /* A casualty that ARRIVED on its roof (Milestone 7). Not a new shell — the same one, in the state
+   * sim/vehicle.js already puts a car in when it rolls over mid-recovery, applied from the start.
+   * That is what makes it a different plan rather than a longer pull: less than two thirds of the
+   * grip, so the same straight pull needs 28 kN where the upright car needed 17. */
+  if (casualtyDef.arrivesRolled) {
+    sedan.rolled = true;
+    sedan.gripMul = CONFIG.vehicle.rolledGripMul;
+    sedan.dragMul = CONFIG.vehicle.rolledDragMul;
+  }
   /* WHICH wrecker turned out (Milestone 6). `id: 'truck'` for the same reason the casualty slot
    * keeps its name: everything that names the recovery vehicle means the slot. */
   const truckDef = truckDefById(job && job.truckId);

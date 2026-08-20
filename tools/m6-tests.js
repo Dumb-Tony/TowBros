@@ -9,7 +9,7 @@
  * bigger numbers. A 7.5-tonne box truck that simply needs a longer pull would be the second thing
  * and would not be worth building. So:
  *
- *   AG the vehicle library: three casualties and two wreckers, and what each of them asks for
+ *   AG the vehicle library: the casualties and the two wreckers, and what each asks for
  *   AH anchors: what a redirect costs the thing it is redirected through, and what happens when
  *      that thing is not enough
  *   AJ the heavy wrecker: two drums, four legs, a slewing boom, and the trade each one is
@@ -133,9 +133,9 @@ const stepAnchorsFor = (g, dtSec) => stepAnchors(g.state, dtSec, g.bus, g.state.
 /* ══ AG. the vehicle library ══════════════════════════════════════════════ */
 
 function sectionAG() {
-  lines.push('--- AG. three casualties, two wreckers, and what each of them asks for ---');
+  lines.push('--- AG. the casualty library, two wreckers, and what each of them asks for ---');
 
-  eq('AG1 there are three things that can be in the ditch', Object.keys(CASUALTY_DEFS).length, 3);
+  eq('AG1 there are five things that can be in the ditch', Object.keys(CASUALTY_DEFS).length, 5);
   eq('AG2 and the first of them is the Milestone 1 sedan', CASUALTY_DEFS.sedan, SEDAN_DEF);
   eq('AG3 an unknown casualty falls back rather than throwing', casualtyDefById('spaceship').id, 'sedan');
   eq('AG4 and so does an unknown wrecker', truckDefById('crane').id, 'truck');
@@ -433,9 +433,15 @@ function sectionAJ() {
     const g = job(truckId, casualtyId);
     const st = g.state;
     park(st, st.vehicles.sedan.body.x + dx, BANDS.roadN + 1.4);
+    const from = { x: st.vehicles.truck.body.x, y: st.vehicles.truck.body.y };
     rigAll(g, ['towHook', 'frameFront']);
     const peak = reel(g, 60000);
-    return { done: st.goal.complete, secs: st.simTimeMs / 1000, corners: cornersUp(st), peak, st, g };
+    const b = st.vehicles.truck.body;
+    return {
+      done: st.goal.complete, secs: st.simTimeMs / 1000, corners: cornersUp(st), peak, st, g,
+      /** How far the WRECKER lost the argument. The number the README quotes. */
+      truckDraggedM: Math.hypot(b.x - from.x, b.y - from.y),
+    };
   }
 
   const lightSedan = pull('truck', 'sedan');
@@ -452,6 +458,13 @@ function sectionAJ() {
      + `the heavy delivers it in ${heavyVan.secs.toFixed(0)} s at ${kN(heavyVan.peak)} kN`);
 
   ok('AJ13 a box truck is well past it', !lightBox.done, `${lightBox.corners}/4`);
+  /* And past it in the most legible way there is: the wrecker loses. This is the number the README
+   * quotes, so it is asserted rather than left as a remembered measurement. */
+  gt(`AJ13b — the light wrecker is the one that moves (${lightBox.truckDraggedM.toFixed(1)} m)`,
+     lightBox.truckDraggedM, 8);
+  lt('AJ13c while against a car it stays where it was put', lightSedan.truckDraggedM, 1);
+  note(`AJ  against a box truck the light wrecker is dragged ${lightBox.truckDraggedM.toFixed(1)} m; `
+     + `against a car it moves ${lightSedan.truckDraggedM.toFixed(2)} m`);
   eq('AJ14 which does not break anything — no cable parts',
      lightBox.g.bus.count(EVENTS.CABLE_SNAPPED), 0);
 
@@ -693,8 +706,15 @@ function sectionAM() {
   {
     const rookie = [];
     for (let i = 0; i < 120; i++) rookie.push(rollSituation(i * 7919 + 11, 0));
-    eq('AM12 a new outfit is only sent cars', new Set(rookie.map((s) => s.vehicle.id)).size, 1);
-    eq('AM13 which is the sedan', rookie[0].vehicle.id, 'sedan');
+    /* A new outfit gets the LIGHT work — a car, or a motorbike. What reputation gates is the
+     * heavy end: nobody sends a seven-tonner or a van to an outfit they have not used. It used to
+     * assert "only cars", which was true when the sedan was the only thing under the gate and
+     * stopped being true the moment Milestone 7 added a motorcycle at minRep 0. The gate is the
+     * claim worth testing; the size of the pool underneath it is not. */
+    const rookieKinds = new Set(rookie.map((s) => s.vehicle.id));
+    ok('AM12 a new outfit is sent the light work', rookieKinds.has('sedan'), [...rookieKinds].join(','));
+    ok('AM13 and never anything it has not earned',
+       !rookieKinds.has('van') && !rookieKinds.has('boxTruck'), [...rookieKinds].join(','));
     gt('AM14 but everything else about the job still varies',
        new Set(rookie.map((s) => s.incident.id)).size, 3);
   }

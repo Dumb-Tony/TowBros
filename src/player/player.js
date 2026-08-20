@@ -38,6 +38,7 @@ import {
   claimHook, releaseHook, claimGear, releaseGear, claimSeat, releaseSeat, seatFree,
 } from '../crew/authority.js';
 import { toggleOutriggers } from '../recovery/rig.js';
+import { anchorPoints, describeAnchor } from '../recovery/anchors.js';
 
 /** Crew colours, so four people on one screen are four people and not four identical dots. */
 const CREW_TINT = ['#e0a33c', '#4fb0d8', '#9ad14a', '#d87ac0'];
@@ -387,6 +388,33 @@ export function inspectNearest(st, p, terrain, bus, simTimeMs) {
     return p.inspect;
   }
 
+  /* An ANCHOR — a tree, or a driven ground anchor. Milestone 6 gave every one of them a rating
+   * and a way of letting go, and until now the only way to find out what a tree was worth was to
+   * pull it over. The line is a fact and a subtraction the player can do themselves: "rated 60 kN,
+   * carrying 31" is the whole story, and it never says which tree to use. */
+  {
+    let bestA = null, bestD = Infinity;
+    for (const a of anchorPoints(st)) {
+      const d = Math.hypot(a.x - p.x, a.y - p.y) - a.r;
+      if (d <= reach && d < bestD) { bestD = d; bestA = a; }
+    }
+    if (bestA) {
+      const d = describeAnchor(st, bestA);
+      const lines = [
+        bestA.kind === 'tree'
+          ? 'Standing timber. What it is worth is what its roots are worth.'
+          : 'A driven plate anchor. Whatever it holds, the ground is holding.',
+        d.line,
+      ];
+      if (d.strainFrac > 0.15) lines.push(`It has been leaning. ${Math.round(d.strainFrac * 100)}% of the way over.`);
+      const block = st.gear.find((it) => it.kind === 'snatchBlock' && it.attachedTo === bestA.id);
+      if (block) lines.push('The block is on it.');
+      p.inspect = { title: bestA.kind === 'tree' ? 'tree' : 'ground anchor', lines, ttlMs: 5200 };
+      bus.emit(EVENTS.INSPECTED, { crew: p.id, kind: 'anchor', anchor: bestA.id }, simTimeMs);
+      return p.inspect;
+    }
+  }
+
   const surf = terrain.surfaceAt(p.x, p.y);
   const slope = terrain.slopeAt(p.x, p.y);
   const deg = Math.round(Math.atan(slope.mag) * 180 / Math.PI);
@@ -686,6 +714,8 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
   // Per DRUM: the heavy wrecker has two, and two people can work them independently.
   const reelIn = new Set(), reelOut = new Set();
   let sawInput = false;
+  /** Summed across the crew, so two people slewing opposite ways cancel. Milestone 7. */
+  let slew = 0;
 
   for (const p of st.crew) {
     const input = inputs ? inputs[p.seat] : null;
@@ -746,9 +776,16 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
       const mine = drumFor(st, p);
       if (input.isDown('winchIn')) reelIn.add(mine);
       if (input.isDown('winchOut')) reelOut.add(mine);
-      // The heavy wrecker's legs. Anyone can put them down; it is a fact about the machine and
-      // not about who is holding what.
+      /* The heavy wrecker's legs and its boom. Anyone can work either: they are facts about the
+       * machine rather than about who is holding what.
+       *
+       * The SLEW is collected here, per seat, for the reason the drum controls are. It used to be
+       * read inside stepRig from `inputs.find(Boolean)` — the first non-null input in the array —
+       * which is deterministically seat 0's keyboard, so crew 2 could never move the fairleads on
+       * the one machine whose whole point is that two people work it. Two hands pulling opposite
+       * ways cancel, exactly as they do on a drum. */
       if (input.wasPressed('outriggers')) toggleOutriggers(st.vehicles.truck, bus, simTimeMs);
+      if (input.slewAxis) slew += input.slewAxis();
     }
 
     const carried = carriedItem(st, p);
@@ -770,6 +807,9 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
    * `winch.motor` itself and steps the world with no inputs — and it is also what a lobby of
    * purely remote members looks like before the first packet arrives. Silently zeroing the drum
    * in either case would be a system asserting a decision nobody made. */
+  // The boom, from whoever is working it. Written on the truck; recovery/rig.js applies the rate.
+  if (sawInput) st.vehicles.truck.slewInput = Math.max(-1, Math.min(1, slew));
+
   for (const w of drumsOf(st)) {
     if (sawInput) {
       const inn = reelIn.has(w), out = reelOut.has(w);

@@ -84,7 +84,7 @@ conditions."
 
 Nothing was nerfed to make room for the heavy wrecker. The casualty weighs more, and every force
 that scales with mass scales — so the light truck stops a van at 3/4 corners, and against a box
-truck it is itself dragged 14 m down the road.
+truck it is itself dragged 29 m down the road.
 
 **The heavy wrecker is a different machine, not a better one.**
 
@@ -313,7 +313,7 @@ with a loaded cable, and a network outage in the middle — and zero disagreemen
 
 
 Everything Milestone 1 could do, it still does, at the same numbers: far lane recovers on the winch
-in 36 s at 12 kN, the rest of the road stalls legibly and finishes with a tow in 40–45 s, no park
+in 38 s at 10.7 kN, the rest of the road stalls legibly and finishes with a tow in 40–45 s, no park
 anywhere on the road costs you the cable, four genuinely different approaches work.
 
 ## How it works
@@ -500,7 +500,7 @@ where more than one person can grab the same thing.
   metres of it, now with traffic on it and a county map beside it — but no junctions, and the drive
   between sites is not simulated. The map says where a job is and what it pays; the distance is why
   the fee differs, not something you drive.
-- **Two wreckers and three casualties.** A library, not a catalogue: enough for the decisions to be
+- **Two wreckers and five casualties.** A library, not a catalogue: enough for the decisions to be
   real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
   rotator's actual crane are all still missing.
 - **The wheel lift is light-duty and stays that way.** It holds 11 kN bare and a box truck's axle is

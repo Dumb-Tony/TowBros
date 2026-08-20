@@ -19,7 +19,7 @@ longer pull would have been the second thing, and would not have been worth buil
 | box truck | 7.2 t | **33.8 kN** | 20.8 kN | 26 kN |
 
 The light wrecker stops a van at 3/4 corners, stalling on half of every second. Against a box truck
-it is itself dragged 14 m down the road. Nothing about it was nerfed — the casualty simply weighs
+it is itself dragged 29 m down the road. Nothing about it was nerfed — the casualty simply weighs
 more, and every force that scales with mass scales.
 
 ### So there is a heavy wrecker, and it is a different machine

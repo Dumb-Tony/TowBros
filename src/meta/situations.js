@@ -37,6 +37,12 @@ import { WEATHER, weatherById } from '../world/weather.js';
 /** VEHICLE. `minRep` is who gets sent this kind of work, not a difficulty tier. */
 export const VEHICLES = Object.freeze([
   { id: 'sedan', weight: 5, minRep: 0, feeMul: 1.0 },
+  /* Milestone 7's two. A motorcycle is a SMALL job that pays like one and is fiddly out of all
+   * proportion to its weight; a car on its roof is the same shell in a worse state and pays for
+   * the fact that the straight pull needs half again the tension. Neither is gated high, because
+   * neither is "advanced content" — they are different problems, not harder ones. */
+  { id: 'motorcycle', weight: 2, minRep: 0, feeMul: 0.7 },
+  { id: 'sedanRoof', weight: 2, minRep: 15, feeMul: 1.5 },
   { id: 'van', weight: 3, minRep: 25, feeMul: 1.9 },
   { id: 'boxTruck', weight: 2, minRep: 50, feeMul: 3.2 },
 ]);

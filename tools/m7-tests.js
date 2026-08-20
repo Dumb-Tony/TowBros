@@ -24,7 +24,7 @@ import { WINCH, cablePath, pathLength, drumsOf } from '../src/recovery/cable.js'
 import {
   newCompany, settleJob, describeCompany, activeTruck,
 } from '../src/meta/company.js';
-import { offersFor, acceptOffer, useSlot, endDay } from '../src/meta/dispatch.js';
+import { offersFor, acceptOffer, useSlot, endDay, canTakeJob } from '../src/meta/dispatch.js';
 import {
   hourOf, clockLabel, minutesLeft, daylightAt, jobMinutes, spendTime, resetClock, describeClock,
 } from '../src/meta/clock.js';
@@ -176,24 +176,37 @@ function sectionAN() {
     eq('AN19 two jobs in, it is over', a.day, 2);
     eq('AN20 and the clock is back to the morning', clockLabel(a), '08:00');
 
+    /* THE LIGHT, which is the other way to run out — and it does NOT end the day by itself.
+     * A job that ran into the evening leaves the outfit with a slot it cannot use, and the player
+     * closes the day themselves: a day that turned over while they were looking at the board would
+     * be a thing happening to them rather than a thing they did. */
     const b = newCompany();
+    ok('AN21 in the morning there is work to take', canTakeJob(b).ok);
     b.clockMin = (CONFIG.company.dayEndHour - CONFIG.company.dayStartHour) * 60 + 30;
-    const bo = offersFor(b).filter((o) => !o.locked);
-    useSlot(b, bo[0]);
-    eq('AN21 a day whose light has gone ends after one job, slot or no slot', b.day, 2);
-    eq('AN22 which is the point: a slow morning costs the afternoon', clockLabel(b), '08:00');
+    ok('AN22 once the light has gone there is not', !canTakeJob(b).ok);
+    eq('AN23 and it says which of the two ways it ran out', canTakeJob(b).why, 'no-light');
+    eq('AN24 with a slot still unspent — the day cost you a job', b.slotsLeft, 2);
+    eq('AN25 the day has NOT turned over on its own', b.day, 1);
+    endDay(b);
+    eq('AN26 until it is called', b.day, 2);
+    eq('AN27 and then it is the morning again', clockLabel(b), '08:00');
+    ok('AN28 with work on the board', canTakeJob(b).ok);
+
+    const full = newCompany();
+    full.slotsLeft = 0;
+    eq('AN29 running out of slots says so differently', canTakeJob(full).why, 'no-slots');
   }
 
   // Nothing about the clock may be a wall clock. Same rule as everything else in this project.
-  eq('AN23 the clock is a number of minutes, not a timestamp', typeof newCompany().clockMin, 'number');
+  eq('AN30 the clock is a number of minutes, not a timestamp', typeof newCompany().clockMin, 'number');
 
   // And a job settling spends the time it actually took.
   {
     const d = newCompany();
     const r = settleJob(d, recapOf({}), { impactsNs: 0, peakTensionN: 0, cableSnaps: 0, simTimeMs: 48000 });
-    gt('AN24 settling a job spends the day', d.clockMin, 0);
-    eq('AN25 by the job\'s own simulated time', Math.round(d.clockMin), Math.round(jobMinutes(48000)));
-    ok('AN26 and says so on the results card', r.minutesTaken > 0 && !!r.clock);
+    gt('AN31 settling a job spends the day', d.clockMin, 0);
+    eq('AN32 by the job\'s own simulated time', Math.round(d.clockMin), Math.round(jobMinutes(48000)));
+    ok('AN33 and says so on the results card', r.minutesTaken > 0 && !!r.clock);
     note(`AN  after a 48 s job it is ${r.clock.label} — ${r.clock.leftLabel}`);
   }
 }

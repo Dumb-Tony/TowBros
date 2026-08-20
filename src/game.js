@@ -239,7 +239,7 @@ export class Game {
      *     (Milestone 6). Before the cable, because where the fairleads ARE decides the direction
      *     of the pull, and before the tires, because what the truck is standing on decides what it
      *     can hold. Both are just numbers on the truck; nothing downstream branches on the model. */
-    stepRig(st.vehicles.truck, dt, inputs && inputs.find(Boolean), this.bus, simTimeMs);
+    stepRig(st.vehicles.truck, dt, this.bus, simTimeMs);
 
     // 3. The line. Applies equal-and-opposite force at two offsets. FIRST force of the step.
     stepCable(st, dt, this.bus, simTimeMs);

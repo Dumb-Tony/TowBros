@@ -18,7 +18,7 @@ import {
   truckPrice, ownsTruck, buyTruck, setActiveTruck,
 } from '../meta/company.js';
 import { TRUCK_DEFS, truckDefById } from '../data/vehicles.js';
-import { offersFor, acceptOffer } from '../meta/dispatch.js';
+import { offersFor, acceptOffer, canTakeJob, endDay } from '../meta/dispatch.js';
 import { describeClock } from '../meta/clock.js';
 import { SITES } from '../data/terrain.js';
 
@@ -149,6 +149,17 @@ export class Garage {
     } else if (act === 'pick-truck') {
       setActiveTruck(c, arg);
       this.note = `${activeTruck(c).name} is going out.`;
+    } else if (act === 'call-it') {
+      /* Close the day yourself. It exists because a job that ran into the evening leaves you with
+       * a slot you cannot use, and the alternative — the game quietly turning the day over while
+       * you were looking at the board — is a thing happening to the player rather than a thing
+       * they did. Milestone 7; see meta/dispatch.js canTakeJob. */
+      const took = endDay(c);
+      this.offers = offersFor(c);
+      this.focusSite = null;
+      this.note = took && took.length
+        ? `That is the day. ${took.length} job${took.length === 1 ? '' : 's'} went elsewhere.`
+        : 'That is the day.';
     } else if (act === 'site') {
       /* Clicking a place on the map narrows the board to it, and clicking it again puts the rest
        * back. It deliberately does NOT take the job: a map is for looking at, and a mis-click that
@@ -245,6 +256,13 @@ export class Garage {
     bits.push('</div>');
 
     bits.push('<div class="gar-panel"><h2>on the board</h2>');
+    /* Whether there is anything you can take, and if not, why — one fact and one button. The
+     * button closes the day; the game never closes it for you. Milestone 7. */
+    const can = canTakeJob(c);
+    if (!can.ok) {
+      bits.push(`<div class="day-done"><p>${esc(can.line)}</p>
+        <button class="primary" data-act="call-it">call it a day</button></div>`);
+    }
     const shown = focus ? this.offers.filter((o) => o.locked || o.siteId === focus) : this.offers;
     if (focus && !shown.some((o) => !o.locked)) {
       bits.push(`<p class="gar-empty">Nothing at ${esc(focusSite ? focusSite.short : 'that site')}
@@ -271,7 +289,7 @@ export class Garage {
         ${o.weatherBlurb ? `<p class="offer-weather">${esc(o.weatherBlurb)}</p>` : ''}
         <div class="offer-foot">
           <em>${o.distanceKm} km out</em>
-          <button class="primary" data-act="take" data-arg="${o.id}">take it</button>
+          <button class="primary" data-act="take" data-arg="${o.id}" ${can.ok ? '' : 'disabled'}>take it</button>
         </div>
       </div>`);
     }

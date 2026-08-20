@@ -29,6 +29,7 @@ import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 import { mulberry32 } from '../core/rng.js';
 import { seatOf, carriedItem } from '../player/player.js';
 import { LIFT, yokePos, axleMid } from '../recovery/lift.js';
+import { outriggerPads } from '../recovery/rig.js';
 
 /* Resolution of the painted terrain, in pixels per metre.
  *
@@ -1053,9 +1054,14 @@ export class Renderer {
     const f = truck.outriggers.frac;
     if (f <= 0.001) return;
 
-    for (const o of truck.def.outriggers) {
+    /* Pad positions come from `outriggerPads` rather than being re-derived here. They were computed
+     * in both places with the same 0.55 extension factor and the same comment, which is precisely
+     * the "two records of one fact" this codebase warns about elsewhere — the numbers agreed right
+     * up until somebody retuned one of them. */
+    for (const pad of outriggerPads(truck)) {
+      const o = truck.def.outriggers.find((q) => q.id === pad.id);
       const inner = truck.body.toWorld(o.local.x, o.local.y * 0.55);
-      const outer = truck.body.toWorld(o.local.x, o.local.y * (1 + 0.55 * f));
+      const outer = truck.body.toWorld(o.local.x, pad.outY);
       // The beam.
       ctx.strokeStyle = shadeHex('#6a6f7a', 1.0);
       ctx.lineWidth = 0.26;

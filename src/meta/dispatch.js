@@ -250,17 +250,33 @@ export function endDay(company) {
 }
 
 /**
- * Take a job and spend a slot. Ends the day when the last one goes — or when the light does.
+ * Is there anything you can take right now, and if not, why not?
  *
- * The clock is the Milestone 7 half of this. A day ends on whichever runs out first: two jobs, or
- * the working day the jobs consumed. It is checked HERE, when a job is taken, and never mid-job:
- * GDD §4's "no instant fail" means the light going while you are still rigging is a thing that
- * happens to you, not a thing that stops you.
+ * Two ways to run out (Milestone 7): the slots, and the light. Note what is NOT here — there is no
+ * check that the job is a sensible one to take, no warning that it is getting late, and nothing
+ * that refuses a job you could still start. A recovery in the dusk is a job the game already
+ * models properly and the player is allowed to choose it; what they cannot do is start one at nine
+ * at night, because nobody dispatches at nine at night. That is a fact about the county rather
+ * than a punishment, and it is stated as one.
+ */
+export function canTakeJob(company) {
+  if (company.slotsLeft <= 0) return { ok: false, why: 'no-slots', line: 'That is both jobs.' };
+  if (minutesLeft(company) <= 0) return { ok: false, why: 'no-light', line: 'The light has gone.' };
+  return { ok: true, why: null, line: '' };
+}
+
+/**
+ * Take a job and spend a slot. Ends the day when the last one goes.
+ *
+ * The LIGHT does not end the day here — see `canTakeJob`. A job that ran into the evening leaves
+ * the outfit with a slot it cannot use, and the player closes the day themselves. Ending it inside
+ * this function would mean the day turned as they set off and the job's time landed on tomorrow's
+ * clock, which is both wrong and invisible.
  */
 export function useSlot(company, offer) {
   if (!company.takenToday.includes(offer.id)) company.takenToday.push(offer.id);
   company.slotsLeft = Math.max(0, company.slotsLeft - 1);
-  if (company.slotsLeft === 0 || minutesLeft(company) <= 0) return endDay(company);
+  if (company.slotsLeft === 0) return endDay(company);
   return null;
 }
 

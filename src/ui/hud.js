@@ -22,6 +22,7 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { describeWinch, WINCH, drumsOf } from '../recovery/cable.js';
 import { describeRig } from '../recovery/rig.js';
+import { loadedAnchor, describeAnchor } from '../recovery/anchors.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
 import { seatOf, holdsHook, carriedItem } from '../player/player.js';
@@ -291,6 +292,15 @@ export class Hud {
       const rig = describeRig(truck);
       if (rig && rig.outriggers) bits.push(`legs ${rig.outriggers}`);
       if (rig && rig.boomDeg !== null && rig.boomDeg !== 0) bits.push(`boom ${rig.boomDeg}°`);
+      /* And what the ANCHOR is carrying, when a line is routed through a block. Two numbers, and
+       * the subtraction is the player's: a redirect puts up to twice the line tension on whatever
+       * it is mounted to, and that is the fact worth having in front of you while you pull. */
+      const anchor = loadedAnchor(st);
+      if (anchor) {
+        const d = describeAnchor(st, anchor);
+        bits.push(`anchor ${(d.loadN / 1000).toFixed(1)}/${(d.ratedN / 1000).toFixed(0)} kN`
+          + (d.strainFrac > 0.2 ? ' — GOING' : ''));
+      }
       this._set(this.el.rig, bits.join('  ·  '));
       this.el.rig.classList.toggle('on', bits.length > 0);
     }

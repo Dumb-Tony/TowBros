@@ -34,6 +34,20 @@ const DEBRIS = Object.freeze({
   wheelFR:     { label: 'wheel',        lengthM: 0.62, widthM: 0.62, massKg: 22 },
   wheelRL:     { label: 'wheel',        lengthM: 0.62, widthM: 0.62, massKg: 22 },
   wheelRR:     { label: 'wheel',        lengthM: 0.62, widthM: 0.62, massKg: 22 },
+  /* Milestone 6 and 7 parts. A box truck's rear twins detach as the OUTER wheel, and a
+   * motorcycle's parts are small and light. Anything missing from this table still detaches
+   * correctly — it simply leaves no object behind — so the table is about what is worth drawing
+   * on the ground rather than about what is allowed to come off. */
+  wheelRLo:    { label: 'rear wheel',   lengthM: 0.90, widthM: 0.90, massKg: 62 },
+  wheelRRo:    { label: 'rear wheel',   lengthM: 0.90, widthM: 0.90, massKg: 62 },
+  handlebars:  { label: 'handlebars',   lengthM: 0.62, widthM: 0.10, massKg: 3 },
+  footpegL:    { label: 'footpeg',      lengthM: 0.16, widthM: 0.09, massKg: 1 },
+  footpegR:    { label: 'footpeg',      lengthM: 0.16, widthM: 0.09, massKg: 1 },
+  grabRail:    { label: 'grab rail',    lengthM: 0.32, widthM: 0.20, massKg: 2 },
+  wheelF:      { label: 'wheel',        lengthM: 0.56, widthM: 0.20, massKg: 11 },
+  wheelR:      { label: 'wheel',        lengthM: 0.56, widthM: 0.22, massKg: 13 },
+  towHook:     { label: 'tow eye',      lengthM: 0.22, widthM: 0.14, massKg: 3 },
+  roofPanel:   { label: 'roof panel',   lengthM: 1.30, widthM: 1.40, massKg: 18 },
 });
 
 /** What an attachment can actually take right now: its rating, times the rigging wrapped

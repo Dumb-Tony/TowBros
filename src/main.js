@@ -190,7 +190,7 @@ hud.onCoop = async (kind, blob) => {
   try {
     if (kind === 'tab') {
       if (!broadcastAvailable()) return null;
-      peer = new BroadcastChannelPeer('lobby');
+      peer = new BroadcastChannelPeer(CONFIG.net.room);
       // Whoever opens the tab FIRST is the host, and both tabs press the same button — so the
       // rule has to be decidable without asking. First one to speak into an empty room hosts:
       // a guest announces itself and, if nothing answers within a beat, promotes itself.
@@ -198,7 +198,7 @@ hud.onCoop = async (kind, blob) => {
       setTimeout(() => {
         if (session && session.state === NET.JOINING) {
           session.close();
-          startSession(new BroadcastChannelPeer('lobby'), { host: true });
+          startSession(new BroadcastChannelPeer(CONFIG.net.room), { host: true });
           hud._coopSay('Hosting. Open the page again in another tab and press the same button.');
         }
       }, 600);

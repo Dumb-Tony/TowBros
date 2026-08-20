@@ -61,11 +61,22 @@ export function groundAnchorHoldN(st, item) {
   return CONFIG.gear.groundAnchor.holdN * (surf.anchorHoldMul ?? 0);
 }
 
-/** The anchor a mounted block is on, or null. */
+/** The anchor a mounted block is on, or null. Read by the HUD when a line is routed. */
 export function anchorOf(st, blockId) {
   const block = st.blocksById[blockId];
   if (!block || !block.anchorId) return null;
   return anchorPoints(st).find((a) => a.id === block.anchorId) || null;
+}
+
+/** The anchor carrying the most right now, across every drum, or null. For the HUD. */
+export function loadedAnchor(st) {
+  let best = null, bestLoad = 0;
+  for (const w of drumsOf(st)) {
+    if (!w.blockId || !(w.anchorLoadN > bestLoad)) continue;
+    const a = anchorOf(st, w.blockId);
+    if (a) { best = a; bestLoad = w.anchorLoadN; }
+  }
+  return best;
 }
 
 /**

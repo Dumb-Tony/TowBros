@@ -58,7 +58,7 @@ export function toggleOutriggers(veh, bus, simTimeMs) {
  * Called before the tire model, because what the tires are asked to hold against depends on
  * whether the truck is standing on its legs.
  */
-export function stepRig(veh, dtSec, input, bus, simTimeMs) {
+export function stepRig(veh, dtSec, bus, simTimeMs) {
   if (!veh) return;
   const H = CONFIG.heavy;
 
@@ -82,7 +82,12 @@ export function stepRig(veh, dtSec, input, bus, simTimeMs) {
   }
 
   if (veh.def.boom) {
-    const slew = input ? (input.slewAxis ? input.slewAxis() : 0) : 0;
+    /* The slew comes off the TRUCK, written there by stepCrew from every seat that is asking for
+     * it. It used to be read here from one input object — `inputs.find(Boolean)`, which is
+     * deterministically seat 0 — so on the one machine whose whole point is that two people work
+     * it, only one of them could ever move the fairleads. Every other machine control in this game
+     * is collected per seat and resolved once; this is now too. */
+    const slew = veh.slewInput || 0;
     if (slew !== 0) {
       veh.boomRad = clamp(veh.boomRad + slew * H.boomSlewRateRad * dtSec,
                           -H.boomSlewMaxRad, H.boomSlewMaxRad);

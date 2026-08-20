@@ -326,15 +326,15 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
   if (!veh.rolled) {
     const r = b.right;
     const latG = Math.abs((b.fx * r.x + b.fy * r.y) / b.massKg) / CONFIG.sim.gravity;
-    if (latG > CONFIG.vehicle.rollThresholdG && b.speed > 1.0) {
+    if (latG > (veh.def.rollThresholdG || CONFIG.vehicle.rollThresholdG) && b.speed > 1.0) {
       veh.rollLoadMs = (veh.rollLoadMs || 0) + dtSec * 1000;
     } else {
       veh.rollLoadMs = 0;
     }
-    if ((veh.rollLoadMs || 0) >= CONFIG.vehicle.rollSustainMs) {
+    if ((veh.rollLoadMs || 0) >= (veh.def.rollSustainMs || CONFIG.vehicle.rollSustainMs)) {
       veh.rolled = true;
-      veh.gripMul = 0.55;
-      veh.dragMul = 1.6;
+      veh.gripMul = CONFIG.vehicle.rolledGripMul;
+      veh.dragMul = CONFIG.vehicle.rolledDragMul;
       if (bus) bus.emit('ROLLED_OVER', { vehicle: veh.id, lateralG: Math.round(latG * 100) / 100 }, simTimeMs);
     }
   }
@@ -348,7 +348,13 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
   if (moved > 0) {
     veh.travelledM += moved;
     if (veh.boggedN0 > 0) {
-      veh.boggedFactor = Math.exp(-veh.travelledM / CONFIG.sedan.boggedFreeM);
+      /* From the DEFINITION. This read `CONFIG.sedan.boggedFreeM` for every vehicle regardless of
+       * what it was, which silently made `CONFIG.van.boggedFreeM` and `CONFIG.boxTruck.boggedFreeM`
+       * dead config from the day they were authored: a seven-tonner freed itself over the same
+       * 0.62 m a hatchback does. The Milestone 6 pass that moved the brake numbers onto the defs
+       * missed this one and the steering lock below. */
+      const freeM = veh.def.boggedFreeM || CONFIG.sedan.boggedFreeM;
+      veh.boggedFactor = Math.exp(-veh.travelledM / freeM);
       if (veh.boggedFactor < 1e-3) veh.boggedFactor = 0;
     }
   }
@@ -382,7 +388,10 @@ export function applyDriverInput(veh, steerAxis, throttleAxis, parkBrakeToggle, 
   // The lock belongs to the vehicle — a car turns its wheels further than a 7-tonne wrecker.
   // The RATES do not: they are how fast one pair of hands can spin a wheel, and it is the same
   // pair of hands in either seat.
-  const maxSteer = veh.def.driven ? T.maxSteerRad : CONFIG.sedan.maxSteerRad;
+  // Per definition, for the same reason as `boggedFreeM` above: a motorcycle's bars and a box
+  // truck's wheel are not a saloon's, and both had numbers authored that nothing read.
+  const maxSteer = veh.def.maxSteerRad
+    || (veh.def.driven ? T.maxSteerRad : CONFIG.sedan.maxSteerRad);
   const target = steerAxis * maxSteer;
   const rate = (steerAxis === 0 ? T.steerReturnRad : T.steerRateRad) * dtSec;
   const d = target - veh.steerRad;
