@@ -30,7 +30,18 @@
 
 import { clamp, clamp01, smoothstep } from '../core/vec.js';
 
-export const WORLD = { widthM: 92, heightM: 48 };
+/* The world is 168 m of road.
+ *
+ * The recovery site is the western 92 m of it — exactly the Milestone 1 scene, unchanged, with
+ * every anchor, tree and guardrail post where it was. East of that the embankment is graded flat
+ * and the road runs on to a yard, because Milestone 3 asks for a "short transport route" and a
+ * "destination" and a job that ends where the car is dropped off rather than where it stops being
+ * in a ditch.
+ *
+ * Widening the world costs terrain-bake time, which is a per-pixel loop. TERRAIN_PPM in the
+ * renderer is derived from a pixel budget rather than fixed at 20 now, so the bake stays about
+ * where it was and the site loses about two pixels per metre nobody can see. */
+export const WORLD = { widthM: 168, heightM: 48 };
 
 /* Band edges in y. These are the scene's skeleton: the surface table, the height field
  * and the renderer all key off the same six numbers.
@@ -62,6 +73,32 @@ export const ROAD = Object.freeze({
   centreY: (BANDS.roadN + BANDS.roadS) / 2,
   laneLineY: (BANDS.roadN + BANDS.roadS) / 2,
 });
+
+/* The yard at the east end — Milestone 3's destination.
+ *
+ * A paved apron on the south side, at shoulder level, with one marked bay. The job is not over
+ * when the car is out of the ditch; it is over when the car is standing in that bay, which is what
+ * turns a recovery into a JOB. Getting it there means loading it onto the wheel lift, strapping it
+ * down, driving 60-odd metres, and reversing a truck with a car hanging off the back of it.
+ *
+ * The embankment does not stop at a wall. `blendX0..blendX1` is 20 m of ground being graded flat,
+ * so the profile is continuous and a vehicle driven off the road anywhere along it behaves the way
+ * the ground looks. A cliff at x=116 would have been much less code and a much worse scene.
+ */
+export const YARD = Object.freeze({
+  blendX0: 96, blendX1: 116,          // the embankment fades out across these 20 m
+  x0: 116, x1: 166,                   // the paved apron
+  y0: BANDS.roadS, y1: 34.0,
+  /** Where the casualty is set down. Generous — reversing a loaded wrecker is hard enough. */
+  bay: Object.freeze({ x0: 132.0, x1: 147.0, y0: 21.5, y1: 30.0 }),
+  /** Painted lane in from the road, for the renderer and for nothing else. */
+  entryX: 120.0,
+});
+
+/** 0 at the recovery site, 1 in the yard. The one function that decides which profile applies. */
+export function yardFrac(x) {
+  return smoothstep(clamp01((x - YARD.blendX0) / (YARD.blendX1 - YARD.blendX0)));
+}
 
 /* Height of the road above the bottom of the ditch, for reference in the UI. */
 export const DROP_M = 4.57;
@@ -146,19 +183,23 @@ export function baseHeightAt(x, y) {
     return 0.05 * Math.sin(Math.PI * clamp01(t));
   }
 
-  // South shoulder: begins to fall away.
-  if (y < B.shoulderS) {
-    return -0.42 * smoothstep((y - B.roadS) / (B.shoulderS - B.roadS));
-  }
+  // South shoulder: begins to fall away. Common to both profiles — the yard sits at the bottom
+  // of this same 42 cm, which is why a truck can drive off the road onto it without a lip.
+  const shoulder = -0.42 * smoothstep(clamp01((y - B.roadS) / (B.shoulderS - B.roadS)));
+  if (y < B.shoulderS) return shoulder;
 
   // The embankment. Peak gradient is 1.5x the average by the shape of smoothstep:
   // 4.15 m over 11.4 m averages 0.364, so the steepest part is ~0.546 -> 28.6 degrees.
-  if (y < B.embankmentS) {
-    return -0.42 - 4.15 * smoothstep((y - B.shoulderS) / (B.embankmentS - B.shoulderS));
-  }
+  const bank = y < B.embankmentS
+    ? -0.42 - 4.15 * smoothstep((y - B.shoulderS) / (B.embankmentS - B.shoulderS))
+    // The bottom: still falling, gently, so water (and vehicles) collect at the low point.
+    : -4.57 - 0.34 * smoothstep((y - B.embankmentS) / 7.0);
 
-  // The bottom: still falling, gently, so water (and vehicles) collect at the low point.
-  return -4.57 - 0.34 * smoothstep((y - B.embankmentS) / 7.0);
+  /* East of the site that whole drop is graded away into the yard apron, blended over 20 m so the
+   * ground is continuous everywhere and a vehicle driven along it behaves the way it looks. At the
+   * site `t` is exactly 0 and this returns the Milestone 1 profile bit for bit. */
+  const t = yardFrac(x);
+  return t === 0 ? bank : bank + (shoulder - bank) * t;
 }
 
 /**
@@ -273,8 +314,21 @@ export function createTerrain(rng) {
     if (y >= B.roadN && y <= B.roadS) return SURFACES.pavement;
     if (y >= B.bankTop && y < B.roadN) return SURFACES.shoulder;
     if (y > B.roadS && y <= B.shoulderS) return SURFACES.shoulder;
+    // East end: the apron is paved, and the 20 m of graded ground leading to it is gravel. Both
+    // reuse surfaces that already exist rather than adding a fourth set of grip numbers to tune.
+    if (y > B.roadS && y <= YARD.y1) {
+      if (x >= YARD.x0) return SURFACES.pavement;
+      if (x > YARD.blendX0) return SURFACES.shoulder;
+    }
     return SURFACES.wetGrass;
   }
+
+  /** On the yard apron. */
+  const inYard = (x, y) => x >= YARD.x0 && x <= YARD.x1 && y > BANDS.roadS && y <= YARD.y1;
+
+  /** In the marked bay — the one place the job can end. */
+  const inBay = (x, y) =>
+    x >= YARD.bay.x0 && x <= YARD.bay.x1 && y >= YARD.bay.y0 && y <= YARD.bay.y1;
 
   /** Which surface is underfoot. THE authority — physics and success detection both ask this.
    *  Mud wins wherever the bowl is deeper than a token 4 cm, so the mud's painted edge and its
@@ -294,13 +348,16 @@ export function createTerrain(rng) {
   function clampToWorld(x, y, r = 0) {
     const cx = clamp(x, r, WORLD.widthM - r);
     const cy = clamp(y, r, WORLD.heightM - r);
-    return { x: cx, y: cy, clamped: cx !== x || cy !== y };
+    // WHICH axis was clamped, not just whether one was. The caller has to kill the velocity
+    // component that hit the fence and leave the other one alone — see stepVehicle.
+    return { x: cx, y: cy, clamped: cx !== x || cy !== y, clampedX: cx !== x, clampedY: cy !== y };
   }
 
   return {
     world: WORLD, bands: BANDS, road: ROAD, surfaces: SURFACES,
     mud, trees, rail, railPosts, railSegments, anchors,
-    heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, onRoad, clampToWorld,
+    yard: YARD,
+    heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, onRoad, clampToWorld, inYard, inBay,
     /** Steepest gradient anywhere on the embankment, for the debug overlay and tests. */
     describe() {
       let worst = 0, worstY = 0;

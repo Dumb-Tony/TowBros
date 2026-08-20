@@ -20,12 +20,13 @@ import { CONFIG } from './config.js';
 import { GameClock } from './core/clock.js';
 import { EventBus, EVENTS } from './core/eventBus.js';
 import { Rng, hashStr } from './core/rng.js';
-import { buildScene, stepGoal, stepEscalation, recapFrom } from './world/scene.js';
+import { buildScene, stepGoal, stepEscalation, stepJob, recapFrom, JOB } from './world/scene.js';
 import { stepCrew, describeVehicle, seatOf, holdsHook, carriedItem } from './player/player.js';
 import { validateAuthority } from './crew/authority.js';
 import { stepVehicle } from './sim/vehicle.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
+import { stepLift, describeLift } from './recovery/lift.js';
 import { stepAttachment, applyImpactDamage, stepDebris } from './recovery/attach.js';
 import { stepGearEffects } from './recovery/gear.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
@@ -60,6 +61,13 @@ export class Game {
 
     this._listeners = new Set();
     this.frames = 0;
+
+    /* A load coming off the lift in transit is a fact about the JOB, and the payout reads it. It is
+     * counted from the event rather than from inside stepLift so the number survives a reset that
+     * clears the log, and so the lift does not need to know a payout exists. */
+    this.bus.on(EVENTS.LIFT_RELEASED, (e) => {
+      if (e.dropped && this.state && this.state.job) this.state.job.droppedInTransit++;
+    });
     /** Optional CommandLink (src/net/commands.js). When set, it supplies one input per seat every
      *  step and whatever the caller passed to frame()/step() is ignored. Null means "the keyboard
      *  is the input", which is what the M1 suite drives. */
@@ -219,6 +227,12 @@ export class Game {
     // 3. The line. Applies equal-and-opposite force at two offsets. FIRST force of the step.
     stepCable(st, dt, this.bus, simTimeMs);
 
+    /* 3b. The wheel lift, if it is carrying anything. Beside the cable and for the same reason:
+     *     it is a force at an offset on two bodies, and the tires below size their static
+     *     resistance against what is already in the accumulator. A loaded truck that is asked to
+     *     hold against its own load has to be asked in that order. */
+    stepLift(st, dt, this.bus, simTimeMs);
+
     // 4. Did the attachment survive what the line just did to it? WEAKEST LINK FIRST — the
     //    attachment is judged before the cable, or a 9 kN bumper would outlive a 42 kN cable.
     stepAttachment(st, this.bus, simTimeMs);
@@ -239,6 +253,7 @@ export class Game {
 
     // 7. Outcome. Reports; never intervenes.
     stepGoal(st, this.bus, simTimeMs);
+    stepJob(st, this.bus, simTimeMs);
     stepEscalation(st, this.bus, simTimeMs);
   }
 
@@ -280,6 +295,14 @@ export class Game {
       events: this.bus.emitted,
 
       winch: describeWinch(st.winch),
+      lift: describeLift(st.vehicles.truck.lift),
+      job: {
+        phase: st.job.phase,
+        bayCorners: st.job.bayCorners,
+        inBayMs: Math.round(st.job.inBayMs),
+        dropped: st.job.droppedInTransit,
+        paid: st.job.payout ? st.job.payout.paid : null,
+      },
       crew: st.crew.map((p) => ({
         id: p.id, seat: p.seat,
         x: r2(p.x), y: r2(p.y),

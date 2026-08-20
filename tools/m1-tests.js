@@ -1071,12 +1071,23 @@ emit('running H...');
     st.winch.motor = 0;
     const t0 = st.simTimeMs;
     let peak = 0;
+    /* Drive until the car is on the road, THEN stop and let it settle.
+     *
+     * The loop used to just hold the throttle until `done(g)`, and it worked by accident: the world
+     * was 92 m wide, so the truck ran into the east edge within a few seconds and stopped, which is
+     * what let the sedan settle. Milestone 3 made the world 168 m for the transport leg and the same
+     * loop suddenly took 90 seconds — the truck simply kept driving and dragged the car along the
+     * road, so it never stood still long enough to count as recovered.
+     *
+     * A player stops when the car is up. So does this. */
     for (let i = 0; i < 90 * 60 && !done(g); i++) {
-      tr.throttle = throttle;
+      const up = cornersOnRoad(st.vehicles.sedan, st.terrain);
+      tr.throttle = up.all ? 0 : throttle;
+      if (up.all) tr.brakeInput = 1;
       g.step(STEP, st.simTimeMs + STEP, null);
       peak = Math.max(peak, st.winch.tensionN);
     }
-    tr.throttle = 0; tr.occupiedBy = null;
+    tr.throttle = 0; tr.brakeInput = 0; tr.occupiedBy = null;
     return {
       done: done(g), how: 'tow', afterWinch,
       on: cornersOnRoad(st.vehicles.sedan, st.terrain).on,

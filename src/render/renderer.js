@@ -28,11 +28,27 @@ import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 import { mulberry32 } from '../core/rng.js';
 import { seatOf, carriedItem } from '../player/player.js';
+import { LIFT, yokePos, axleMid } from '../recovery/lift.js';
 
-/** Resolution of the painted terrain, pixels per metre. A sharpness/build-time trade, paid once
- *  per attempt: 20 px/m paints the 92x48 m site in ~250 ms and holds up at the default zoom,
- *  which is about 33 screen px/m. Below 16 the contour lines visibly soften under upscaling. */
-const TERRAIN_PPM = 20;
+/* Resolution of the painted terrain, in pixels per metre.
+ *
+ * A sharpness/build-time trade, paid once per attempt, and the build is a PER-PIXEL loop — so the
+ * cost is linear in area and a wider world pays for it directly. MEASURED: the 92x48 m Milestone 1
+ * site took 1110 ms at a fixed 20 px/m. Milestone 3 made the world 168 m wide for the transport
+ * leg, which at 20 px/m would have been about 2.7 SECONDS of blocked main thread on every reset.
+ *
+ * So the resolution is derived from a PIXEL BUDGET instead of fixed. The bake stays roughly where
+ * it was however big the world gets, and the site loses about two pixels per metre — which nobody
+ * can see at the default zoom of ~33 screen px/m, and which the clamp keeps above the point where
+ * upscaling visibly softens the contour lines. */
+const TERRAIN_PIXEL_BUDGET = 2.4e6;
+const TERRAIN_PPM_MIN = 13;
+const TERRAIN_PPM_MAX = 20;
+
+export function terrainPpm(world) {
+  const raw = Math.sqrt(TERRAIN_PIXEL_BUDGET / (world.widthM * world.heightM));
+  return Math.max(TERRAIN_PPM_MIN, Math.min(TERRAIN_PPM_MAX, Math.round(raw * 4) / 4));
+}
 
 /** Direction the light comes FROM: north-west, low. Everything that shades — the terrain
  *  hillshade, vehicle bodies, tree canopies, rail posts — reads this one vector, so the whole
@@ -45,6 +61,12 @@ const COL = {
   sky: '#0b0a12',
   roadLine: '#d8cf9a',
   roadEdge: '#b9b6ad',
+  yardApron: '#4a4338',      // graded hardstanding: browner and flatter than the blue-grey road
+  bayPaint:  '#d8b13c',      // hazard yellow, the only saturated paint in the scene
+  liftBoom: '#2d3138',
+  liftBoomLit: '#5b636e',
+  strap: '#c8a86a',
+  unsecured: '#c8503c',
   rail: '#9aa0a8',
   railPost: '#7c828a',
   trunk: '#4b3b2c',
@@ -97,6 +119,7 @@ export class Renderer {
    */
   buildTerrain(terrain) {
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+    const TERRAIN_PPM = terrainPpm(terrain.world);
     const W = Math.round(terrain.world.widthM * TERRAIN_PPM);
     const H = Math.round(terrain.world.heightM * TERRAIN_PPM);
 
@@ -241,7 +264,11 @@ export class Renderer {
     // house PRNG already does it right (Dev\INDEX.md: copy it, do not rewrite it).
     const rnd = mulberry32(0x7043ec21);
     cx.lineWidth = 0.05;
-    for (let n = 0; n < 26000; n++) {
+    // Scaled with AREA, not fixed: the Milestone 1 site got 26 000 and the yard extension nearly
+    // doubled the ground, which at a fixed count would have thinned the bank the player actually
+    // looks at in order to decorate a car park.
+    const tufts = Math.round(26000 * (terrain.world.widthM * terrain.world.heightM) / (92 * 48));
+    for (let n = 0; n < tufts; n++) {
       const gx2 = rnd() * terrain.world.widthM;
       const gy2 = rnd() * terrain.world.heightM;
       const surf = terrain.bandSurfaceAt(gx2, gy2);
@@ -255,6 +282,40 @@ export class Renderer {
         : 'rgba(38,52,28,0.45)';
       line(cx, gx2, gy2, gx2 + lean, gy2 - len2);
     }
+
+    /* The yard. A paved apron, its edge, and one marked bay — the only place the job can end.
+     *
+     * Painted here in the bake rather than every frame because it never moves, and drawn BEFORE
+     * the road markings so the road still reads as continuous through it. */
+    const Y = terrain.yard;
+    cx.fillStyle = COL.yardApron;
+    cx.fillRect(Y.x0, Y.y0, Y.x1 - Y.x0, Y.y1 - Y.y0);
+    cx.globalAlpha = 0.5;
+    cx.strokeStyle = COL.roadEdge; cx.lineWidth = 0.16;
+    cx.strokeRect(Y.x0, Y.y0, Y.x1 - Y.x0, Y.y1 - Y.y0);
+    cx.globalAlpha = 1;
+
+    // The bay, in hazard yellow, with its mouth left open so it reads as somewhere to drive INTO.
+    const B2 = Y.bay;
+    cx.strokeStyle = COL.bayPaint; cx.lineWidth = 0.22; cx.globalAlpha = 0.85;
+    line(cx, B2.x0, B2.y0, B2.x0, B2.y1);
+    line(cx, B2.x1, B2.y0, B2.x1, B2.y1);
+    line(cx, B2.x0, B2.y1, B2.x1, B2.y1);
+    // Diagonal hatching, clipped to the bay. Clipping beats trying to work out where each stripe
+     // meets the rectangle's edge: the first version solved that by hand, got it wrong, and painted
+     // a fan of curves instead of a set of parallel lines.
+    cx.save();
+    cx.beginPath();
+    cx.rect(B2.x0, B2.y0, B2.x1 - B2.x0, B2.y1 - B2.y0);
+    cx.clip();
+    cx.globalAlpha = 0.22;
+    cx.lineWidth = 0.16;
+    const span = (B2.x1 - B2.x0) + (B2.y1 - B2.y0);
+    for (let d = 0; d < span; d += 1.3) {
+      line(cx, B2.x0 + d, B2.y0, B2.x0 + d - (B2.y1 - B2.y0), B2.y1);
+    }
+    cx.restore();
+    cx.globalAlpha = 1;
 
     // Road markings last, so nothing is drawn over them.
     cx.strokeStyle = COL.roadEdge; cx.lineWidth = 0.12; cx.globalAlpha = 0.75;
@@ -349,6 +410,7 @@ export class Renderer {
 
     // The sedan first: when the truck slides into it, the truck should be on top.
     this._drawVehicle(ctx, st, st.vehicles.sedan);
+    this._drawLift(ctx, st);              // under the truck: the yoke goes below the tail
     this._drawVehicle(ctx, st, st.vehicles.truck);
 
     this._drawTrees(ctx, st.terrain);       // canopies overhang everything on the ground
@@ -749,6 +811,58 @@ export class Renderer {
           ctx.beginPath(); ctx.arc(p.x, p.y, 0.26, 0, Math.PI * 2); ctx.stroke();
         }
       }
+    }
+  }
+
+  /* The wheel lift: the boom out of the tail, the yoke, and the straps across a load.
+   *
+   * Drawn from the same numbers the physics uses — `yokePos` and `axleMid` — so what you see is
+   * where the constraint actually is. The strap lines make securement visible, which matters:
+   * "how many straps are on it" is a decision with a consequence, and it should be readable from
+   * the picture rather than only from the HUD. */
+  _drawLift(ctx, st) {
+    const truck = st.vehicles.truck;
+    const lift = truck.lift;
+    if (!lift || lift.state === LIFT.STOWED) return;
+
+    const tail = truck.body.toWorld(-truck.def.lengthM / 2, 0);
+    const y = yokePos(truck);
+
+    // The boom.
+    ctx.strokeStyle = COL.liftBoom; ctx.lineWidth = 0.30;
+    ctx.lineCap = 'round';
+    line(ctx, tail.x, tail.y, y.x, y.y);
+    ctx.strokeStyle = COL.liftBoomLit; ctx.lineWidth = 0.13;
+    line(ctx, tail.x, tail.y, y.x, y.y);
+
+    // The cradle: a yoke across the boom, wide enough to look like it takes a wheel each side.
+    const side = truck.body.dirToWorld(0, 1);
+    const half = 0.95;
+    ctx.strokeStyle = COL.liftBoom; ctx.lineWidth = 0.22;
+    line(ctx, y.x - side.x * half, y.y - side.y * half, y.x + side.x * half, y.y + side.y * half);
+    ctx.lineCap = 'butt';
+
+    if (lift.state !== LIFT.CARRYING) return;
+    const load = st.vehicles[lift.carryingId];
+    if (!load) return;
+
+    // Straps, drawn across the load's lifted end. One line per strap, so counting them works.
+    const a = axleMid(load, lift.end);
+    const across = load.body.dirToWorld(0, 1);
+    ctx.strokeStyle = COL.strap;
+    ctx.lineWidth = 0.09;
+    for (let i = 0; i < lift.straps.length; i++) {
+      const off = load.body.dirToWorld((i - (lift.straps.length - 1) / 2) * 0.42, 0);
+      const w2 = load.def.widthM / 2 + 0.12;
+      line(ctx, a.x + off.x - across.x * w2, a.y + off.y - across.y * w2,
+                a.x + off.x + across.x * w2, a.y + off.y + across.y * w2);
+    }
+
+    /* An unsecured load, marked. Not a warning label — a visible absence of straps plus a red
+     * cradle, so the thing the player can see is the thing that is wrong. */
+    if (lift.straps.length === 0) {
+      ctx.strokeStyle = COL.unsecured; ctx.lineWidth = 0.14;
+      line(ctx, y.x - side.x * half, y.y - side.y * half, y.x + side.x * half, y.y + side.y * half);
     }
   }
 

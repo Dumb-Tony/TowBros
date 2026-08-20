@@ -3,14 +3,15 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 2 — a crew, not a player — is playable, over a network.** Two to four people on one
-site, one winch hook between them. Browser, Canvas 2D, ES modules, zero dependencies, and still
-zero external requests — including the multiplayer.
+**Milestone 3 — a complete job — is playable.** Winch the car out of the ditch, pick it up on the
+wheel lift, strap it down, drive it to the yard, and reverse it into the bay. Two to four people,
+over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies, and still zero
+external requests — including the multiplayer.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
 
-![two crew, the line loaded, the sedan coming up the bank](docs/m2-crew.png)
+![the sedan on the wheel lift, strapped down, backing into the yard bay](docs/m3-yard.png)
 
 ## Play it
 
@@ -47,6 +48,56 @@ they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 3 is
+
+Milestone 1 got the car out of the ditch. That turned out to be the middle of the job, not the end
+of it — GDD §7 asks for "a flatbed or wheel-lift workflow, physical load securement, short transport
+route, destination, damage-based payout, and job recap", so the recovery became the first of four
+phases and there is a second machine to get wrong.
+
+**A wheel lift, not a flatbed.** A flatbed is a tilting deck and the winch that already exists
+pulling a car up a ramp. A wheel lift is a genuinely different machine: a yoke swings out under one
+axle, lifts it, and from then on the two vehicles are **one articulated thing** that pivots about the
+yoke. New constraint, new failure modes, and a completely different problem to reverse into a bay.
+
+The workflow is four presses of the same context key, and which one you get is decided by geometry
+rather than by a mode: swing the yoke out, put it under an axle, lift, and later set down. A car
+lying across the yoke cannot be picked up — you have to park properly.
+
+**Securement is a force, not a checkbox.** The cradle holds 11 kN on its own and each strap adds 9.
+The constraint force is measured against that every step, and exceeding it — as an accumulated
+overload in newton-seconds, not a threshold — drops the car in the road. Measured:
+
+| | peak through the yoke | overload accumulated | outcome |
+|---|---|---|---|
+| straight tow | 3.1 kN | 0 N·s | 84 m, arrives |
+| swerving, bare cradle | 16.3 kN vs an 11 kN cap | 141 N·s | **the car comes off at 26 m** |
+| swerving, one strap | 22.1 kN vs a 20 kN cap | 35 N·s | arrives |
+| swerving, two straps | never exceeds capacity | 0 N·s | arrives |
+
+**One strap is the difference between keeping the car and not.** That is the whole mechanic, and
+it is a number the player raises measured against a force their driving produces.
+
+There is a second way to lose it: no cradle lets an axle travel a foot out of it. Straps hold the
+wheels in, so they raise that tolerance too — and it doubles as the hard bound that stops a stiff
+constraint on two rigid bodies from ever running away.
+
+**A load changes the truck.** 45% of the car's mass moves onto the wrecker, so a loaded truck has
+*more* grip (63.4 → 69.2 kN) and the car has less (13.0 → 7.2 kN) — which is most of why the tow
+works at all. And it is governed: a wrecker with a car hanging off the back does not do fifty.
+
+**The world got a destination.** 168 m of road now, with the Milestone 1 site untouched in the
+western 92 m of it and the embankment graded flat into a paved yard at the east end. The blend is
+20 m of continuous ground rather than a cliff, so a vehicle driven along it behaves the way it
+looks. The job ends when the car is standing in the marked bay, on its own wheels, settled.
+
+**The payout is a payout, not a grade.** No par time and no stars — GDD §9's north star is whether
+the player describes what *they* did, and a letter grade at the end answers that for them. What the
+results card does instead is put a number on what they already knew, itemised, with every line
+naming a decision: recovery fee £1400, less £160 for the bumper you tore off, less £220 for the
+load you dropped. A catastrophe still pays the minimum callout, because a job that pays nothing
+teaches nothing.
 
 ## What Milestone 2 is
 
@@ -153,6 +204,7 @@ src/
   player/player.js   the crew: walking, driving, and the context-key priority chain
   crew/authority.js  who owns the hook, the gear and the seats — and nothing else does
   net/               the command frame, the lockstep scheduler, and two serverless transports
+  recovery/lift.js   the wheel lift: a hitch constraint, and two ways to lose a load
   render/            camera, canvas renderer, synthesised audio
   ui/hud.js          tension gauge, context prompt, job log, inspect card
 tools/               dev server, headless test harness, screenshot harness
@@ -171,7 +223,12 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m2-tests.js
 ```
 
-**483 assertions** across two suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2.
+```bash
+.\tools\smoketest.ps1 -Tests tools\m3-tests.js
+```
+
+**641 assertions** across three suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2,
+158 for Milestone 3.
 There is no Node.js on this machine, so the harness *is* a browser: it injects the suite into a copy
 of the page, serves it over http, and greps the dumped DOM.
 
@@ -197,6 +254,14 @@ headless page, connected by a real BroadcastChannel, each driving its own seat f
 keyboard. Every step either side runs is recorded against its step number, and every step both
 machines ran is compared. 286 of them — including 220 with a loaded cable and a deliberate network
 outage in the middle — and none of them disagreed.
+
+[`tools/m3-tests.js`](tools/m3-tests.js) — section S checks the graded yard is continuous and that
+the Milestone 1 site is bit-for-bit where it was. U walks the lift workflow through geometry and
+then through the context key, because a player cannot call `engageLift()`. V is the physics, and
+its load-bearing measurement is the securement table above. W is the job's phases and its payout
+arithmetic. X re-measures the Milestone 1 recovery from scratch — 38 s at 10.7 kN, unchanged —
+because a wider world, a new constraint and a different tire-load accounting are all things that
+could have quietly retuned it.
 
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
@@ -235,7 +300,12 @@ where more than one person can grab the same thing.
 - Seats 3 and 4 exist and are drivable by command frames but have no keyboard bindings — two hand
   positions is all one keyboard has room for. Over the wire each machine drives one seat, so three
   and four players work; four on one keyboard does not.
-- No economy, payout, transport, garage or dispatch. GDD §8 defers all of it, and the empty
-  boundaries in `config.js` say so rather than half-implementing them.
+- **The transport route is one straight road.** GDD §7 asks for a "short" one and this is 60-odd
+  metres of it; junctions, traffic and a regional map are Milestone 5.
+- **One job, one seed, one car.** No dispatch, no garage, no fleet, no persistent money — the
+  payout is computed and shown and then the attempt ends. Milestone 4.
+- A wrecker with a load on is governed to 9 m/s. That is partly realism and partly honesty: a
+  two-wheeled trailer on a hitch is dynamically unstable above about ten metres a second no matter
+  how well the constraint is damped, and a governor is a better answer than pretending otherwise.
 - Contacts are single-point impulses with no stacking. Deliberate: see the note at the top of
   `sim/collision.js`.

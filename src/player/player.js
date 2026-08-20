@@ -28,6 +28,9 @@ import { applyDriverInput, releaseDriverInput, describeVehicle } from '../sim/ve
 import { WINCH, fairleadPos, hookPos, cablePath, pathLength } from '../recovery/cable.js';
 import { attachHook, detachHook, rigZone, zoneCapacityN } from '../recovery/attach.js';
 import {
+  LIFT, yokePos, liftTarget, extendLift, stowLift, engageLift, releaseLift, strapLoad,
+} from '../recovery/lift.js';
+import {
   nearestGear, placeGear, mountBlock, routeThroughBlock, pumpJack, contextFor,
 } from '../recovery/gear.js';
 import { gearDef, USE } from '../data/equipment.js';
@@ -191,6 +194,45 @@ function rideAlong(st, p, veh) {
  * It cuts both ways. On the bank the downhill pull is ~6 kN against ~1.2 kN of rolling resistance,
  * so a car released in the wrong place runs away downhill. Chock it, or hold it on the line.
  */
+/**
+ * Standing at the back of the truck, where the wheel lift is worked from.
+ *
+ * A generous radius around the yoke rather than around the truck's whole tail: the fairlead and
+ * the yoke are within a metre of each other, and the drum branch of `doContext` comes last for
+ * exactly that reason — with the lift out, working the lift is what you meant.
+ */
+function atYoke(st, p) {
+  const truck = st.vehicles.truck;
+  if (!truck.lift) return false;
+  const y = yokePos(truck);
+  if (Math.hypot(p.x - y.x, p.y - y.y) > CONFIG.player.reachM) return false;
+
+  /* A STOWED yoke folds up half a metre behind the tail — which is also where the fairlead is, so
+   * "at the yoke" and "at the drum" are the same square metre of gravel. Offering the lift there
+   * unconditionally stole the drum: standing at the back of the truck with the hook stowed, E swung
+   * the lift out instead of handing you the hook, and every step of the Milestone 1 rigging
+   * sequence after it failed.
+   *
+   * So a folded lift is only worth offering when there is a car parked behind the truck to put it
+   * under. Once it is OUT, working it always wins — you asked for it. */
+  if (truck.lift.state !== LIFT.STOWED) return true;
+  return liftWorthOffering(st);
+}
+
+/** Is there a vehicle close enough behind the tail that swinging the lift out would be the point? */
+function liftWorthOffering(st) {
+  const truck = st.vehicles.truck;
+  const y = yokePos(truck);
+  const reach = CONFIG.lift.reachM + CONFIG.lift.engageM + 1.0;
+  for (const id of Object.keys(st.vehicles)) {
+    const v = st.vehicles[id];
+    if (v === truck) continue;
+    const c = closestOnBox(v.body, y.x, y.y);
+    if (Math.hypot(c.x - y.x, c.y - y.y) <= reach) return true;
+  }
+  return false;
+}
+
 function brakeReachable(st, p) {
   for (const id of Object.keys(st.vehicles)) {
     const v = st.vehicles[id];
@@ -390,6 +432,18 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
       if (anchor) { releaseGear(item, p.id); return 'mount'; }
     }
 
+    /* 4b — strap the load down, if there is one and this is something to strap it with.
+     *      Before placing it on the ground: standing at the back of a loaded truck holding a
+     *      chain, putting the chain in the mud is not what anybody meant. */
+    if (['strap', 'chain'].includes(item.kind) && atYoke(st, p)) {
+      const lift = st.vehicles.truck.lift;
+      if (lift.state === LIFT.CARRYING && lift.straps.length < CONFIG.lift.maxStraps) {
+        releaseGear(item, p.id);
+        strapLoad(st, item, bus, simTimeMs);
+        return 'strap';
+      }
+    }
+
     const ahead = CONFIG.gear.placeAheadM;
     releaseGear(item, p.id);
     placeGear(st, item, p.x + Math.cos(p.facing) * ahead, p.y + Math.sin(p.facing) * ahead,
@@ -417,6 +471,29 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
       lines: [`${who ? who.name : 'Somebody'} is carrying it.`], ttlMs: 2600,
     };
     return null;
+  }
+
+  /* 7b — the wheel lift, worked from the tail of the truck.
+   *
+   *      Four presses in a cycle, and which one you get is decided by geometry rather than by a
+   *      mode: swing it out, put it under an axle, lift, and later set down. Same one key as
+   *      everything else (GDD §5), and the prompt in hintFor mirrors this chain exactly. */
+  if (atYoke(st, p)) {
+    const lift = st.vehicles.truck.lift;
+    if (lift.state === LIFT.STOWED) { extendLift(st, bus, simTimeMs); return 'lift-out'; }
+    if (lift.state === LIFT.CARRYING) { releaseLift(st, bus, simTimeMs, 'player'); return 'lift-down'; }
+    const t = liftTarget(st);
+    if (t) {
+      // A car cannot be picked up with the line still on it: the yoke and the cable would fight
+      // over the same body all the way to the yard.
+      if (st.winch.state === WINCH.ATTACHED && st.winch.targetId === t.veh.id) {
+        detachHook(st, bus, simTimeMs, 'player');
+      }
+      engageLift(st, bus, simTimeMs);
+      return 'lift-up';
+    }
+    stowLift(st, bus, simTimeMs);
+    return 'lift-in';
   }
 
   /* 8 — the casualty's own parking brake. AFTER gear on purpose: if you are standing over a jack
@@ -640,6 +717,30 @@ function hintFor(st, p, terrain, carried) {
     }
     return { key: 'E', label: 'set the hook down' };
   }
+  /* The wheel lift, mirroring doContext's 4b and 7b. Kept adjacent to it in both files so the
+   * prompt and the action cannot drift into disagreeing about what E does here. */
+  if (atYoke(st, p)) {
+    const lift = st.vehicles.truck.lift;
+    const strapping = carried && (carried.kind === 'strap' || carried.kind === 'chain');
+    if (strapping && lift.state === LIFT.CARRYING && lift.straps.length < CONFIG.lift.maxStraps) {
+      return { key: 'E', label: `strap the load down (${lift.straps.length} of ${CONFIG.lift.maxStraps})` };
+    }
+    if (!carried) {
+      if (lift.state === LIFT.STOWED) return { key: 'E', label: 'swing the wheel lift out' };
+      if (lift.state === LIFT.CARRYING) {
+        const n = lift.straps.length;
+        return {
+          key: 'E',
+          label: 'set the load down',
+          alt: n === 0 ? { key: '', label: 'nothing strapping it on' } : null,
+        };
+      }
+      const t = liftTarget(st);
+      if (t) return { key: 'E', label: `lift the ${t.veh.def.label}'s ${t.end} axle` };
+      return { key: 'E', label: 'swing the wheel lift back in' };
+    }
+  }
+
   const ctx = contextFor(st, terrain, p.x, p.y, carried);
   if (ctx) return { key: 'E', label: ctx.label };
 

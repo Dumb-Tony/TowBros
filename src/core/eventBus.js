@@ -52,6 +52,15 @@ export const EVENTS = Object.freeze({
 
   // equipment
   GEAR_PICKED_UP:     'GEAR_PICKED_UP',
+
+  /* The wheel lift and the delivery. GDD §7 Milestone 3. */
+  LIFT_EXTENDED:      'LIFT_EXTENDED',
+  LIFT_STOWED:        'LIFT_STOWED',
+  LIFT_ENGAGED:       'LIFT_ENGAGED',    // { vehicle, end, misalignDeg } an axle is up
+  LIFT_RELEASED:      'LIFT_RELEASED',   // { vehicle, reason, dropped } set down, or lost
+  LOAD_SECURED:       'LOAD_SECURED',    // { gear, kind, straps, capacityN }
+  JOB_PHASE:          'JOB_PHASE',       // { from, to }
+  JOB_DELIVERED:      'JOB_DELIVERED',   // { payout, deductions, atMs }
   GEAR_PLACED:        'GEAR_PLACED',
   GEAR_USED:          'GEAR_USED',       // jack pumped
   GEAR_SCATTERED:     'GEAR_SCATTERED',  // cribbing kicked out by an impact
@@ -71,7 +80,7 @@ const STORY = new Set([
   'HOOK_ATTACHED', 'HOOK_DETACHED', 'RIG_APPLIED', 'BLOCK_MOUNTED', 'CABLE_ROUTED', 'BRAKE_SET',
   'WINCH_STALLED', 'CABLE_SNAPPED', 'ZONE_FAILED', 'COMPONENT_DETACHED', 'COMPONENT_DAMAGED',
   'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
-  'RECOVERY_COMPLETE',
+  'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
 ]);
 
 export class EventBus {

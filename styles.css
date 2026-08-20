@@ -179,3 +179,14 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
   padding:10px 18px;border-radius:9px;background:rgba(14,17,23,.92);color:var(--paper);
   border:1px solid rgba(232,180,90,.55);font-size:13px;letter-spacing:.02em;z-index:40}
 .netstall.on{display:block}
+
+/* ── the payout, on the results card ───────────────────────────────────────
+   Itemised on purpose: a single figure is a score, and a list of causes is a story. */
+.payout{margin-top:14px;border-top:1px solid rgba(242,234,217,.14);padding-top:10px;
+  font-size:12.5px;max-width:340px;margin-left:auto;margin-right:auto}
+.pay-row{display:flex;justify-content:space-between;gap:16px;padding:3px 0;color:var(--paper)}
+.pay-row span{opacity:.72}
+.pay-row.minus b{color:#d98a76}
+.pay-row.total{margin-top:7px;padding-top:8px;border-top:1px solid rgba(242,234,217,.14);
+  font-size:14px}
+.pay-row.total b{color:#8fd6a2}

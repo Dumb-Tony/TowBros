@@ -76,7 +76,29 @@ export function applyWheelForces(veh, terrain, dtSec) {
   // judges the same incoming load. Reading it live would make wheel 1 hold the whole pull
   // and wheels 2-4 hold nothing.
   const extFx = b.fx, extFy = b.fy;
-  const massShare = b.massKg / n;
+
+  /* How many wheels are actually on the ground, and how much weight they are holding.
+   *
+   * `airborne` is a wheel-lift axle: fully off the ground, carrying nothing, and its share of the
+   * car's weight has to go to the wheels that ARE down rather than simply vanishing. Dividing by
+   * `n` regardless left a carried sedan's two rear tyres holding a quarter of its mass each
+   * instead of half, which is half the grip and reads as a car that skates.
+   *
+   * `groundLoadMul` is the rest of the same fact from the other side: 45% of a lifted car's mass
+   * is on the truck now, so only 55% is on its own tyres. And `extraLoadKg` is where that 45% went
+   * — a loaded wrecker really does have more grip, which is most of why the tow works at all. */
+  const grounded = veh.wheelState.reduce((a, s) => a + (s.airborne ? 0 : 1), 0) || n;
+  const groundKg = (b.massKg + veh.extraLoadKg) * veh.groundLoadMul;
+  const massShare = groundKg / grounded;
+
+  /* The governor, computed ONCE. Scaling `veh.throttle` itself inside the wheel loop would have
+   * compounded per driven wheel and leaked the reduced value out to the HUD and the next step —
+   * the same class of mistake as reading `b.fx` live per wheel instead of snapshotting it. */
+  let govMul = 1;
+  if (veh.lift && veh.lift.state === 'carrying') {
+    const over = b.speed - CONFIG.lift.towSpeedMaxMps;
+    if (over > 0) govMul = Math.max(0, 1 - over / 1.5);
+  }
 
   let anySlip = 0, totalLoad = 0;
 
@@ -98,12 +120,13 @@ export function applyWheelForces(veh, terrain, dtSec) {
     const slope = terrain.slopeAt(p.x, p.y);
 
     // Weight on this patch. Front wheels lighten under acceleration, rear under braking.
-    let share = (1 / n) * (1 + (w.local.x >= 0 ? -transfer : transfer));
-    share = Math.max(V.minNormalFrac / n, share);
+    let share = (1 / grounded) * (1 + (w.local.x >= 0 ? -transfer : transfer));
+    share = Math.max(V.minNormalFrac / grounded, share);
     // A jacked corner has its weight taken by the jack, not by the tire — so grip there
-    // genuinely disappears. That is the trade the player is making.
-    const liftMul = ws.lifted ? 0.15 : 1;
-    const N = b.massKg * g * slope.normalFrac * share * liftMul;
+    // genuinely disappears. That is the trade the player is making. A wheel-lift axle is a
+    // stronger version of the same thing: not lightened, off the ground.
+    const liftMul = ws.airborne ? 0 : (ws.lifted ? 0.15 : 1);
+    const N = groundKg * g * slope.normalFrac * share * liftMul;
     totalLoad += N;
 
     // A dug-in hub is not a tire and is not bound by a tire's friction circle: it is a plough,
@@ -118,11 +141,18 @@ export function applyWheelForces(veh, terrain, dtSec) {
     /* ── longitudinal ─────────────────────────────────────────────────── */
     let long = 0;
 
-    // Drive. Only driven wheels, only when the vehicle has a driver.
+    /* Drive. Only driven wheels, only when the vehicle has a driver.
+     *
+     * A loaded wrecker is governed: past `towSpeedMaxMps` the drive force fades out. Real recovery
+     * trucks are limited with something on the lift, and a game one has to be — a two-wheeled
+     * trailer on a hitch is dynamically unstable above about ten metres a second no matter how
+     * well the constraint is damped, and a governor is a far more honest answer to that than
+     * pretending the physics holds. */
     if (w.drive && veh.throttle !== 0) {
-      long += veh.throttle > 0
-        ? veh.throttle * (CONFIG.truck.driveForceN / nDriven)
-        : veh.throttle * (CONFIG.truck.reverseForceN / nDriven);
+      const thr = veh.throttle * (veh.throttle > 0 ? govMul : 1);
+      long += thr > 0
+        ? thr * (CONFIG.truck.driveForceN / nDriven)
+        : thr * (CONFIG.truck.reverseForceN / nDriven);
     }
 
     // How much this wheel is willing to resist rolling. A missing wheel is not a wheel: the
@@ -202,13 +232,18 @@ export function applyWheelForces(veh, terrain, dtSec) {
  */
 export function gripBudgetN(veh, terrain) {
   const b = veh.body;
+  // Same accounting as applyWheelForces: only wheels on the ground count, they share the weight
+  // that is actually on this vehicle, and a loaded wrecker is carrying more of it.
+  const grounded = veh.wheelState.reduce((a, s) => a + (s.airborne ? 0 : 1), 0) || veh.def.wheels.length;
+  const groundKg = (b.massKg + veh.extraLoadKg) * veh.groundLoadMul;
   let total = 0;
-  for (const w of veh.def.wheels) {
+  veh.def.wheels.forEach((w, i) => {
+    if (veh.wheelState[i].airborne) return;
     const p = b.toWorld(w.local.x, w.local.y);
     const surf = terrain.surfaceAt(p.x, p.y);
     const slope = terrain.slopeAt(p.x, p.y);
-    total += surf.mu * (b.massKg * CONFIG.sim.gravity / veh.def.wheels.length) * slope.normalFrac;
-  }
+    total += surf.mu * (groundKg * CONFIG.sim.gravity / grounded) * slope.normalFrac;
+  });
   return total * veh.gripMul;
 }
 

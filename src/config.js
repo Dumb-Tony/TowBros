@@ -32,6 +32,16 @@
  * the truck uses to drive. Retune anything above and re-read the whole block.
  */
 
+/* The world's SIZE is imported rather than restated.
+ *
+ * It was written out again here, and Milestone 3 found out why that is a bad idea: widening the
+ * world to 168 m for the transport leg left CONFIG's copy at 92, so the camera — its only reader —
+ * clamped its centre to the old world and refused to follow the truck into the yard. It showed up
+ * as a screenshot of the recovery site with a HUD describing the yard.
+ *
+ * Two records of one fact, one more time. terrain.js owns the number; this points at it. */
+import { WORLD } from './data/terrain.js';
+
 export const CONFIG = {
 
   /* ── simulation ─────────────────────────────────────────────────────────── */
@@ -51,10 +61,7 @@ export const CONFIG = {
   },
 
   /* ── scene ──────────────────────────────────────────────────────────────── */
-  world: {
-    widthM: 92,
-    heightM: 48,
-  },
+  world: WORLD,
 
   /* ── presentation ───────────────────────────────────────────────────────── */
   render: {
@@ -92,6 +99,80 @@ export const CONFIG = {
   /* ── the crew ───────────────────────────────────────────────────────────── */
   // GDD §7 Milestone 2: "2-4 player networking, player stumble/ragdoll punctuation, shared
   // equipment ... and robust object authority."
+  /* What the job pays. GDD §7 Milestone 3: "damage-based payout".
+   *
+   * A payout, not a grade — see computePayout in world/scene.js. The numbers are chosen so that
+   * the deductions are legible against the fee rather than dominant: a clean recovery pays 1400,
+   * a torn bumper costs a tenth of that, and it takes a genuinely bad day to reach the floor.
+   * `minimumFee` exists because a job that pays nothing teaches nothing; a job that pays badly and
+   * says why teaches a lot.
+   *
+   * There is no time bonus and no par time, deliberately. GDD §8 defers scoring and §9's north star
+   * is whether the player describes what THEY did — a clock at the top of a results card answers
+   * that question for them. */
+  job: {
+    baseFee: 1400,
+    minimumFee: 150,
+    settleMs: 900,          // standing still in the bay this long counts as delivered
+    dentCost: 40,
+    partBentCost: 90,
+    partLostCost: 160,
+    cableCost: 250,         // a winch rope is not cheap and it was yours
+    railCost: 300,          // the county will be in touch
+    dropCost: 220,          // per time the load came off the lift in transit
+    rollCost: 400,
+  },
+
+  /* The wheel lift. GDD §7 Milestone 3.
+   *
+   * ── THE FORCE BUDGET, EXTENDED ────────────────────────────────────────────────────
+   * The lift is the stiffest constraint in the game and it sits beside the softest one. For
+   * scale, at a 1400 kg car half-carried:
+   *
+   *   cable, chain rig      520 kN/m     meant to stretch; parts at 42 kN
+   *   wheel lift          1 200 kN/m     meant not to; drops its load at capacity
+   *   stability ceiling  ~2 800 kN/m     sqrt(k/m) < 2/dt at 60 Hz on 700 kg of reduced mass
+   *
+   * `yokeHoldN` is what the cradle holds on its own — enough for a straight tow on a flat road
+   * and not enough for a corner taken at speed. Each strap adds `strapHoldN`, and two of them put
+   * the connection comfortably above anything short of hitting something. That is the whole
+   * securement mechanic: it is a number the player raises, measured against a force the driving
+   * produces.
+   */
+  lift: {
+    reachM: 1.05,           // how far the yoke swings out past the tail
+    yokeOffsetM: 0.55,      // and how far past THAT the cradle sits
+    engageM: 1.15,          // an axle has to be about this close to be picked up
+    engageAlignRad: 0.60,   // ~34°: you cannot pick a car up sideways
+    springK: 300000,        // N/m. A 2.6 kN tow load is 9 mm of sag — rigid to look at
+    damp: 0.90,             // near-critical: a hinge must not ring, and this one is stiff
+    dampCapN: 40000,        // ABSOLUTE cap, not a fraction of the spring term. See stepLift.
+    maxForceN: 120000,     // solver safety cap, the same as the cable's
+    weightTransfer: 0.45,   // of the load's mass, moved onto the truck when lifted
+    yokeHoldN: 11000,       // the cradle on its own
+    strapHoldN: 9000,       // each strap or chain across the load
+    maxStraps: 3,
+    /* Accumulated overload that costs you the load, in newton-seconds. Measured: one hard swerve
+     * on a bare cradle accumulates 185 N·s of excess and ONE strap brings the same swerve to 35, so
+     * 160 makes a single strap the difference between keeping the car and not. */
+    dropNs: 160,
+    overDecayNsPerSec: 900,
+    /* How far the axle may travel out of the cradle before it is simply not in it any more.
+     * Also the hard bound that keeps the constraint from diverging — see stepLift. */
+    maxGapM: 0.09,
+    strapGapM: 0.05,        // each strap holds the wheels in that much harder
+
+    /* Articulation. A cradle grips the wheels, so the load yaws with the truck up to a limit and
+     * is resisted past it. alignDamp is the important one — it is what stops the pair snaking, and
+     * it is sized near critical for the sedan's 2 790 kg·m² of yaw inertia at road speed. */
+    articulationRad: 0.55,  // ~32° of free swing, which is enough to reverse round a bay
+    alignK: 240000,         // N·m per radian past that
+    alignDamp: 34000,       // N·m per rad/s of RELATIVE yaw rate
+    alignMaxNm: 90000,
+    /** A wrecker with a car hanging off the back does not do fifty. A governor, not a wall. */
+    towSpeedMaxMps: 9.0,
+  },
+
   /* Networking. GDD §7 Milestone 2.
    *
    * `stepDelay` is input delay in fixed steps, and it is the only knob lockstep really has: a frame

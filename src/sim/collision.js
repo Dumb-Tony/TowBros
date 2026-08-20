@@ -199,12 +199,27 @@ export function buildScenery(terrain) {
  * @param {(a,b,impulse,hit)=>void} [onImpact]  damage hook; kept out of here on purpose
  * @returns {number} the largest impulse of the step, for camera kick and audio
  */
+/** Is one of these two carrying the other on its wheel lift? */
+function joinedByLift(A, B) {
+  return (A.lift && A.lift.carryingId === B.id) || (B.lift && B.lift.carryingId === A.id);
+}
+
 export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
   let peak = 0;
 
   for (let i = 0; i < dynamics.length; i++) {
     for (let j = i + 1; j < dynamics.length; j++) {
       const A = dynamics[i], B = dynamics[j];
+      /* Two bodies held together by the wheel lift do NOT also collide.
+       *
+       * Not an optimisation — a correctness fix, and one this codebase had already learned the
+       * hard way in a different place: a positional correction is a TELEPORT, and any stiff
+       * constraint reading positions sees it as instantaneous deformation. An articulated car can
+       * bring its nose within a few centimetres of the truck carrying it, and every contact
+       * correction there was fed straight back into the hitch. MEASURED: the pair stayed at 3 kN
+       * for a hundred metres of straight towing and then jumped to 94 kN in a single step during a
+       * swerve. Filtering constrained pairs is what every solver does, for this reason. */
+      if (joinedByLift(A, B)) continue;
       const hit = obbOverlap(A.body, B.body);
       if (!hit) continue;
       const jn = resolveContact(A.body, B.body, hit, 0.12, 0.45);

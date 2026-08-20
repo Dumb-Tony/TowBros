@@ -24,6 +24,7 @@ import { describeWinch, WINCH } from '../recovery/cable.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
 import { seatOf, holdsHook, carriedItem } from '../player/player.js';
+import { JOB } from '../world/scene.js';
 
 /** One readable sentence per event. The job log is the GDD's north star made literal, so the
  *  wording matters: it says what happened, never what to do about it. */
@@ -65,6 +66,29 @@ function phrase(e) {
     case EVENTS.VEHICLE_EXITED:     return `${who(e.crew)} got out of the ${e.vehicle}`;
     case EVENTS.RECOVERY_COMPLETE:  return 'the sedan is on the road';
     default: return null;
+  }
+}
+
+/**
+ * The one objective line, per job phase — a statement of fact in every case, never an instruction.
+ */
+function objectiveFor(st, cornersOnRoad, lift) {
+  const j = st.job;
+  switch (j.phase) {
+    case JOB.DELIVERED:
+      return `delivered · £${j.payout ? j.payout.paid : 0}`;
+    case JOB.TRANSPORT: {
+      const n = lift.straps.length;
+      return `the sedan is on the lift · ${n === 0
+        ? 'nothing strapping it down'
+        : `${n} strap${n === 1 ? '' : 's'} on it`}`;
+    }
+    case JOB.LOAD:
+      return j.bayCorners > 0
+        ? `the sedan is in the yard — ${j.bayCorners}/4 corners in the bay`
+        : 'the sedan is on the road, on its own wheels';
+    default:
+      return `get the sedan onto the road — ${cornersOnRoad}/4 corners up`;
   }
 }
 
@@ -234,14 +258,18 @@ export class Hud {
     this._set(this.el.winchState, ws);
     this.el.winchState.classList.toggle("stalled", st.winch.stalled || st.winch.blocked || st.winch.contested);
 
-    this._set(this.el.clock, GameClock.formatMs(st.simTimeMs));
 
-    // One line of objective, and a corner count so "all four wheels on the road" is legible
-    // without being a checklist.
+    this._set(this.el.clock, GameClock.formatMs(st.simTimeMs));
+    /* One line of objective, and it says what is TRUE rather than what to do next.
+     *
+     * Milestone 3 made the job longer than the recovery, so the line follows the phase — but it is
+     * still a statement of where the car is, not a step in a checklist. A player who winches the
+     * car out and drives home without it has not failed a step; the car is on the road, and the
+     * line says so. GDD §9 again: a UI that narrates the plan makes the north-star question
+     * impossible to answer. */
     const on = st.goal.cornersOnRoad;
-    this._set(this.el.objective, st.goal.complete
-      ? 'the sedan is on the road'
-      : `get the sedan onto the road — ${on}/4 corners up`);
+    const lift = st.vehicles.truck.lift;
+    this._set(this.el.objective, objectiveFor(st, on, lift));
 
     /* The prompt line belongs to the LOCAL player — crew[0]. Everything about their state is
      * read back off the world objects rather than out of a field on the person: whether they are
@@ -293,7 +321,11 @@ export class Hud {
 
     // The completion card. It reports and then gets out of the way: the sim keeps running and
     // the player can carry on driving around, because GDD §4 says reset is never imposed.
-    if (st.goal.complete && !this._dismissedDone && !this.el.done.classList.contains('on')) {
+    /* The card comes up when the JOB is done, not when the recovery is. Milestone 1 showed it the
+     * moment the car reached the road, which is now the middle of the job — and a results card at
+     * the halfway point told the player they were finished when they were not. */
+    if (st.job.phase === JOB.DELIVERED && !this._dismissedDone
+        && !this.el.done.classList.contains('on')) {
       this.el.done.classList.add('on');
       this._renderRecap();
     }
@@ -412,6 +444,20 @@ export class Hud {
     if (s.truckSlipped) cost.push('the truck went for a walk');
     if (s.guardrailHit) cost.push('the guardrail took some of it');
     bits.push(`<p class="hint">${cost.length ? escapeHtml(cost.join(' · ')) : 'Nothing broke. Suspiciously clean.'}</p>`);
+
+    /* The payout, itemised. Every line names a decision the player made, which is the whole reason
+     * it is itemised at all: a single number is a score, and a list of causes is a story. */
+    const pay = s.payout;
+    if (pay) {
+      bits.push('<div class="payout">');
+      bits.push(`<div class="pay-row"><span>recovery fee</span><b>&pound;${pay.baseFee}</b></div>`);
+      for (const d of pay.deductions) {
+        bits.push(`<div class="pay-row minus"><span>${escapeHtml(d.label)}</span><b>-&pound;${d.amount}</b></div>`);
+      }
+      bits.push(`<div class="pay-row total"><span>${pay.floored ? 'minimum callout' : 'paid'}</span>`
+              + `<b>&pound;${pay.paid}</b></div>`);
+      bits.push('</div>');
+    }
     this.el.doneBody.innerHTML = bits.join('');
   }
 

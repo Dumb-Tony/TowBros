@@ -39,7 +39,8 @@ export function createVehicle(def, spawn, opts = {}) {
     id: w.id,
     attached: true,     // false once the hub loses the argument
     locked: locked.has(w.id),
-    lifted: false,      // a jack is holding this corner
+    lifted: false,      // a jack is holding this corner: most of the weight is off it
+    airborne: false,    // a wheel lift has this axle in the air: ALL of it is off it
     gripMul: 1,
     dragMul: 1,         // raised by a bent axle or a lost wheel
     // presentation, written by the tire model each step
@@ -63,6 +64,13 @@ export function createVehicle(def, spawn, opts = {}) {
     // tire model, the audio mix and the escalation watch keep asking the question they always did.
     occupiedBy: null,
     get occupied() { return this.occupiedBy !== null; },
+
+    /* On the back of a wrecker. Both written by src/recovery/lift.js and read by the tire model,
+     * and they are two halves of one fact: the mass a lifted car takes off its own tyres is the
+     * same mass the truck's tyres gain. Keeping them as multipliers on the vehicles rather than as
+     * a lookup somewhere means the tire model never has to know the lift exists. */
+    groundLoadMul: 1,            // fraction of its own weight still on its own wheels
+    extraLoadKg: 0,              // somebody else's weight, sitting on this one
 
     // multipliers written by src/recovery/gear.js every step, read here and by the tires
     gripMul: 1,
@@ -291,8 +299,26 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
     }
   }
 
+  /* The site has no fence, so this is the last resort that stops a snapped-cable launch putting a
+   * vehicle somewhere unreachable.
+   *
+   * It used to scale BOTH velocity components by -0.2, which is wrong twice over. Driving into the
+   * south edge reversed the eastward velocity as well; and a 20% bounce leaves the drive force
+   * pushing the body straight back into the wall, so it is re-clamped every single step with a live
+   * velocity into it. MEASURED: with a car on the wheel lift, that pinned position plus that live
+   * velocity opened the hitch by 30 cm PER STEP and pinned the constraint at 94 kN — which looked
+   * exactly like a solver instability and cost three rounds of stiffness tuning to not fix. A
+   * positional correction is a teleport, and any stiff constraint reading positions sees it as
+   * instantaneous deformation; the world edge is just the third place in this codebase that lesson
+   * has turned up (see collision.js resolveContact, and the lift's own engage snap).
+   *
+   * A world edge is a fence, not a trampoline. Kill the component that hit it. */
   const c = terrain.clampToWorld(b.x, b.y, b.boundRadius * 0.5);
-  if (c.clamped) { b.x = c.x; b.y = c.y; b.vx *= -0.2; b.vy *= -0.2; }
+  if (c.clamped) {
+    b.x = c.x; b.y = c.y;
+    if (c.clampedX) b.vx = 0;
+    if (c.clampedY) b.vy = 0;
+  }
 }
 
 /** Driver inputs from a steering/throttle axis pair. Steering eases toward the request and

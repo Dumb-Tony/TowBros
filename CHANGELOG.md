@@ -1,5 +1,97 @@
 # Changelog
 
+## Milestone 3 — a complete job — 2026-08-20
+
+Getting the car out of the ditch turned out to be the middle of the job. GDD §7 asks for "a flatbed
+or wheel-lift workflow, physical load securement, short transport route, destination, damage-based
+payout, and job recap", so the recovery is now the first of four phases and there is a second
+machine to get wrong.
+
+**A wheel lift, not a flatbed**, because a flatbed is the winch that already exists plus an
+animation and a wheel lift is a different machine: a yoke under one axle, and from then on the two
+vehicles are one articulated thing pivoting about it. Four presses of the same context key, decided
+by geometry rather than by a mode. A car lying across the yoke cannot be picked up.
+
+**Securement is a force.** The cradle holds 11 kN alone; each strap adds 9. Overload is judged as an
+accumulated impulse in newton-seconds, not as a force over a threshold — because measuring showed
+that towing round a bend puts a bare yoke over its capacity for 33 ms at a time with a 22 kN peak,
+and any duration long enough to ignore that ignores everything.
+
+| | peak through the yoke | overload accumulated | outcome |
+|---|---|---|---|
+| straight tow | 3.1 kN | 0 N·s | 84 m, arrives |
+| swerving, bare cradle | 16.3 kN vs an 11 kN cap | 141 N·s | **the car comes off at 26 m** |
+| swerving, one strap | 22.1 kN vs a 20 kN cap | 35 N·s | arrives |
+| swerving, two straps | never exceeds | 0 N·s | arrives |
+
+One strap is the difference between keeping the car and not.
+
+**A load changes the truck**: 45% of the car's mass moves onto the wrecker, so it gains grip
+(63.4 → 69.2 kN) while the car loses it (13.0 → 7.2 kN). That is most of why the tow works, and the
+tire model now accounts for airborne axles properly — a lifted pair carries nothing and its share of
+the weight goes to the wheels still down, instead of vanishing.
+
+**168 m of road**, with the Milestone 1 site untouched in the western 92 m and the embankment graded
+flat into a paved yard at the east end over 20 m of continuous blend. The terrain bake is a
+per-pixel loop, so resolution comes from a pixel budget now rather than a fixed 20 px/m — the world
+nearly doubled and the bake went 1110 → 1527 ms instead of to 2.7 seconds.
+
+**A payout, not a grade.** Itemised, every line naming a decision, with a minimum callout floor
+because a job that pays nothing teaches nothing.
+
+### Six bugs, and what each one actually was
+
+**Engaging across a metre of slack is 1.1 MN.** `engageM` is a reach tolerance and the constraint is
+stiff; leaving the gap for the spring to resolve threw the car three metres down the road. A yoke
+that has picked an axle up has the axle *in* it — so the geometry snaps closed on engage, once, at
+the player's request.
+
+**⚠ The damping sign was inverted.** `closing` was actually the *separation* rate, so the damper
+cancelled the spring instead of opposing the gap. Measured: the gap opened to 27 mm with the
+reported force still at zero, then the spring caught up all at once and the pair rang between 0 and
+the 120 kN solver cap. A sign, and it looked exactly like an instability.
+
+**⚠ The cable's damping clamp is wrong for a rigid hinge.** A rope clamps damping to a fraction of
+its spring term, which is right for a rope. On a hinge it leaves almost no damping at small
+displacement — exactly when it is needed — so the constraint accumulates gap before anything opposes
+it. Measured: a tow needing 2.8 kN ramped 0.3 → 0.9 → 1.7 → 2.9 → 5.2 → 7.8 → 10.1 → 11.2 kN over
+nine steps and peaked at 106 kN. Absolute cap, near-critical damping.
+
+**⚠ THE WORLD EDGE WAS A TRAMPOLINE.** `clampToWorld` pinned position and scaled *both* velocity
+components by −0.2, so a body driven into the fence was re-clamped every step with a live velocity
+into it. With a car on the lift that opened the hitch by 30 cm per step and pinned the constraint at
+94 kN. Three rounds of stiffness tuning went into "fixing" that before an instrumented run showed
+the truck was at y=46.2 in a 48 m world. A positional correction is a teleport, and this is the
+third place in this codebase that lesson has surfaced.
+
+**Two records of one fact, again.** `CONFIG.world` restated the world size, so widening the terrain
+to 168 m left the camera clamping its centre to the old 92 — it simply refused to follow the truck
+into the yard. It showed up as a screenshot of the recovery site with a HUD describing the yard.
+CONFIG imports `WORLD` now.
+
+**A stowed yoke sits where the fairlead sits.** Offering the lift there unconditionally stole the
+drum: at the back of the truck with the hook stowed, E swung the lift out instead of handing you the
+hook, and every step of the M1 rigging sequence after it failed. A folded lift is only offered when
+there is a car parked behind the truck to put it under.
+
+And one test bug worth recording: the M1 tow tests were passing *because* the world used to be 92 m
+wide. The truck ran into the east edge within a few seconds, which is what let the sedan settle;
+with 168 m the same loop drove for 90 seconds and dragged the car down the road. The loop now stops
+when the car is up, which is what a player does — and the numbers got better and more honest for it
+(last third of the road 5/6 → 6/6, mid-road 41.8 → 35.5 s).
+
+### Numbers
+
+| | |
+|---|---|
+| M1 suite | **264 / 264** |
+| M2 suite | **219 / 219** |
+| M3 suite | **158 / 158** |
+| far-lane recovery, re-measured | 38 s at 10.7 kN, unchanged |
+| straight tow through the yoke | 3.1 kN, 8.8 mm of sag |
+| world | 168 × 48 m at 17.25 px/m, 1527 ms to bake |
+
+
 ## The wire — 2026-08-20
 
 Milestone 2's last piece, and the decision behind it made out loud.

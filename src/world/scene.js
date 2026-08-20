@@ -19,6 +19,7 @@ import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
 import { buildScenery } from '../sim/collision.js';
 import { createWinch } from '../recovery/cable.js';
+import { createLift, LIFT } from '../recovery/lift.js';
 import { createCrewMember } from '../player/player.js';
 
 /**
@@ -47,6 +48,7 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
   const sedan = createVehicle(SEDAN_DEF, terrain.anchors.sedan, { boggedN, lockedWheels: locked });
   const truck = createVehicle(TRUCK_DEF, terrain.anchors.truck, {});
   truck.parkBrake = true;
+  truck.lift = createLift();
 
   // Zone modifiers and rigging live on the vehicle, not on the definition: the definition is
   // shared, frozen data and one attempt's torn bumper must not follow the player into the next.
@@ -84,6 +86,19 @@ export function buildScene(rng, crewCount = CONFIG.crew.count) {
       settledMs: 0,
       complete: false,
       completedAtMs: null,
+    },
+    /* The JOB, which is bigger than the recovery. GDD §7 Milestone 3 turns "get the car out of the
+     * ditch" into "get the car to the yard", and the recovery becomes its first phase rather than
+     * its ending. `goal` above is untouched and still means exactly what it meant in Milestone 1 —
+     * the car is on the road — because that is a real milestone in the job and because two hundred
+     * assertions depend on it meaning that. */
+    job: {
+      phase: JOB.RECOVER,
+      inBayMs: 0,
+      deliveredAtMs: null,
+      payout: null,
+      droppedInTransit: 0,
+      bayCorners: 0,
     },
     escalation: {
       truckSlipping: false,
@@ -142,6 +157,133 @@ export function stepGoal(st, bus, simTimeMs) {
   }
   return false;
 }
+
+/* ── the job ───────────────────────────────────────────────────────────────── */
+
+/**
+ * The phases of a complete job. GDD §7 Milestone 3.
+ *
+ * Deliberately a description of where the car IS, not a checklist the player is working through.
+ * Nothing here tells anyone what to do next; the HUD's one objective line reads the phase and says
+ * what is true, the way it always has. A player who winches the car out and then drives home
+ * without it has not failed a step — they have left the car on the road, and the phase says so.
+ */
+export const JOB = Object.freeze({
+  RECOVER:  'recover',    // the car is in the ditch
+  LOAD:     'load',       // the car is out, and on the ground
+  TRANSPORT: 'transport', // the car is on the lift
+  DELIVERED: 'delivered', // the car is standing in the bay
+});
+
+/** How many of a vehicle's corners are inside the yard bay. */
+export function cornersInBay(veh, terrain) {
+  const c = veh.body.corners();
+  let n = 0;
+  for (const p of c) if (terrain.inBay(p.x, p.y)) n++;
+  return { on: n, of: c.length, all: n === c.length };
+}
+
+/**
+ * What the job paid. GDD §7 Milestone 3: "damage-based payout".
+ *
+ * A payout, not a grade. There is no par time and no stars — GDD §9's north star is whether the
+ * player describes what THEY did, and a letter grade at the end answers that question for them.
+ * What this does is put a number on the thing they already knew: the bumper they tore off is worth
+ * something, and it came out of the fee.
+ *
+ * Every deduction names the decision that caused it, so the recap can read back "you got £X, less
+ * £Y for the bumper" rather than a single unexplained figure.
+ */
+export function computePayout(st, bus) {
+  const P = CONFIG.job;
+  const sedan = st.vehicles.sedan;
+  const parts = Object.entries(sedan.damage.parts);
+  const lost = parts.filter(([, s]) => s === 'lost');
+  const bent = parts.filter(([, s]) => s === 'bent');
+
+  const deductions = [];
+  const take = (label, amount) => { if (amount > 0) deductions.push({ label, amount: Math.round(amount) }); };
+
+  take(`${sedan.damage.dents} dent${sedan.damage.dents === 1 ? '' : 's'}`, sedan.damage.dents * P.dentCost);
+  for (const [p] of lost) take(`lost the ${p}`, P.partLostCost);
+  for (const [p] of bent) take(`bent the ${p}`, P.partBentCost);
+  const snaps = bus.count(EVENTS.CABLE_SNAPPED);
+  take(snaps === 1 ? 'parted the cable' : `parted the cable ${snaps}x`, snaps * P.cableCost);
+  const rails = bus.count(EVENTS.GUARDRAIL_BENT);
+  take(rails === 1 ? 'damaged the guardrail' : `damaged ${rails} guardrail sections`, rails * P.railCost);
+  take('dropped the load in transit', (st.job.droppedInTransit || 0) * P.dropCost);
+  if (bus.count(EVENTS.ROLLED_OVER) > 0) take('rolled a vehicle', bus.count(EVENTS.ROLLED_OVER) * P.rollCost);
+
+  const total = deductions.reduce((a, d) => a + d.amount, 0);
+  const paid = Math.max(P.minimumFee, P.baseFee - total);
+  return {
+    baseFee: P.baseFee,
+    deductions,
+    deducted: total,
+    paid,
+    clean: total === 0,
+    /** True when the deductions bottomed out — the job cost more than it was worth. */
+    floored: P.baseFee - total < P.minimumFee,
+  };
+}
+
+/**
+ * Where the job has got to. Runs every step, after the goal.
+ *
+ * The phases only ever move forward except LOAD <-> TRANSPORT, which flips both ways because
+ * setting a car down and picking it up again is a normal thing to do and dropping one is a normal
+ * thing to have happen.
+ */
+export function stepJob(st, bus, simTimeMs) {
+  const job = st.job;
+  if (job.phase === JOB.DELIVERED) return job.phase;
+
+  const sedan = st.vehicles.sedan;
+  const lift = st.vehicles.truck.lift;
+  const carrying = lift.carryingId === sedan.id;
+
+  const to = (phase) => {
+    if (job.phase === phase) return;
+    bus.emit(EVENTS.JOB_PHASE, { from: job.phase, to: phase }, simTimeMs);
+    job.phase = phase;
+  };
+
+  const bay = cornersInBay(sedan, st.terrain);
+  job.bayCorners = bay.on;
+
+  if (carrying) {
+    to(JOB.TRANSPORT);
+    job.inBayMs = 0;
+    return job.phase;
+  }
+
+  /* Delivered: standing in the bay, on its own wheels, settled. Deliberately NOT "the truck is in
+   * the yard" — the job is where the car ends up, and a player who shoves it into the bay with the
+   * bumper instead of setting it down there has still delivered it. */
+  const settled = sedan.body.speed <= CONFIG.success.maxSpeedMps;
+  if (bay.all && settled) {
+    job.inBayMs += CONFIG.sim.stepMs;
+    if (job.inBayMs >= CONFIG.job.settleMs) {
+      job.deliveredAtMs = simTimeMs;
+      job.payout = computePayout(st, bus);
+      to(JOB.DELIVERED);
+      bus.emit(EVENTS.JOB_DELIVERED, {
+        atMs: simTimeMs,
+        paid: job.payout.paid,
+        deducted: job.payout.deducted,
+        clean: job.payout.clean,
+      }, simTimeMs);
+      return job.phase;
+    }
+  } else {
+    job.inBayMs = 0;
+  }
+
+  // Out of the ditch but not on the truck: it is a load waiting to be picked up.
+  to(st.goal.complete ? JOB.LOAD : JOB.RECOVER);
+  return job.phase;
+}
+
 
 /**
  * Escalation watch. GDD §4 lists "accidental escalation in which the tow truck slides into
@@ -235,6 +377,20 @@ export function recapFrom(bus, st) {
       case EVENTS.RECOVERY_COMPLETE:
         lines.push([t, 'the sedan was on the road']);
         break;
+      case EVENTS.LIFT_ENGAGED:
+        lines.push([t, `picked the ${e.vehicle} up by its ${e.end} axle`]);
+        break;
+      case EVENTS.LOAD_SECURED:
+        lines.push([t, `strapped the load down — ${e.straps} on, good for ${(e.capacityN / 1000).toFixed(0)} kN`]);
+        break;
+      case EVENTS.LIFT_RELEASED:
+        lines.push([t, e.dropped
+          ? `DROPPED the load at ${e.x}, ${e.y}`
+          : `set the load down at ${e.x}, ${e.y}`]);
+        break;
+      case EVENTS.JOB_DELIVERED:
+        lines.push([t, `delivered${e.clean ? ', without a scratch' : ''}`]);
+        break;
       default: break;
     }
   }
@@ -257,6 +413,15 @@ export function recapFrom(bus, st) {
       usedBlock: bus.count(EVENTS.BLOCK_MOUNTED) > 0,
       complete: st.goal.complete,
       timeMs: st.goal.completedAtMs,
+      /* The job, which is bigger than the recovery. `complete` above still means the Milestone 1
+       * thing — the car reached the road — because that is a real moment in the job and because a
+       * great many assertions depend on it meaning exactly that. */
+      phase: st.job.phase,
+      delivered: st.job.phase === JOB.DELIVERED,
+      deliveredAtMs: st.job.deliveredAtMs,
+      droppedInTransit: st.job.droppedInTransit,
+      strapsUsed: bus.count(EVENTS.LOAD_SECURED),
+      payout: st.job.payout,
     },
   };
 }
