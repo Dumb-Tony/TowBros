@@ -3,8 +3,9 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 2 — a crew, not a player — is playable.** Two to four people on one site, one winch
-hook between them. Browser, Canvas 2D, ES modules, zero dependencies, zero external requests.
+**Milestone 2 — a crew, not a player — is playable, over a network.** Two to four people on one
+site, one winch hook between them. Browser, Canvas 2D, ES modules, zero dependencies, and still
+zero external requests — including the multiplayer.
 
 The design contract is [GDD.md](GDD.md), and it is in this repo on purpose: the code answers to
 it, not the other way round.
@@ -19,6 +20,14 @@ it, not the other way round.
 
 That serves the game over http and opens a tab. **It cannot be opened from disk** — ES modules
 are blocked on `file://`, and the page will tell you so if you try.
+
+Three ways to bring somebody, all on the title screen and none of them involving a server:
+
+| | |
+|---|---|
+| **one keyboard** | just start the job. Two hand positions, mirrored, no shared keys — the table below |
+| **two tabs** | press "open a second tab", then open the page again and press it there too |
+| **two machines** | one presses "host over the network" and sends the blob; the other presses "join somebody" and pastes it, then sends the reply back. Same LAN |
 
 Two people, one keyboard. Mirrored hand positions, no shared keys.
 
@@ -72,11 +81,28 @@ just bump into.
 **Everything runs through the command seam.** GDD §6 asks for multiplayer authority to sit above
 "deterministic-ish simulation commands", so it does: every seat — including the keyboard in front of
 you — is driven by a two-mask command frame (`held`, `pressed`) sampled inside the fixed step and
-delivered through a transport (`src/net/commands.js`). Four bytes per seat per step. Today the
-transport is a loopback at zero delay; the frames carry intent, never state, so the seeded
-fixed-step simulation stays authoritative on every machine.
+delivered through a transport (`src/net/commands.js`). Four bytes per seat per step. The frames
+carry intent, never state, so the seeded fixed-step simulation stays authoritative on every machine.
 
-That is deliberately not a network yet — see [Known limitations](#known-limitations).
+**And it goes over a wire, with no server anywhere.** The netcode is lockstep: every peer runs the
+same steps from the same seed with the same commands and arrives at the same world, so there is no
+authority, no reconciliation, and no snapshots of a 6.8-tonne truck being smeared across three
+frames. The price is that nobody may step until every seat's commands for that step have arrived,
+paid with four steps (67 ms) of input delay rather than with prediction.
+
+Two transports, both serverless:
+
+- **Two tabs of one browser**, over BroadcastChannel. Zero network. Open the page twice.
+- **Two machines**, over WebRTC, with the signalling done by the players: one copies about a
+  thousand characters of base64 and sends it however they already talk, and the other pastes it
+  back. There are no ICE servers by default, so only host candidates are gathered and the pair must
+  be on the same network. Crossing a NAT needs a STUN server, which is an external request — so it
+  is an argument you can have, not a default that spends the project's one hard rule quietly.
+
+The proof is `tools/m2-tests.js` §R: two complete simulations in one page, wired together by a real
+BroadcastChannel and driven from two keyboards. **286 steps compared one at a time — including 220
+with a loaded cable, and a network outage in the middle — and zero disagreements.**
+
 
 Everything Milestone 1 could do, it still does, at the same numbers: far lane recovers on the winch
 in 36 s at 12 kN, the rest of the road stalls legibly and finishes with a tow in 40–45 s, no park
@@ -103,6 +129,11 @@ the force *already in the accumulator*, so a load below the available grip produ
 all. That one detail is the difference between a car that sits there while the line goes
 bar-tight, and a car that creeps out of a ditch under any tension you like.
 
+**Lockstep, not authority.** [`src/net/session.js`](src/net/session.js) gates the fixed step on
+every seat's commands for that step having arrived, and sends nothing else. That is only possible
+because the simulation is seeded and deterministic — which the M1 suite already proved before the
+netcode existed — and it is why a networked game and a solo one are the same code.
+
 **Ownership on the object.** [`src/crew/authority.js`](src/crew/authority.js) keeps who-has-what in
 three fields on the three objects — `winch.heldBy`, `item.carriedBy`, `vehicle.occupiedBy` — rather
 than in a parallel table of owners. Two records of one fact eventually disagree, and the
@@ -121,7 +152,7 @@ src/
   world/scene.js     scene assembly, the one objective, and the recap
   player/player.js   the crew: walking, driving, and the context-key priority chain
   crew/authority.js  who owns the hook, the gear and the seats — and nothing else does
-  net/commands.js    the command frame, the Input-shaped adapter, and the transport seam
+  net/               the command frame, the lockstep scheduler, and two serverless transports
   render/            camera, canvas renderer, synthesised audio
   ui/hud.js          tension gauge, context prompt, job log, inspect card
 tools/               dev server, headless test harness, screenshot harness
@@ -140,7 +171,7 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m2-tests.js
 ```
 
-**439 assertions** across two suites in headless Chrome — 264 for Milestone 1, 175 for Milestone 2.
+**483 assertions** across two suites in headless Chrome — 264 for Milestone 1, 219 for Milestone 2.
 There is no Node.js on this machine, so the harness *is* a browser: it injects the suite into a copy
 of the page, serves it over http, and greps the dumped DOM.
 
@@ -160,6 +191,12 @@ is the stumble, and mostly asserts that a knocked-down crew member cannot strand
 is the occupiable casualty. Section Q is the command seam, and its load-bearing assertion is Q21: a
 crew driven entirely through command frames ends up at **exactly** the coordinates the keyboard put
 them, to six decimal places.
+
+Section R is the lockstep proof, and the strongest test in the project: two whole Games in one
+headless page, connected by a real BroadcastChannel, each driving its own seat from its own
+keyboard. Every step either side runs is recorded against its step number, and every step both
+machines ran is compared. 286 of them — including 220 with a loaded cable and a deliberate network
+outage in the middle — and none of them disagreed.
 
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
@@ -185,16 +222,19 @@ where more than one person can grab the same thing.
 ## Known limitations
 
 - Must be served over http. `play.bat` does it.
-- **Local co-op only. There is no wire yet, and that is a decision waiting on a person, not an
-  oversight.** Everything above the transport is built and tested: the command frame, the
-  Input-shaped adapter, the delay-capable transport, four addressable seats, and a suite that
-  proves a seat driven purely by frames is indistinguishable from one driven by a keyboard. What is
-  missing is the transport itself, and the reason is a real conflict — this project's rule is zero
-  external requests, and WebRTC needs a signalling server to introduce two browsers to each other.
-  Swapping `LoopbackTransport` for a real one is the only change required; picking which one is a
-  trade-off worth making out loud.
-- Seats 3 and 4 exist and are drivable by command frames, but have no keyboard bindings. Two hand
-  positions is all one keyboard has room for.
+- **Same network only, over WebRTC.** No ICE servers are configured, so only host candidates are
+  gathered: two machines on one LAN or VPN connect, two behind different NATs do not. Crossing a NAT
+  needs a STUN server, which is an external request and therefore a deliberate decision rather than
+  a silent default. Pass `iceServers` to `ManualWebRtcPeer` if you want to spend it.
+- **The handshake is copy-and-paste.** No lobby, no matchmaking, no room codes, because all three
+  are somebody else's server. It is clunky exactly once per session.
+- **A network outage longer than about 400 ms stops the game rather than desyncing it.** Loss
+  recovery is a 24-frame redundancy window and nothing else — no acks, no retransmit requests, no
+  resync. That is the honest failure mode for lockstep: it halts visibly instead of quietly
+  drifting into two different worlds.
+- Seats 3 and 4 exist and are drivable by command frames but have no keyboard bindings — two hand
+  positions is all one keyboard has room for. Over the wire each machine drives one seat, so three
+  and four players work; four on one keyboard does not.
 - No economy, payout, transport, garage or dispatch. GDD §8 defers all of it, and the empty
   boundaries in `config.js` say so rather than half-implementing them.
 - Contacts are single-point impulses with no stacking. Deliberate: see the note at the top of

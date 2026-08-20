@@ -107,6 +107,15 @@ export class Hud {
       done: root.querySelector('.screen-done'),
       doneBody: root.querySelector('.done-body'),
       resetHint: root.querySelector('.reset-hint'),
+      netStall: root.querySelector('.netstall'),
+
+      coop: root.querySelector('.coop'),
+      coopPanel: root.querySelector('.coop-panel'),
+      coopSay: root.querySelector('.coop-say'),
+      coopOut: root.querySelector('.coop-out'),
+      coopIn: root.querySelector('.coop-in'),
+      coopGo: root.querySelector('.btn-coop-go'),
+      coopCopy: root.querySelector('.btn-coop-copy'),
     };
 
     // The stall marker on the gauge is where the motor gives up, so it has to be COMPUTED from
@@ -123,6 +132,41 @@ export class Hud {
     root.querySelector('.btn-keep').addEventListener('click', () => {
       this.el.done.classList.remove('on');
       this._dismissedDone = true;
+    });
+
+    /* Co-op setup. The HUD does not know what a peer is — it collects the three intents
+     * ("second tab", "host", "join") and the one blob of text, and hands them to main.js, which
+     * owns the transports. Keeping the network out of the UI layer is the same instinct as
+     * keeping ownership on the objects: one place that knows, and no second copy. */
+    this.onCoop = null;                 // (kind, blob) => Promise<string|null>
+    const coopBtn = (sel, kind) => root.querySelector(sel).addEventListener('click', () => {
+      this._coopKind = kind;
+      this._coopStart(kind);
+    });
+    coopBtn('.btn-coop-tab', 'tab');
+    coopBtn('.btn-coop-host', 'host');
+    coopBtn('.btn-coop-join', 'join');
+    root.querySelector('.btn-coop-cancel').addEventListener('click', () => {
+      this.el.coopPanel.classList.remove('on');
+      this._coopKind = null;
+    });
+    this.el.coopCopy.addEventListener('click', () => {
+      this.el.coopOut.select();
+      // execCommand is deprecated and is also the only clipboard path that works without a
+      // permission prompt on a page served from localhost over plain http. Both are tried.
+      if (navigator.clipboard) navigator.clipboard.writeText(this.el.coopOut.value).catch(() => {});
+      else document.execCommand('copy');
+      this.el.coopCopy.textContent = 'copied';
+      setTimeout(() => { this.el.coopCopy.textContent = 'copy'; }, 1200);
+    });
+    this.el.coopGo.addEventListener('click', async () => {
+      const blob = this.el.coopIn.value.trim();
+      if (!blob) { this._coopSay('Paste the text they sent you into the second box first.'); return; }
+      this._coopSay('working…');
+      const out = await this.onCoop(this._coopKind === 'host' ? 'host-answer' : 'join', blob);
+      if (out === null) { this._coopSay('That did not look like a handshake. Ask them to send it again.'); return; }
+      if (out) { this._coopShowOut(out, 'Send them this, and you are connected once they paste it.'); }
+      else { this._coopSay('Connected. Starting the job…'); }
     });
 
     // Large on-screen winch controls — GDD §5 requires these, not just keys. They latch the
@@ -260,6 +304,19 @@ export class Hud {
     } else {
       this.el.resetHint.classList.remove('on');
     }
+
+    /* The only network UI during play, and it appears only when the connection is actually
+     * holding the simulation up. A permanent "connected" badge is noise; a stall with no
+     * explanation is a mystery, and a player would reasonably conclude the game had hung. */
+    const net = this.game.net;
+    const stalled = !!net && net.state === 'playing' && !net.transport.ready();
+    this.el.netStall.classList.toggle('on', stalled);
+    if (stalled) {
+      const waiting = [...net.transport.claimedSeats]
+        .filter((s) => !net.transport.localSeats.has(s))
+        .map((s) => `crew ${s + 1}`);
+      this._set(this.el.netStall, `waiting for ${waiting.join(' and ') || 'the other end'}…`);
+    }
   }
 
   /** R once arms, R again resets. "Always available, never imposed" — and never by accident
@@ -268,6 +325,50 @@ export class Hud {
     if (this._resetArmedMs > 0) { this._resetArmedMs = 0; return true; }
     this._resetArmedMs = 900;
     return false;
+  }
+
+  /* ── co-op panel ───────────────────────────────────────────────────────── */
+
+  _coopSay(text) { this.el.coopSay.textContent = text; }
+
+  _coopShowOut(text, say) {
+    this.el.coopOut.classList.remove('hide');
+    this.el.coopOut.value = text;
+    this._coopSay(say);
+  }
+
+  async _coopStart(kind) {
+    this.el.coopPanel.classList.add('on');
+    this.el.coopOut.value = '';
+    this.el.coopIn.value = '';
+    this.el.coopOut.classList.add('hide');
+    this.el.coopIn.classList.add('hide');
+    this.el.coopGo.style.display = 'none';
+    this.el.coopCopy.style.display = 'none';
+
+    if (kind === 'tab') {
+      this._coopSay('Open this same page in a second tab or window and press "open a second tab" '
+        + 'there too. You will be crew 1 and crew 2 on one machine.');
+      const out = await this.onCoop('tab', null);
+      if (out === null) this._coopSay('This browser has no BroadcastChannel, so two tabs cannot talk.');
+      return;
+    }
+    if (kind === 'host') {
+      this._coopSay('Gathering…');
+      const offer = await this.onCoop('host', null);
+      if (offer === null) { this._coopSay('This browser cannot do WebRTC here.'); return; }
+      this.el.coopCopy.style.display = '';
+      this.el.coopIn.classList.remove('hide');
+      this.el.coopGo.style.display = '';
+      this._coopShowOut(offer, 'Send them this. When they send one back, paste it below and press '
+        + '"use it".');
+      return;
+    }
+    // join
+    this.el.coopIn.classList.remove('hide');
+    this.el.coopGo.style.display = '';
+    this.el.coopCopy.style.display = '';
+    this._coopSay('Paste what the host sent you, then press "use it".');
   }
 
   /* One chip per crew member: their tint, their name, and what they are holding.
@@ -357,6 +458,9 @@ const TEMPLATE = `
   <div class="reset-hint">press <kbd>R</kbd> again to reset the scene</div>
 </div>
 
+<div class="netstall">waiting for the other end&hellip;
+</div>
+
 <div class="screen screen-title on">
   <div class="card">
     <h1>TOW BROS</h1>
@@ -375,6 +479,29 @@ const TEMPLATE = `
       One hook, one jack, one snatch block, two seats. Whoever gets there first gets it.
     </p>
     <button class="btn-start primary">start the job</button>
+
+    <div class="coop">
+      <div class="coop-head">or bring somebody</div>
+      <div class="coop-row">
+        <button class="btn-coop-tab">open a second tab</button>
+        <button class="btn-coop-host">host over the network</button>
+        <button class="btn-coop-join">join somebody</button>
+      </div>
+      <div class="coop-panel">
+        <p class="coop-say"></p>
+        <textarea class="coop-out" readonly rows="3" spellcheck="false"></textarea>
+        <textarea class="coop-in" rows="3" spellcheck="false" placeholder="paste what they send you"></textarea>
+        <div class="coop-row">
+          <button class="btn-coop-copy">copy</button>
+          <button class="btn-coop-go primary">use it</button>
+          <button class="btn-coop-cancel">cancel</button>
+        </div>
+        <p class="coop-note">
+          No server is involved — you are passing the handshake yourselves, so send that blob
+          however you already talk. Same network only unless you add a STUN server.
+        </p>
+      </div>
+    </div>
   </div>
 </div>
 

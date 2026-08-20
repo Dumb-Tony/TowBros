@@ -64,6 +64,12 @@ export class Game {
      *  step and whatever the caller passed to frame()/step() is ignored. Null means "the keyboard
      *  is the input", which is what the M1 suite drives. */
     this.link = null;
+    /** Lockstep gate (src/net/session.js). When set, `frame()` will not run a step unless
+     *  `net.canStep()` says every seat's commands for it have arrived. */
+    this.net = null;
+    /** How many crew the scene builds. Settable because a networked session's HOST decides it and
+     *  both peers must agree — a different crew size is a different world on step one. */
+    this.crewCount = CONFIG.crew.count;
     this.state = this._newState();
     this._syncClockToMode();
   }
@@ -71,7 +77,7 @@ export class Game {
   static seedFromLabel(label) { return hashStr(label); }
 
   _newState() {
-    const st = buildScene(this.rng.world);
+    const st = buildScene(this.rng.world, this.crewCount);
     st.version = 1;
     st.seed = this.seed;
     st.seedLabel = this.seedLabel;
@@ -95,10 +101,12 @@ export class Game {
    * the same site, laid out slightly differently, with the same approaches still viable.
    * Pass reroll:false to replay the identical attempt — which is what the tests do.
    */
-  reset({ reroll = true, seed = this.seed, seedLabel = this.seedLabel } = {}) {
+  reset({ reroll = true, seed = this.seed, seedLabel = this.seedLabel, attempt = null } = {}) {
     this.seed = seed >>> 0;
     this.seedLabel = seedLabel;
-    if (reroll) this.attempt++;
+    // An explicit attempt is how a joining peer adopts the host's world exactly. It beats reroll.
+    if (attempt !== null) this.attempt = attempt;
+    else if (reroll) this.attempt++;
     this.clock.reset();
     for (const name of Object.keys(STREAMS)) {
       // Mixing the attempt number in is what re-rolls the layout without losing
@@ -188,7 +196,7 @@ export class Game {
       if (inputs) for (const i of inputs) if (i) i.endStep();
       // With a link attached the real keyboards sit behind it, so they need clearing from here.
       if (this.link) for (const b of this.link.localSeats) b.input.endStep();
-    });
+    }, this.net ? () => this.net.canStep() : null);
   }
 
   /**

@@ -92,6 +92,21 @@ export const CONFIG = {
   /* ── the crew ───────────────────────────────────────────────────────────── */
   // GDD §7 Milestone 2: "2-4 player networking, player stumble/ragdoll punctuation, shared
   // equipment ... and robust object authority."
+  /* Networking. GDD §7 Milestone 2.
+   *
+   * `stepDelay` is input delay in fixed steps, and it is the only knob lockstep really has: a frame
+   * sampled while running step N is scheduled for step N + this, which is how long the network gets
+   * to deliver it before anybody needs it. Four steps is 67 ms of headroom and about one frame of
+   * felt lag on your own actions — the point where a LAN connection never stalls and you cannot
+   * feel the delay. Raise it for a worse connection; every step of it is 17 ms of input lag.
+   *
+   * `seats` is the wire's seat count and stays at maxCount even in a two-crew game, so a third
+   * person joining does not renumber anybody. */
+  net: {
+    stepDelay: 4,
+    room: 'lobby',
+  },
+
   crew: {
     // How many people are on site. Two is the interesting number: it is the smallest crew where
     // one can drive while the other rigs, and where two hands can want one hook.

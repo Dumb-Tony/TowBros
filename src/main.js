@@ -20,6 +20,10 @@ import { DebugOverlay } from './dev/debugOverlay.js';
 import { WINCH } from './recovery/cable.js';
 import { seatOf } from './player/player.js';
 import { CommandLink, LoopbackTransport } from './net/commands.js';
+import { NetSession, NET } from './net/session.js';
+import {
+  BroadcastChannelPeer, ManualWebRtcPeer, broadcastAvailable, webRtcAvailable,
+} from './net/transports.js';
 
 const canvas = document.getElementById('stage');
 const uiRoot = document.getElementById('ui');
@@ -77,6 +81,75 @@ function startJob() {
 }
 hud.onStart = startJob;
 hud.onReset = startJob;
+
+/* Co-op. main.js owns the transports because it is the only place mutable globals are allowed;
+ * the HUD collects the intent and a blob of text and knows nothing else about it.
+ *
+ * Returns the text to hand to the other player, '' when there is nothing left to exchange, or
+ * null when this browser cannot do it at all. */
+let peer = null;
+hud.onCoop = async (kind, blob) => {
+  try {
+    if (kind === 'tab') {
+      if (!broadcastAvailable()) return null;
+      peer = new BroadcastChannelPeer('lobby');
+      // Whoever opens the tab FIRST is the host, and both tabs press the same button — so the
+      // rule has to be decidable without asking. First one to speak into an empty room hosts:
+      // a guest announces itself and, if nothing answers within a beat, promotes itself.
+      startSession(peer, { host: false });
+      setTimeout(() => {
+        if (session && session.state === NET.JOINING) {
+          session.close();
+          startSession(new BroadcastChannelPeer('lobby'), { host: true });
+          hud._coopSay('Hosting. Open the page again in another tab and press the same button.');
+        }
+      }, 600);
+      return '';
+    }
+    if (kind === 'host') {
+      if (!webRtcAvailable()) return null;
+      peer = new ManualWebRtcPeer({ host: true });
+      const offer = await peer.createOffer();
+      peer.onOpen = () => startSession(peer, { host: true });
+      return offer;
+    }
+    if (kind === 'host-answer') {
+      await peer.acceptRemote(blob);
+      return '';
+    }
+    if (kind === 'join') {
+      if (!webRtcAvailable()) return null;
+      peer = new ManualWebRtcPeer({ host: false });
+      const answer = await peer.acceptOffer(blob);
+      peer.onOpen = () => startSession(peer, { host: false });
+      return answer;
+    }
+  } catch (e) {
+    return null;      // a mistyped blob is a normal thing to do, not an exception to throw
+  }
+  return null;
+};
+
+let session = null;
+function startSession(p, { host }) {
+  session = new NetSession(game, p, {
+    host,
+    seats: CONFIG.crew.maxCount,
+    stepDelay: CONFIG.net.stepDelay,
+    crewCount: CONFIG.crew.count,
+  });
+  game.net = session;
+  session.onChange = (s) => {
+    if (s.state !== NET.PLAYING) return;
+    // The HOST rebuilds the world on connect so both ends start from the same step 0. The guest
+    // already did it inside the welcome handler, from the host's own seed and attempt.
+    if (host) game.startJob({ reroll: false });
+    session.hostReady();
+    hud.el.title.classList.remove('on');
+    hud.el.coopPanel.classList.remove('on');
+  };
+  session.start();
+}
 
 /* Screen-level keys go on the real keydown rather than through the per-step edge buffer:
  * pausing must work on the frame it is pressed, including while the simulation is stopped and
@@ -155,4 +228,7 @@ window.addEventListener('mousemove', (e) => {
 /* Debug/test handle. Mirrors `__ABC` in Airport Baggage Crew and `__SD` in Something's
  * Different: the smoke-test harness drives the real objects through this rather than reaching
  * into module scope. */
-window.__TB = { game, camera, renderer, hud, debug, input, inputs, link, audio, CONFIG, startJob };
+window.__TB = {
+  game, camera, renderer, hud, debug, input, inputs, link, audio, CONFIG, startJob,
+  get session() { return session; },
+};

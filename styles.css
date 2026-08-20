@@ -151,3 +151,31 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .debug.on{display:block}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ── co-op panel on the title card ─────────────────────────────────────────
+   Deliberately below the start button and visually quieter than it. Single player is the
+   default and always one click; bringing somebody is a thing you go looking for. */
+.coop{margin-top:18px;padding-top:14px;border-top:1px solid rgba(242,234,217,.10)}
+.coop-head{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6a6684;margin-bottom:9px}
+.coop-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.coop button{font:inherit;font-size:12px;padding:7px 12px;border-radius:7px;cursor:pointer;
+  background:rgba(30,34,44,.9);color:var(--paper);border:1px solid rgba(242,234,217,.18)}
+.coop button:hover{background:rgba(44,50,64,.95);border-color:rgba(242,234,217,.34)}
+.coop button.primary{background:#3c6b4a;border-color:#54946a}
+.coop button.primary:hover{background:#48815a}
+.coop-panel{display:none;margin-top:12px;text-align:left}
+.coop-panel.on{display:block}
+.coop-say{font-size:12.5px;color:var(--paper);margin:0 0 8px;line-height:1.5}
+.coop textarea{width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px;border-radius:7px;
+  background:rgba(10,12,18,.85);color:#9fb8c8;border:1px solid rgba(242,234,217,.14);
+  font:11px ui-monospace,Consolas,monospace;resize:vertical;word-break:break-all}
+.coop textarea.hide{display:none}
+.coop-note{font-size:11px;color:#6a6684;line-height:1.6;margin:9px 0 0}
+.coop-panel.on .coop-row{justify-content:flex-start}
+
+/* Lockstep stall banner. Only visible when the connection is actually holding the sim up,
+   because a permanent "connected" badge is noise and a missing stall warning is a mystery. */
+.netstall{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:none;
+  padding:10px 18px;border-radius:9px;background:rgba(14,17,23,.92);color:var(--paper);
+  border:1px solid rgba(232,180,90,.55);font-size:13px;letter-spacing:.02em;z-index:40}
+.netstall.on{display:block}

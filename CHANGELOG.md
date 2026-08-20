@@ -1,5 +1,83 @@
 # Changelog
 
+## The wire — 2026-08-20
+
+Milestone 2's last piece, and the decision behind it made out loud.
+
+**Lockstep, because the simulation was already deterministic.** M1's suite replays a whole recovery
+bit-for-bit from a seed; M2's does it with a crew. When that is true the cheapest correct network is
+the one that sends nothing but intent — every peer runs the same steps from the same seed with the
+same commands and arrives at the same world. No authority, no reconciliation, no snapshots. The
+price is that nobody may step until every seat's commands for that step have arrived, and it is paid
+with four steps (67 ms) of input delay rather than with prediction. `LoopbackTransport.delaySteps`
+had modelled exactly that since the seam was built, so the delay path was tested before the wire.
+
+**No server, because that was the constraint.** The standing rule is zero external requests, and the
+usual answer to browser multiplayer — PeerJS, a socket relay, a lobby — is somebody else's computer.
+So there are two transports and neither has one:
+
+- **BroadcastChannel** between two tabs of one browser. Zero network, and a real transport rather
+  than a mock: the session cannot tell it from a wire, which is what makes co-op testable alone.
+- **WebRTC with the handshake passed by the players.** `iceServers: []`, so only host candidates are
+  gathered and the pair must share a network. One copies about a thousand characters of base64 and
+  sends it however they already talk. Verified live in a browser: 1036-character offer, channel
+  open, command frame across intact, nothing fetched from anywhere.
+
+Crossing a NAT needs STUN, which is an external request. It is available as an explicit argument
+rather than a default, because spending the project's one hard rule should be a decision somebody
+makes on purpose.
+
+**The proof.** `tools/m2-tests.js` §R runs two complete simulations in one headless page, wired
+together by a real BroadcastChannel, each driving its own seat from its own keyboard. Every step
+either side runs is recorded against its step number, and every step both machines ran is compared:
+
+| | |
+|---|---|
+| steps compared | **286** |
+| of which under a loaded cable | 220 |
+| network outages survived | 1 |
+| disagreements | **0** |
+
+### Three bugs, and the last one matters
+
+**The wire was write-only.** `NetSession` owns the peer's single `onMessage` hook, so I built the
+scheduler with `peer = null` to stop two objects fighting over it — and removed its ability to
+transmit at the same time. Both ends ran their four steps of input delay and then deadlocked
+forever. The scheduler now takes a send-only `transmit` function, which makes the ownership
+unambiguous instead of implicit.
+
+**Comparing two peers at one instant is the wrong test.** Input delay means either end may be up to
+`stepDelay` steps ahead, and after any asymmetry they settle at exactly that offset and stay there —
+leapfrogging along in perfect agreement while a naive comparison screams desync. They are not out of
+sync; one has already computed what the other is about to. The suite now records each world against
+its STEP NUMBER and compares step N to step N, which is the actual claim determinism makes.
+
+**⚠ Lockstep deadlocks if both ends stall at once.** This one is real and it was not obvious.
+Frames are produced by *stepping*, because sampling happens inside the step — so a peer whose gate
+is closed transmits nothing. Measured: a one-sided outage of eight steps left the host needing the
+guest's frame for step N and the guest needing the host's for step N+4. **Both had already sampled
+the frame the other needed.** Neither could deliver it, because delivering required stepping and
+stepping required delivery.
+
+The fix is not to produce new frames — a stalled peer has none — but to re-send the ones it has. The
+moment the gate closes, the whole 24-frame redundancy window goes out again. It costs nothing in the
+normal case, because in the normal case the gate never closes.
+
+Related, and found the same way: **delay a frame by AGE, not by queue depth**. "Hold it back until
+more than N are waiting" reads correctly and never drains — the queue keeps N frames forever, so the
+last N commands of a session are never delivered at all.
+
+### Numbers
+
+| | |
+|---|---|
+| M1 suite | **264 / 264** |
+| M2 suite | **219 / 219** |
+| input delay | 4 steps · 67 ms |
+| wire | 4 bytes per seat per step, plus a 24-frame redundancy window |
+| survivable outage | ~400 ms; longer stops the game rather than desyncing it |
+
+
 ## Milestone 2 — a crew, not a player — 2026-08-20
 
 Two to four people on one site, and exactly one winch hook between them. The whole milestone is

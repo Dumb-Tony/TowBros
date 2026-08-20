@@ -27,7 +27,7 @@ import { createCrewMember } from '../player/player.js';
  *
  * @param {import('../core/rng.js').Rng} rng  the world stream
  */
-export function buildScene(rng) {
+export function buildScene(rng, crewCount = CONFIG.crew.count) {
   const terrain = createTerrain(rng);
 
   // Which of the sedan's wheels are SEIZED — jammed hubs, not braked ones.
@@ -61,7 +61,8 @@ export function buildScene(rng) {
   // The crew. GDD §7 Milestone 2 puts two to four of them on site; they arrive together, spread
   // along the shoulder beside the truck rather than stacked on one spawn point.
   const crew = [];
-  for (let i = 0; i < CONFIG.crew.count; i++) {
+  const n = Math.max(1, Math.min(CONFIG.crew.maxCount, crewCount | 0));
+  for (let i = 0; i < n; i++) {
     crew.push(createCrewMember(`crew${i}`, i, {
       x: terrain.anchors.player.x - i * 1.5,
       y: terrain.anchors.player.y + (i % 2) * 0.9,

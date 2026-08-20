@@ -38,6 +38,7 @@ export class GameClock {
     this.paused = false;
     this.timeScale = 1;      // debug only; never shipped off 1
     this.clampedFrames = 0;  // diagnostic: how often we threw time away
+    this.stalledFrames = 0;  // diagnostic: frames the lockstep gate held us at
   }
 
   /**
@@ -49,7 +50,7 @@ export class GameClock {
    * Paused returns 0 without touching the accumulator, so unpausing resumes mid-step
    * rather than dumping a burst of banked time into the world.
    */
-  advance(realDeltaMs, onStep) {
+  advance(realDeltaMs, onStep, canStep = null) {
     if (this.paused) return 0;
 
     let dt = realDeltaMs;
@@ -60,6 +61,17 @@ export class GameClock {
 
     let steps = 0;
     while (this.accumulatorMs >= this.stepMs) {
+      /* `canStep` is the lockstep gate (src/net/session.js). A networked peer may not run step N
+       * until every seat's commands for step N have arrived, so the loop has to be able to give up
+       * part way through a frame rather than at the start of one. */
+      if (canStep && !canStep()) {
+        this.stalledFrames++;
+        // Banked time is capped while stalled, or a two-second hiccup would come back as two
+        // seconds of simulation crammed into the frame the connection recovered on — the same
+        // spiral maxFrameMs exists to prevent, arriving by a different route.
+        if (this.accumulatorMs > this.maxFrameMs) this.accumulatorMs = this.maxFrameMs;
+        break;
+      }
       this.accumulatorMs -= this.stepMs;
       this.simTimeMs += this.stepMs;
       this.stepCount++;

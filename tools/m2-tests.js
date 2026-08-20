@@ -40,6 +40,11 @@ import {
 import {
   ACTIONS, sampleFrame, packFrame, unpackFrame, CommandInput, LoopbackTransport, CommandLink,
 } from '../src/net/commands.js';
+import { NetSession, NET, LockstepTransport } from '../src/net/session.js';
+import {
+  BroadcastChannelPeer, ManualWebRtcPeer, encodeBlob, decodeBlob,
+  broadcastAvailable, webRtcAvailable,
+} from '../src/net/transports.js';
 import {
   UNOWNED, hookFree, claimHook, releaseHook, gearFree, claimGear, releaseGear,
   seatFree, claimSeat, releaseSeat, releaseAll, ownedBy, validateAuthority,
@@ -823,10 +828,301 @@ function sectionQ() {
   gt('Q32 and frames have actually gone through it', TB.game.link.transport.sent, -1);
 }
 
+/* ── R. lockstep: two whole simulations, one transport ───────────────────── */
+
+/*
+ * The strongest test in the project, and the reason the netcode is lockstep at all.
+ *
+ * Two independent Games, in one page, connected by two real BroadcastChannel objects — the same
+ * transport two browser tabs would use, not a mock. Each drives its own seat from its own keyboard
+ * and receives the other's commands over the wire. If the simulation is genuinely deterministic
+ * and the scheduler is genuinely correct, the two worlds must be IDENTICAL after every step, to
+ * the last bit of every float. If either is wrong they drift, and the drift shows up within a
+ * second or two of anything interesting happening.
+ *
+ * Nothing about vehicle state ever crosses the channel. Only intent does.
+ */
+
+async function sectionR() {
+  lines.push('--- R. lockstep: two simulations, one wire, no divergence (GDD §6, §7) ---');
+
+  ok('R1 this browser can talk between contexts at all', broadcastAvailable());
+  ok('R2 and could do WebRTC if asked', webRtcAvailable());
+
+  // A handshake blob has to survive a chat window, so it is base64 of JSON rather than raw SDP.
+  const fake = { type: 'offer', sdp: 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\n' };
+  const blob = encodeBlob(fake);
+  ok('R3 a handshake blob is a single unbroken token', !/\s/.test(blob));
+  const back = decodeBlob(blob);
+  eq('R4 and it round-trips exactly', back.sdp, fake.sdp);
+  eq('R5 including its type', back.type, fake.type);
+  let threw = false;
+  try { decodeBlob('not a handshake at all'); } catch { threw = true; }
+  ok('R6 rubbish in is rejected rather than half-decoded', threw);
+
+  // Unique room per run, so a re-run never hears the previous one's traffic.
+  const room = `test-${passes}-${fails}`;
+  const hostPeer = new BroadcastChannelPeer(room);
+  const guestPeer = new BroadcastChannelPeer(room);
+
+  const hostGame = new Game({ seed: 9001, seedLabel: 'lockstep' });
+  const guestGame = new Game({ seed: 1, seedLabel: 'wrong' });   // deliberately wrong; the host wins
+
+  const hostIn = new Input(window, CREW_BINDINGS[0]);
+  const guestIn = new Input(window, CREW_BINDINGS[0]);   // seat 1 on the wire, own WASD locally
+  hostGame.link = new CommandLink(4, null).bindLocal(0, hostIn);
+  guestGame.link = new CommandLink(4, null).bindLocal(0, guestIn);
+
+  const hostNet = new NetSession(hostGame, hostPeer, { host: true, seats: 4, stepDelay: 4, crewCount: 2 });
+  const guestNet = new NetSession(guestGame, guestPeer, { host: false, seats: 4, stepDelay: 4, crewCount: 2 });
+  hostGame.net = hostNet; guestGame.net = guestNet;
+
+  hostGame.attempt = 6;
+  hostGame.startJob({ reroll: false });
+  hostNet.start();
+  guestNet.start();
+
+  /* BroadcastChannel delivers on a task rather than synchronously, and the handshake is two hops
+   * (hello, then welcome). POLL for it rather than sleeping a fixed 80 ms: headless Chrome runs on
+   * a virtual clock, so a timer can fire before the message tasks it was meant to wait for, and a
+   * fixed sleep raced the handshake about half the time. */
+  for (let i = 0; i < 400 && guestNet.state !== NET.PLAYING; i++) {
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  hostGame.startJob({ reroll: false });
+  hostNet.hostReady();
+
+  eq('R7 the host handed out a seat', hostNet.state, NET.PLAYING);
+  eq('R8 and the guest took it', guestNet.state, NET.PLAYING);
+  eq('R9 the guest got seat 1, not the host seat', guestNet.mySeat, 1);
+  eq('R10 the guest adopted the host seed', guestGame.seed, hostGame.seed);
+  eq('R11 and its attempt, so the site is laid out identically', guestGame.attempt, hostGame.attempt);
+
+  const worldSig = (g) => {
+    const st = g.state;
+    const b = (v) => [v.x, v.y, v.angle, v.vx, v.vy, v.omega].map((n) => n.toFixed(9)).join(',');
+    return [
+      b(st.vehicles.sedan.body), b(st.vehicles.truck.body),
+      st.winch.lineM.toFixed(9), st.winch.tensionN.toFixed(6), st.winch.state, String(st.winch.heldBy),
+      st.crew.map((c) => `${c.x.toFixed(9)}/${c.y.toFixed(9)}/${c.stumbleMs}`).join(';'),
+      st.gear.map((q) => `${q.x.toFixed(6)},${q.y.toFixed(6)},${q.carriedBy}`).join(';'),
+      st.goal.cornersOnRoad, st.goal.settledMs,
+    ].join('|');
+  };
+  eq('R12 both worlds start identical', worldSig(guestGame), worldSig(hostGame));
+
+  /* Run them in lockstep. Each side does exactly what main.js does: sample its own keyboard, step
+   * only when the gate allows, and give the channel a turn of the event loop to deliver.
+   *
+   * Every step either side runs, its whole world is recorded AGAINST ITS STEP NUMBER. That is the
+   * only honest way to compare two lockstep peers, because they are not obliged to be on the same
+   * step at the same moment — input delay means either may be up to `stepDelay` steps ahead, and
+   * after a one-sided outage they settle at exactly that offset and stay there. They are not out of
+   * sync; one has simply already computed what the other is about to. Determinism is the claim that
+   * step N is identical on both machines, so step N is what gets compared.
+   *
+   * The loop counts STEPS TAKEN, not turns of the event loop. Counting turns made the test depend
+   * on how headless Chrome schedules BroadcastChannel delivery against its virtual clock, which is
+   * not a property of the netcode and which changed the result run to run. */
+  const sigs = { host: new Map(), guest: new Map() };
+
+  function tickHost() {
+    if (!hostNet.canStep()) return false;
+    const at = hostNet.transport.step;
+    hostGame.step(STEP, hostGame.state.simTimeMs + STEP, null); hostIn.endStep();
+    sigs.host.set(at, worldSig(hostGame));
+    return true;
+  }
+
+  function tickGuest() {
+    if (!guestNet.canStep()) return false;
+    const at = guestNet.transport.step;
+    guestGame.step(STEP, guestGame.state.simTimeMs + STEP, null); guestIn.endStep();
+    sigs.guest.set(at, worldSig(guestGame));
+    return true;
+  }
+
+
+  /** Advance until the HOST has run `n` more steps, then let the guest catch up to the same step. */
+  async function stepBoth(n) {
+    const from = { host: hostNet.transport.step, guest: guestNet.transport.step };
+    let stalls = 0;
+    for (let i = 0; i < n * 6 + 400; i++) {
+      if (hostNet.transport.step - from.host >= n) break;
+      let moved = tickHost();
+      moved = tickGuest() || moved;
+      if (!moved) stalls++;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    /* Drain onto a common step, by advancing ONLY whichever end is behind.
+     *
+     * Advancing both — which is what stepping both does — never closes the gap: each peer may run
+     * up to `stepDelay` ahead of the other, so after any asymmetry they simply leapfrog along at a
+     * constant offset forever. That is correct netcode and it is why the comparison above is keyed
+     * by step number. Alignment here is purely so that anything this TEST poses by hand is posed
+     * on one world instead of two that are four steps apart; lockstep never promises it. */
+    for (let i = 0; i < 900 && hostNet.transport.step !== guestNet.transport.step; i++) {
+      const behind = hostNet.transport.step < guestNet.transport.step ? 'host' : 'guest';
+      const moved = behind === 'host' ? tickHost() : tickGuest();
+      // If the one that is behind cannot move, it is waiting on the other end's frames — and the
+      // other end only produces frames by stepping. Ticking only the laggard deadlocks for exactly
+      // that reason, so let the leader take a step to feed it.
+      if (!moved) { if (behind === 'host') tickGuest(); else tickHost(); }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return {
+      ranHost: hostNet.transport.step - from.host,
+      ranGuest: guestNet.transport.step - from.guest,
+      stalls,
+      aligned: hostNet.transport.step === guestNet.transport.step,
+    };
+  }
+
+  /** Every step BOTH machines have run: how many, and how many disagreed. */
+  function agreement() {
+    let common = 0, bad = 0, firstBad = null;
+    for (const [at, sig] of sigs.host) {
+      if (!sigs.guest.has(at)) continue;
+      common++;
+      if (sigs.guest.get(at) !== sig) { bad++; if (firstBad === null) firstBad = at; }
+    }
+    return { common, bad, firstBad };
+  }
+
+  // Both walk, on their own keys, at the same time.
+  const anchor = { x: hostGame.state.terrain.anchors.player.x, y: hostGame.state.terrain.anchors.player.y };
+  hostIn._debugPress('KeyD');
+  guestIn._debugPress('KeyW');
+  const r1 = await stepBoth(90);
+  hostIn._debugRelease('KeyD');
+  guestIn._debugRelease('KeyW');
+  await stepBoth(30);
+
+  gt('R13 the host ran the steps it was asked for', r1.ranHost, 89);
+  gt('R14 and the guest ran them too', r1.ranGuest, 80);
+  ok('R15 and the two ended up on the same step', r1.aligned);
+  const a1 = agreement();
+  gt('R16 the two machines both ran a hundred-odd steps', a1.common, 100);
+  eq('R16b and EVERY ONE of them produced an identical world', a1.bad, 0,
+     a1.firstBad === null ? '' : `first disagreement at step ${a1.firstBad}`);
+  note(`R  host ran ${r1.ranHost} steps, guest ${r1.ranGuest}, ${a1.common} steps compared`);
+
+  // Each machine sees BOTH crew move — one from its own keyboard, one off the wire.
+  const hc = hostGame.state.crew;
+  gt('R17 seat 0 moved east on the host keyboard', hc[0].x - anchor.x, 0.3);
+  lt('R18 seat 1 moved NORTH, and the host only knows because the wire told it',
+     hc[1].y - (anchor.y + 0.9), -0.3);
+  gt('R19 frames crossed the wire in both directions',
+     Math.min(hostNet.transport.received, guestNet.transport.received), 30);
+
+  /* Now the part that would actually diverge if anything were wrong: something physical. Give the
+   * guest the hook, hook on, and wind the winch — the stiffest constraint in the game, resolved
+   * on both machines from commands alone.
+   *
+   * Posing both worlds by hand is only legitimate BECAUSE they are aligned on the same step. Doing
+   * it while they were a few steps apart wrote two different poses, and everything after it
+   * disagreed — which looked exactly like a netcode bug and was not one. */
+  ok('R20 both ends are on the same step before anything is posed by hand',
+     hostNet.transport.step === guestNet.transport.step);
+  const fl = fairleadPos(hostGame.state.vehicles.truck);
+  for (const g of [hostGame, guestGame]) {
+    const p = g.state.crew[1];
+    p.x = fl.x - 0.9; p.y = fl.y + 0.35; p.vx = 0; p.vy = 0;
+  }
+  eq('R21 and the pose landed identically on both', worldSig(guestGame), worldSig(hostGame));
+
+  guestIn._debugPress('KeyE');
+  await stepBoth(6);
+  guestIn._debugRelease('KeyE');
+  await stepBoth(12);
+  eq('R22 the guest took the hook', guestGame.state.winch.heldBy, 'crew1');
+  eq('R23 and the HOST agrees who has it, having never been sent that fact',
+     hostGame.state.winch.heldBy, 'crew1');
+
+  // The host cannot steal it, because the object says who owns it on both machines.
+  for (const g of [hostGame, guestGame]) {
+    const p = g.state.crew[0];
+    p.x = fl.x - 0.9; p.y = fl.y - 0.35; p.vx = 0; p.vy = 0;
+  }
+  hostIn._debugPress('KeyE');
+  await stepBoth(6);
+  hostIn._debugRelease('KeyE');
+  await stepBoth(12);
+  eq('R24 the host pressing E does not take it off them', hostGame.state.winch.heldBy, 'crew1');
+  eq('R25 on both machines', guestGame.state.winch.heldBy, 'crew1');
+  eq('R26 and the authority graph is clean on the host', validateAuthority(hostGame.state).length, 0);
+  eq('R27 and on the guest', validateAuthority(guestGame.state).length, 0);
+
+  // A loaded cable, resolved on both sides from nothing but keypresses.
+  for (const g of [hostGame, guestGame]) rigTo(g, 'towHook');
+  eq('R28 the line rigged identically on both', worldSig(guestGame), worldSig(hostGame));
+  sigs.host.clear(); sigs.guest.clear();      // the pose is not something either side computed
+  hostIn._debugPress('KeyI');
+  await stepBoth(200);
+  hostIn._debugRelease('KeyI');
+  await stepBoth(20);
+  gt('R29 the winch ran', hostGame.state.winch.tensionN, 400);
+  const a2 = agreement();
+  gt('R30 both machines resolved two hundred steps of a loaded cable', a2.common, 150);
+  eq('R31 and every one of them agreed, to the last bit of every float', a2.bad, 0,
+     a2.firstBad === null ? '' : `first disagreement at step ${a2.firstBad}`);
+  note(`R  ${(hostGame.state.winch.tensionN / 1000).toFixed(1)} kN, sedan y `
+     + `${hostGame.state.vehicles.sedan.body.y.toFixed(6)}, ${a2.common} steps compared`);
+
+  /* The gate itself. Cut the guest's outbound packets and keep ticking both: the guest carries on,
+   * because the host is still talking to it, and the host must run its input-delay window and then
+   * STOP rather than run into a world the guest will never have.
+   *
+   * The outage is deliberately short. Loss recovery here is the redundancy window and nothing else
+   * (see REDUNDANCY in session.js), so a gap wider than that is unrecoverable BY DESIGN — the peer
+   * stops instead of desyncing, which is the right failure but is not what this test is about. */
+  const beforeHost = hostNet.transport.step;
+  const beforeGuest = guestNet.transport.step;
+  const realSend = guestPeer.send.bind(guestPeer);
+  guestPeer.send = () => false;
+  for (let i = 0; i < 16; i++) { tickHost(); tickGuest(); await new Promise((r) => setTimeout(r, 0)); }
+  const ranHost = hostNet.transport.step - beforeHost;
+  const ranGuest = guestNet.transport.step - beforeGuest;
+  lt('R32 with the other end silent the host runs only its input-delay window',
+     ranHost, hostNet.stepDelay + 2);
+  ok('R33 and then stops, rather than running into a world the guest will never have',
+     !hostNet.transport.ready());
+  gt('R34 which it counts, because stalls ARE the connection quality', hostNet.transport.stalls, 0);
+  gt('R35 while the guest, still being talked to, keeps going', ranGuest, ranHost);
+  note(`R  outage: host ran ${ranHost} more steps (delay window ${hostNet.stepDelay}), `
+     + `guest ran ${ranGuest}`);
+
+  guestPeer.send = realSend;
+  const rec = await stepBoth(60);
+  ok('R36 once the frames flow again both ends line up on the same step', rec.aligned);
+  const a3 = agreement();
+  gt('R37 having both run a couple of hundred steps through the outage and out the far side',
+     a3.common, 200);
+  eq('R38 and never once disagreed about what any of those steps looked like', a3.bad, 0,
+     a3.firstBad === null ? '' : `first disagreement at step ${a3.firstBad}`);
+  note(`R  recovered: ${a3.common} steps compared, ${a3.bad} disagreed`);
+
+  // The scheduler on its own, without a wire, for the cases the pair above cannot reach.
+  const lt2 = new LockstepTransport(2, 3, null);
+  lt2.localSeats.add(0); lt2.claimedSeats.add(0); lt2.claimedSeats.add(1);
+  ok('R39 the delay window runs before anything has been scheduled', lt2.ready());
+  for (let i = 0; i < 3; i++) { lt2.send(0, { held: 1, pressed: 0 }); lt2.receive(); }
+  ok('R40 and then it needs the remote seat before it will go on', !lt2.ready());
+  lt2._onMessage({ t: 'i', s: 1, f: [[3, 0]] });
+  ok('R41 which one arriving frame satisfies', lt2.ready());
+  const seats = lt2.receive();
+  eq('R42 a seat nobody claimed is empty rather than undefined', seats[0].held, 1);
+
+  hostPeer.close();
+  guestPeer.close();
+  ok('R43 closing a peer does not throw', true);
+}
+
+
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['K', sectionK], ['L', sectionL], ['M', sectionM], ['N', sectionN], ['Q', sectionQ], ['P', sectionP]];
+  const sections = [['K', sectionK], ['L', sectionL], ['M', sectionM], ['N', sectionN], ['Q', sectionQ], ['R', sectionR], ['P', sectionP]];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {
