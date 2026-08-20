@@ -48,8 +48,8 @@ canvas{display:block;width:100%;height:100%}
   transition:background-color .18s linear}
 .gauge[data-level="warn"] .gauge-fill{background:var(--amber)}
 .gauge[data-level="danger"] .gauge-fill{background:var(--coral)}
-/* Where the winch motor gives up, marked once so the player can see a stall coming. */
-.gauge-warn{position:absolute;top:0;bottom:0;left:81%;width:2px;background:rgba(242,234,217,.4)}
+/* Where the winch motor gives up. `left` is set from CONFIG by the HUD, not here — see hud.js. */
+.gauge-warn{position:absolute;top:0;bottom:0;left:62%;width:2px;background:rgba(242,234,217,.4)}
 .winch-nums{display:flex;justify-content:space-between;font-family:var(--font-mono);
   font-size:11px;color:var(--dim)}
 .tension-val{color:var(--text);font-weight:700}

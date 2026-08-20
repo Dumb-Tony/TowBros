@@ -1,5 +1,45 @@
 # Changelog
 
+## The mid-road pull, and a drum that knows when to stop — 2026-08-19
+
+The mid-road recovery was taking 56–67 seconds against the far lane's 36, and most of that was a
+juddering grind at the winch's stall limit. **It was not the stall force.** I dropped that too, as
+asked, and measured it first: at 26 kN the centre pull got *slower* (59–67 s), because a weaker
+motor grinds for longer.
+
+What it actually was: the drum kept reeling after the car had come up against the truck's own
+flank. There was nowhere left to pull it, so tension stick-slipped across the stall limit at 38 kN
+while the last corner inched onto the pavement.
+
+**The drum now stops when the load is against the truck**, and says so — `AGAINST THE TRUCK`, in
+red, distinct from `STALLED` because they are different facts: one means nowhere left to go, the
+other means the motor cannot win. An operator stops winching when the casualty is on the deck.
+
+| | before | after |
+|---|---|---|
+| far lane, winch only | 36 s @ 38 kN | **36 s @ 12 kN** |
+| mid-road | 56–67 s @ 38 kN, grinding | **42 s @ 13 kN**, winch then tow |
+| near lane | ~130 s | **40–45 s** |
+
+The stall force came down to 26 kN as well, and now means something: with the grind gone, a normal
+recovery peaks at 12–17 kN, so 26 kN sits about 1.6× a working pull and the 42 kN cable about 2.6×.
+The gauge's stall marker is computed from those two numbers now instead of being a hardcoded 81% in
+the stylesheet, which would have silently lied the moment either was retuned.
+
+**One coupling bug found on the way.** The overload relief rate was scaled by `over / motorMaxN` —
+so dropping the stall force doubled the payout at the same real tension and quietly made the cable
+almost impossible to part by towing. A brake band's slip depends on the force on it, not on what
+the motor beside it is rated for; it divides by a fixed reference force now.
+
+**What the interlock cost, recorded rather than asserted away.** Flooring the tow used to part a
+42 kN cable, because the car was jammed when the tow started. With the car no longer jammed, full
+throttle is simply the faster tow — 8.3 s against 13 s gentle, cable intact. That is honest, and it
+does mean impatience is no longer punished *on that move*. A snatch still parts the line.
+
+264 assertions. Two of my own claims were corrected against measurement again: "the northern two
+thirds recover on the winch" became "the far lane does", and "flooring it parts the line" became
+the note above.
+
 ## The near lane, and grass that looks like grass — 2026-08-19
 
 ### Every park on the road can now finish the job

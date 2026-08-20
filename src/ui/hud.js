@@ -98,6 +98,12 @@ export class Hud {
       resetHint: root.querySelector('.reset-hint'),
     };
 
+    // The stall marker on the gauge is where the motor gives up, so it has to be COMPUTED from
+    // the force budget rather than written into the stylesheet. It sat at a hardcoded 81% (the old
+    // 34/42 kN ratio) and would have silently lied the moment either number was retuned.
+    this.el.gaugeWarn.style.left =
+      `${(CONFIG.winch.motorMaxN / CONFIG.winch.cableBreakN * 100).toFixed(1)}%`;
+
     root.querySelector('.btn-start').addEventListener('click', () => this.onStart && this.onStart());
     root.querySelector('.btn-resume').addEventListener('click', () => this.game.togglePause());
     for (const b of root.querySelectorAll('.btn-reset')) {
@@ -164,9 +170,13 @@ export class Hud {
     else if (st.winch.state === WINCH.ATTACHED) {
       ws = `rigged: ${w.zoneId}${w.rig !== 'bare' ? ` / ${w.rig}` : ''}${w.throughBlock ? ' / through block' : ''}`;
     }
-    if (st.winch.stalled) ws += ' — STALLED';
+    // "Blocked" and "stalled" are different facts and the player needs the difference: one means
+    // the load has nowhere left to go, the other means the motor cannot beat it. Both stop the
+    // drum, and only one of them is worth pulling harder at.
+    if (st.winch.blocked) ws += ' — AGAINST THE TRUCK';
+    else if (st.winch.stalled) ws += ' — STALLED';
     this._set(this.el.winchState, ws);
-    this.el.winchState.classList.toggle('stalled', st.winch.stalled);
+    this.el.winchState.classList.toggle('stalled', st.winch.stalled || st.winch.blocked);
 
     this._set(this.el.clock, GameClock.formatMs(st.simTimeMs));
 

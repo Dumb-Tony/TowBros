@@ -22,7 +22,7 @@
  *   axle bends at                              26 kN
  *   cable parts at                             42 kN
  *   tow hook / frame let go at                 44+ kN  -> "outlasts the starter cable"
- *   winch motor stalls at                      34 kN
+ *   winch motor stalls at                      26 kN
  *
  *   truck grip parked on pavement              ~63 kN  -> the truck wins
  *   truck grip parked on wet grass             ~23 kN  -> the truck barely wins
@@ -146,7 +146,12 @@ export const CONFIG = {
   /* ── the winch and its line ─────────────────────────────────────────────── */
   winch: {
     spoolLengthM: 30,       // total cable on the drum
-    motorMaxN: 34000,       // above this the motor stalls and the drum stops
+    // Above this the motor stalls and the drum stops. Dropped from 34 kN once the drum interlock
+    // (see stepCable) removed the grinding phase: with the load no longer being pressed into the
+    // truck, the peak on a normal recovery fell from ~38 kN to 14-17 kN, so a 34 kN stall was
+    // never being reached by anything except a jam. At 26 kN the limit sits ~1.6x a working pull
+    // and the 42 kN cable sits ~2.6x, which means both numbers describe something again.
+    motorMaxN: 26000,
     // No-load line speed. A real 8-tonne recovery winch does 0.15-0.20 m/s, and this is already
     // generous; it stays slow on purpose, because the length of a pull is the cost of parking
     // far enough away to get the geometry right. A 20 m rig is 48 seconds of holding the key.
@@ -167,7 +172,12 @@ export const CONFIG = {
     // How much faster the drum slips as the overload grows (a brake band, not a clutch). At 8, a
     // line near its breaking point pays out ~1.6 m/s, which is enough to TOW on and not enough to
     // survive a snatch. See the overload relief note in recovery/cable.js.
-    reliefGain: 8,
+    // Force scale for how much faster the drum slips as the overload grows. The payout rate is
+    // reliefMps * (1 + over / reliefRefN), so at the cable's breaking point — 16 kN past a 26 kN
+    // motor — it slips ~1.6 m/s. That is the number that matters: a truck at half throttle takes
+    // long enough to reach 1.6 m/s that the load starts moving first and the line survives, and a
+    // truck at full throttle gets there in under a second and parts it.
+    reliefRefN: 8400,
     cableBreakN: 42000,
     // The cable is a damped spring, NOT a rope simulation (GDD §4 simplification
     // contract). Stiffness comes from the rigging below; this is the shared safety cap.

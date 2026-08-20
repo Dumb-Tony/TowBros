@@ -28,6 +28,7 @@
 import { CONFIG } from '../config.js';
 import { clamp, clamp01, unit, norm } from '../core/vec.js';
 import { EVENTS } from '../core/eventBus.js';
+import { obbOverlap } from '../sim/collision.js';
 
 export const WINCH = Object.freeze({
   STOWED:   'stowed',    // hook on the drum
@@ -53,6 +54,7 @@ export function createWinch() {
     shockFrac: 0,                   // how fast tension is rising, 0..1
     broken: false,
     spooledOut: false,              // hit the end of the drum
+    blocked: false,                 // the load is against the truck; the drum will not pull harder
     lastEffectiveN: 0,              // tension as the ATTACHMENT feels it, after shock
     _stallSaidMs: -9999,
   };
@@ -114,6 +116,12 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
   const path = cablePath(w, truck, st.vehicles, st.blocksById);
   const dist = pathLength(path);
 
+  // Is the load already up against the truck? One box-vs-box test, and it is what the drum
+  // interlock below reads. Checked here rather than left to the contact step because the drum
+  // has to know BEFORE it decides whether to keep pulling.
+  const load = w.state === WINCH.ATTACHED ? st.vehicles[w.targetId] : null;
+  w.blocked = !!(load && load !== truck && obbOverlap(load.body, truck.body));
+
   /* ── overload relief ──────────────────────────────────────────────────────
    * A stalled drum stops pulling, but the geometry does not stop moving: the load settles, or
    * rotates, or grinds into something, and the stretch keeps growing. Without relief that walks
@@ -133,7 +141,12 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
     // so any tow above a crawl parted the cable. Scaling with overload lets a steady tow work at
     // ~1.6 m/s of slip near the limit, while a genuine snatch — a step change in velocity — still
     // outruns it and still breaks the line, which is the failure worth keeping.
-    const rate = CONFIG.winch.reliefMps * (1 + (over / CONFIG.winch.motorMaxN) * CONFIG.winch.reliefGain);
+    // Scaled by the ABSOLUTE overload, not by a fraction of the motor's rating. Dividing by
+    // motorMaxN coupled two unrelated things: dropping the stall force from 34 kN to 26 kN doubled
+    // the payout rate at the same real tension, and quietly made the cable almost impossible to
+    // part by towing — a consequence worth keeping, removed by a units mistake. A brake band's
+    // slip depends on the force on it, not on what the motor next to it is rated for.
+    const rate = CONFIG.winch.reliefMps * (1 + over / CONFIG.winch.reliefRefN);
     const give = Math.min(rate * dtSec, over / rigNow.springK);
     w.lineM = Math.min(CONFIG.winch.spoolLengthM, w.lineM + give);
     w.relieving = true;
@@ -152,7 +165,15 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
     if (w.spooledOut) bus.emit(EVENTS.WINCH_SPOOL_END, { lineM: Math.round(w.lineM * 10) / 10 }, simTimeMs);
   } else if (w.motor !== 0) {
     const blockMul = block ? CONFIG.gear.snatchBlock.reelMul : 1;
-    if (w.motor > 0) {
+    if (w.motor > 0 && w.blocked) {
+      // The load is already against the recovery truck. Reeling harder cannot help — there is
+      // nowhere left to pull it — and what it actually produced was a 20-30 second judder: the
+      // car pressed into the truck's flank, tension stick-slipping across the stall limit, the
+      // last corner inching onto the pavement. That was the slow mid-road pull, and it was not
+      // the stall force. An operator stops winching when the casualty is on the deck; so does
+      // the drum.
+      w.stalled = true;
+    } else if (w.motor > 0) {
       // Reel in. The motor eases off as the load approaches its limit and stops dead at it,
       // which is a stall — GDD §4 wants the winch to be a machine with a capability, not an
       // infinite force. A stalled winch is a message: change something.
@@ -325,6 +346,7 @@ export function describeWinch(winch) {
     tensionFrac: Math.round(frac * 100) / 100,
     level: frac >= W.tensionDangerFrac ? 'danger' : frac >= W.tensionWarnFrac ? 'warn' : 'ok',
     stalled: winch.stalled,
+    blocked: winch.blocked,
     rig: winch.rig,
     throughBlock: !!winch.blockId,
     zoneId: winch.zoneId,

@@ -38,12 +38,12 @@ all four corners on pavement, settled. How is entirely yours.
 
 **Where you park changes the job, and every park can finish it.** A winch pulls its load *to the
 drum*, so the drum needs about 3 m of pavement south of it for the car to have somewhere to land.
-From the northern two thirds of the 9.4 m road, winching alone does it.
+Park in the far lane and the winch does the whole job — about 36 seconds at 12 kN.
 
-From the last third it cannot — measured over fourteen parks, the car always ends up against your
-own truck. So that job finishes the way a real one would: the winch gets it up the bank, you walk
-over and **drop the casualty's handbrake**, and you tow it clear. A rolling car tows out in about
-half the time a braked one does. Flooring it parts the cable.
+Park anywhere else and it cannot, because the car ends up against your own truck. The drum says so
+(**AGAINST THE TRUCK**, in red) and stops pulling rather than grinding, and the job finishes the
+way a real one would: walk over, **drop the casualty's handbrake**, and tow it clear. Total about
+40–45 seconds, and a rolling car tows out in about half the time a braked one does.
 
 Releasing that brake cuts both ways, which is the point of having it. On the bank the downhill pull
 is ~6 kN against ~1.2 kN of rolling resistance, so a car let loose in the wrong place runs away
@@ -53,7 +53,7 @@ chocks are in the pile.
 Four approaches are verified to work, and they are not variations on one:
 
 - **Straight pull from the pavement.** Park the wrecker along the road with its tail to the job,
-  hook the tow eye, reel. About 37 seconds and 13 kN of line tension, and nothing breaks.
+  hook the tow eye, reel. About 36 seconds and 12 kN of line tension, and nothing breaks.
 - **Brute force, then re-rig.** Hook the bumper instead. It tears off at 9 kN and becomes an
   object lying in the grass. The job carries on; chain the frame and finish it.
 - **Side pull through a snatch block.** Mount the block on the tree at the foot of the bank and
@@ -112,7 +112,7 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1
 ```
 
-258 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
+264 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
 browser: it injects [`tools/m1-tests.js`](tools/m1-tests.js) into a copy of the page, serves it,
 and greps the dumped DOM.
 
@@ -120,7 +120,7 @@ Sections A–G test the machinery numerically. Section H drives **whole recoveri
 GDD's nine completion criteria one at a time — including that two runs of one seed are identical,
 that six attempts produce six different layouts, and that at least three meaningfully different
 approaches work. Section Hk sweeps a grid of parking positions across the road and asserts both
-halves of the claim above: the northern two thirds recover the car on the winch, the last third
+halves of the claim above: the far lane recovers the car on the winch, the rest of the road
 finishes with a tow, and **no** park anywhere on the road costs you the cable. Section J presses
 keys, because a player cannot call `attachHook()` — and it is the section that found the worst bug
 in the project.
