@@ -33,6 +33,7 @@ import {
   MOOD, moodOf, createCustomer, stepCustomer, settleCustomer, describeCustomer, noteCableSnap,
 } from '../src/world/customer.js';
 import { gripBudgetN } from '../src/sim/tires.js';
+import { inspectNearest } from '../src/player/player.js';
 import { rollSituation } from '../src/meta/situations.js';
 
 /* ── reporting ───────────────────────────────────────────────────────────── */
@@ -335,6 +336,27 @@ function sectionAP() {
        good.reputation, bad.reputation);
     note(`AP  identical clean deliveries: happy owner ${Math.round(good.reputation)} reputation, `
        + `furious owner ${Math.round(bad.reputation)}`);
+  }
+
+  /* And you can ASK. Their coat carries the mood across the map, which is the primary channel;
+   * this is the same fact in words for somebody standing next to them, on the same inspect key
+   * everything else in the game answers to. */
+  {
+    const gg = job();
+    const st2 = gg.state;
+    const p = st2.crew[0];
+    st2.vehicles.sedan.damage.dents = (st2.vehicles.sedan.damage.arrived.dents || 0) + 2;
+    gg.step(STEP, st2.simTimeMs + STEP, null);
+    p.x = st2.customer.x + 0.4; p.y = st2.customer.y + 0.4;
+    inspectNearest(st2, p, st2.terrain, gg.bus, st2.simTimeMs);
+    ok('AP28 you can look at the owner', !!p.inspect && p.inspect.title === st2.customer.name,
+       p.inspect && p.inspect.title);
+    ok('AP29 and it says how they are', /anxious|patient|grateful|not happy|furious/i.test(p.inspect.lines.join(' ')),
+       p.inspect.lines.join(' '));
+    ok('AP30 and what they have seen', /dent/i.test(p.inspect.lines.join(' ')), p.inspect.lines.join(' '));
+    ok('AP31 without ever telling you what to do',
+       !/you should|try |get on with|hurry/i.test(p.inspect.lines.join(' ')), p.inspect.lines.join(' '));
+    note(`AP  looking at them: "${p.inspect.lines.join(' ')}"`);
   }
 
   // The mood ladder is a ladder.

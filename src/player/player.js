@@ -39,6 +39,7 @@ import {
 } from '../crew/authority.js';
 import { toggleOutriggers } from '../recovery/rig.js';
 import { anchorPoints, describeAnchor } from '../recovery/anchors.js';
+import { describeCustomer } from '../world/customer.js';
 
 /** Crew colours, so four people on one screen are four people and not four identical dots. */
 const CREW_TINT = ['#e0a33c', '#4fb0d8', '#9ad14a', '#d87ac0'];
@@ -386,6 +387,30 @@ export function inspectNearest(st, p, terrain, bus, simTimeMs) {
     p.inspect = { title: def.label, lines, ttlMs: 5200 };
     bus.emit(EVENTS.INSPECTED, { crew: p.id, kind: 'gear', gear: g.item.id }, simTimeMs);
     return p.inspect;
+  }
+
+  /* THE OWNER. Their coat already carries their mood across the map — GDD pillar 5, readable force
+   * applied to a person — and this is the same fact in words, on request, for a player standing
+   * next to them. It is what they have SEEN, never what they want: "watched you drop it in the
+   * road" is a fact about the afternoon and "get on with it" would be the game giving orders. */
+  if (st.customer && st.customer.present) {
+    const c = st.customer;
+    const d = Math.hypot(c.x - p.x, c.y - p.y);
+    if (d <= reach) {
+      const info = describeCustomer(c);
+      const lines = [`Watching from the verge. ${info.moodLabel.replace(/^./, (m) => m.toUpperCase())}.`];
+      if (info.saw.drops > 0) lines.push('Saw you drop it in the road.');
+      else if (info.saw.partsLost > 0) lines.push(`Watched ${info.saw.partsLost} piece`
+        + `${info.saw.partsLost === 1 ? '' : 's'} come off it.`);
+      else if (info.saw.snaps > 0) lines.push('Was standing there when the cable went.');
+      else if (info.saw.dents > 0) lines.push(`Has counted ${info.saw.dents} new dent`
+        + `${info.saw.dents === 1 ? '' : 's'}.`);
+      if (info.watchedMin >= 1) lines.push(`Has been here ${info.watchedMin} minute`
+        + `${info.watchedMin === 1 ? '' : 's'} of your time.`);
+      p.inspect = { title: c.name, lines, ttlMs: 5000 };
+      bus.emit(EVENTS.INSPECTED, { crew: p.id, kind: 'customer', mood: info.mood }, simTimeMs);
+      return p.inspect;
+    }
   }
 
   /* An ANCHOR — a tree, or a driven ground anchor. Milestone 6 gave every one of them a rating
