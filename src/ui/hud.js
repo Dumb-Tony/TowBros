@@ -27,6 +27,7 @@ import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
 import { seatOf, holdsHook, carriedItem } from '../player/player.js';
 import { JOB } from '../world/scene.js';
+import { describePolice } from '../world/police.js';
 
 /** One readable sentence per event. The job log is the GDD's north star made literal, so the
  *  wording matters: it says what happened, never what to do about it. */
@@ -66,6 +67,9 @@ function phrase(e) {
     case EVENTS.CREW_STUMBLED:      return `${who(e.crew)} was knocked off their feet`;
     case EVENTS.VEHICLE_ENTERED:    return `${who(e.crew)} got in the ${e.vehicle}`;
     case EVENTS.VEHICLE_EXITED:     return `${who(e.crew)} got out of the ${e.vehicle}`;
+    case EVENTS.POLICE_DISPATCHED:  return 'a unit has been called to the open road';
+    case EVENTS.POLICE_ON_SCENE:    return 'a unit is on scene';
+    case EVENTS.POLICE_CITED:       return `cited for the carriageway — £${e.amountN}`;
     case EVENTS.RECOVERY_COMPLETE:  return 'the sedan is on the road';
     default: return null;
   }
@@ -123,6 +127,7 @@ export class Hud {
       lineOut: root.querySelector('.line-val'),
       winchState: root.querySelector('.winch-state'),
       rig: root.querySelector('.rig-line'),
+      road: root.querySelector('.road-line'),
       clock: root.querySelector('.hud-time'),
 
       bottom: root.querySelector('.hud-bottom'),
@@ -317,6 +322,28 @@ export class Hud {
     const on = st.goal.cornersOnRoad;
     const lift = st.vehicles.truck.lift;
     this._set(this.el.objective, objectiveFor(st, on, lift));
+
+    /* THE STATE OF THE ROAD (Milestone 7), on its own line under the objective and only when
+     * there is something true to say. It reports what the road IS — blocked, closed, how much
+     * exposure has built up, who is here — and never that cones would be a good idea. The
+     * distinction matters more here than anywhere else in the HUD: a line reading "put cones out"
+     * turns a decision into an instruction, which is exactly what GDD §9's question cannot
+     * survive. Hidden entirely on a scene that is not blocking anything, because a permanent
+     * "Clear." is furniture. */
+    if (this.el.road) {
+      const pol = describePolice(st);
+      const show = !!pol && pol.obstructed && (!pol.closed || pol.citations > 0);
+      let line = '';
+      if (show) {
+        line = pol.line;
+        if (pol.citations > 0 && pol.state !== 'onScene') {
+          line += `  ·  ${pol.citations} citation${pol.citations === 1 ? '' : 's'}`;
+        }
+      }
+      this._set(this.el.road, line);
+      this.el.road.classList.toggle('on', show);
+      this.el.road.classList.toggle('hot', show && (pol.state !== 'none' || pol.citations > 0));
+    }
 
     /* The prompt line belongs to the LOCAL player — crew[0]. Everything about their state is
      * read back off the world objects rather than out of a field on the person: whether they are
@@ -549,6 +576,7 @@ const TEMPLATE = `
 <div class="hud-top">
   <div class="hud-clock"><span class="hud-time">0:00</span></div>
   <div class="objective">get the sedan onto the road</div>
+  <div class="road-line"></div>
   <div class="hud-slot">
     <div class="winch-panel">
       <div class="winch-state">hook stowed</div>

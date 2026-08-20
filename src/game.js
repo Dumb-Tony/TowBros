@@ -33,6 +33,7 @@ import { stepGearEffects } from './recovery/gear.js';
 import { stepAnchors } from './recovery/anchors.js';
 import { stepRig } from './recovery/rig.js';
 import { stepCustomer, noteCableSnap } from './world/customer.js';
+import { stepPolice, describePolice } from './world/police.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
 
 export const MODES = Object.freeze({
@@ -283,9 +284,12 @@ export class Game {
     stepGoal(st, this.bus, simTimeMs);
     stepJob(st, this.bus, simTimeMs);
     stepEscalation(st, this.bus, simTimeMs);
-    /* 7b. And the person whose car it is (Milestone 7). Last, with the other reporters, because
-     *     they only ever READ what the step already did — they own nothing and change nothing. */
+    /* 7b. And the people (Milestone 7): the person whose car it is, and whoever turns out to a
+     *     carriageway nobody has closed. Last, with the other reporters, because both only READ
+     *     what the step already did — neither owns anything or applies a force to anything. The
+     *     police unit deliberately never joins the contact pass: see world/police.js. */
     stepCustomer(st, dt, this.bus, simTimeMs);
+    stepPolice(st, dt, this.rng.fx, this.bus, simTimeMs);
   }
 
   /** Fast-forward without real frames. Also how the test suite runs a whole recovery. */
@@ -328,6 +332,7 @@ export class Game {
       winch: describeWinch(st.winch),
       lift: describeLift(st.vehicles.truck.lift),
       traffic: describeTraffic(st.traffic),
+      police: describePolice(st),
       weather: st.terrain.weather ? st.terrain.weather.id : 'dry',
       site: st.terrain.site.id,
       job: {

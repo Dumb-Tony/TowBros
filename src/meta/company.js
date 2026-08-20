@@ -266,6 +266,10 @@ export function settleJob(company, recap, wear) {
   rep -= (s.partsLost || 0) * C.repPerPartLost;
   rep -= (s.droppedInTransit || 0) * C.repPerDrop;
   rep -= (s.cableSnaps || 0) * C.repPerSnap;
+  /* And the road you left open (Milestone 7). This is the county's opinion of the outfit rather
+   * than the owner's opinion of the job below — the two are independent, and a crew can perfectly
+   * well hand a delighted customer their car back having been cited twice for how they did it. */
+  rep -= (s.citations || 0) * C.repPerCitation;
   /* And what the OWNER made of it (Milestone 7), which is a different fact about the same
    * afternoon: the deductions above are about the car, this is about the person who watched. It
    * can be positive — a quick clean job in front of its owner is worth something on its own, or

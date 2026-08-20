@@ -12,6 +12,7 @@
  *   AN the working day: a clock that advances on JOBS, and a light level that goes with it
  *   AP the customer: an opinion formed from things that already happened, and what it is worth
  *   AR a motorcycle and a car on its roof — two problems a longer pull does not solve
+ *   AS scene safety: an open road, who turns out about it, and what it costs
  *   AK2 hygiene — six milestones of numbers that must not have moved
  */
 
@@ -33,6 +34,8 @@ import {
   MOOD, moodOf, createCustomer, stepCustomer, settleCustomer, describeCustomer, noteCableSnap,
 } from '../src/world/customer.js';
 import { gripBudgetN } from '../src/sim/tires.js';
+import { describePolice } from '../src/world/police.js';
+import { computePayout, recapFrom } from '../src/world/scene.js';
 import { inspectNearest } from '../src/player/player.js';
 import { rollSituation } from '../src/meta/situations.js';
 
@@ -88,6 +91,7 @@ const recapOf = (o = {}) => ({
     partsBent: 0,
     cableSnaps: o.snaps || 0,
     droppedInTransit: o.dropped || 0,
+    citations: o.citations || 0,
     strapsUsed: 2,
     customer: o.customer || null,
     payout: { baseFee: 1400, deductions: [], deducted: 0, paid: o.paid === undefined ? 1400 : o.paid, clean: !!o.clean, floored: false },
@@ -548,10 +552,273 @@ async function sectionAK2() {
   eq('AK2-9 and no errors on the crash banner', document.getElementById('err-banner'), null);
 }
 
+/* ── AS. scene safety: an open road, and who turns up about it ────────────── */
+
+/** Put the truck across the live carriageway, stopped, at a known x. Nothing else on the road. */
+function blockRoad(g, x = 60) {
+  const st = g.state;
+  const b = st.vehicles.truck.body;
+  b.x = x; b.y = (BANDS.roadN + BANDS.roadS) / 2;
+  b.angle = Math.PI / 2;              // across both lanes, not along them
+  b.vx = 0; b.vy = 0; b.omega = 0;
+  st.vehicles.truck.parkBrake = true;
+  return b;
+}
+
+/** Lay `n` cones spanning `span` metres, centred on `cx`. The pile is on the shoulder — the
+ *  standard is about where they are along the road, not which side of the line. */
+function coneLine(g, n, cx, span) {
+  const gear = g.state.gear.filter((q) => q.kind === 'cone');
+  gear.forEach((c) => { c.placed = false; c.carriedBy = null; });
+  gear.slice(0, n).forEach((c, i) => {
+    c.placed = true; c.carriedBy = null;
+    c.x = n === 1 ? cx : cx - span / 2 + (i * span) / (n - 1);
+    c.y = BANDS.shoulderS - 0.5;
+  });
+  return gear.slice(0, n);
+}
+
+/** Run until `pred` or `maxSec` runs out. Returns the sim second it stopped at. */
+function until(g, pred, maxSec = 300) {
+  const st = g.state;
+  const end = st.simTimeMs + maxSec * 1000;
+  while (st.simTimeMs < end) {
+    g.step(STEP, st.simTimeMs + STEP, null);
+    if (pred(st)) break;
+  }
+  return st.simTimeMs / 1000;
+}
+
+async function sectionAS() {
+  lines.push('--- AS. an open road, and who turns up about it ---');
+  const P = CONFIG.police;
+
+  /* Nobody is called for a scene that is not blocking anything. The truck spawns on the road,
+   * so this is a real check and not a trivially empty one: parked in its lane is not an
+   * obstruction; parked ACROSS the road is. */
+  {
+    const g = job();
+    const st = g.state;
+    ok('AS1 a job has a police state on it', !!st.police);
+    eq('AS2 with nobody called', st.police.state, 'none');
+    eq('AS3 and nothing owed', st.police.citations, 0);
+
+    /* Park it clear of the pavement, along the road. Note how little room there is to do it in:
+     * the shoulder is 2.4 m and the wrecker is 2.45 m wide, so "off the carriageway" means with
+     * a wheel on the top of the embankment. That is a fact about the road, not about this rule —
+     * but it is why a crew that wants to be left alone puts cones out instead. */
+    const b = st.vehicles.truck.body;
+    const halfW = st.vehicles.truck.def.widthM / 2;
+    b.x = 60; b.y = BANDS.roadS + halfW + 0.2; b.angle = 0; b.vx = 0; b.vy = 0;
+    g.skipMs(2000);
+    const d = describePolice(st);
+    ok('AS4 a truck fully off the carriageway obstructs nothing', !d.obstructed);
+    eq('AS5 and reads as clear', d.line, 'Clear.');
+    eq('AS6 with no exposure building', st.police.unsafeSec, 0);
+  }
+
+  /* The whole callout, measured end to end. */
+  {
+    const g = job();
+    const st = g.state;
+    blockRoad(g);
+    const seen = [];
+    for (const e of ['POLICE_DISPATCHED', 'POLICE_ON_SCENE', 'POLICE_CITED']) {
+      g.bus.on(EVENTS[e], (ev) => seen.push({ e, at: ev.simTimeMs / 1000 }));
+    }
+    g.skipMs(1000);
+    ok('AS7 a truck across the carriageway IS an obstruction', describePolice(st).obstructed);
+    ok('AS8 and unclosed', !describePolice(st).closed);
+    ok('AS9 but one second of it calls nobody — it is exposure, not a trip switch',
+       st.police.state === 'none' && st.police.citations === 0);
+    near('AS10 the exposure is simply the time it has been open', st.police.unsafeSec, 1, 0.05);
+
+    const dispatchedAt = until(g, (s) => s.police.state === 'enroute');
+    near(`AS11 a unit turns out at ${dispatchedAt.toFixed(1)} s`, dispatchedAt, P.dispatchSec, 0.1);
+    eq('AS12 and that costs nothing — nobody is there yet', st.police.citations, 0);
+    eq('AS13 the accumulator restarts for the drive in', Math.round(st.police.unsafeSec), 0);
+
+    const arrivedAt = until(g, (s) => s.police.state === 'onScene');
+    const transit = arrivedAt - dispatchedAt;
+    inRange(`AS14 which parks ${transit.toFixed(1)} s later`, transit, 2, 12);
+    gt('AS15 on the shoulder, south of both travel lanes', st.police.y, BANDS.roadS);
+    eq('AS16 turning up IS the citation', st.police.citations, 1);
+    eq('AS17 worth what CONFIG says it is', describePolice(st).citationTotalN, P.citationN);
+
+    const secondAt = until(g, (s) => s.police.citations === 2);
+    near(`AS18 and it repeats every ${P.dispatchSec} s the road is still open`,
+         secondAt - arrivedAt, P.dispatchSec, 0.1);
+    note(`AS  ignored: called at ${dispatchedAt.toFixed(0)} s, on scene ${arrivedAt.toFixed(0)} s, `
+      + `cited ${arrivedAt.toFixed(0)} s and ${secondAt.toFixed(0)} s`);
+    eq('AS19 the dispatch is in the story log, so the recap can read it back',
+       g.bus.story.filter((e) => e.type === 'POLICE_DISPATCHED').length, 1);
+  }
+
+  /* What a closure IS. Geometry, four ways of failing it. */
+  {
+    const g = job();
+    const st = g.state;
+    const b = blockRoad(g);
+    const width = (() => {
+      let x0 = Infinity, x1 = -Infinity;
+      for (const c of b.corners()) { x0 = Math.min(x0, c.x); x1 = Math.max(x1, c.x); }
+      return { x0, x1, w: x1 - x0 };
+    })();
+    note(`AS  the wrecker blocks ${width.w.toFixed(2)} m of carriageway`);
+
+    const closed = () => { g.step(STEP, st.simTimeMs + STEP, null); return describePolice(st).closed; };
+    /* Wide enough to meet the spread AND to bracket the truck, so the three failures below are
+     * each failing exactly ONE clause of the standard rather than two at once. */
+    const good = Math.max(P.closureMinSpreadM + 2, width.w + 4 * P.closureCoverMarginM);
+
+    coneLine(g, P.closureMinCones, b.x, good);
+    ok('AS20 three cones, spread, either side of it: that is a closure', closed());
+
+    coneLine(g, P.closureMinCones - 1, b.x, good);
+    ok('AS21 two of them is not', !closed());
+
+    coneLine(g, P.closureMinCones, b.x, 2);
+    ok('AS22 nor three dropped in a heap', !closed());
+
+    coneLine(g, P.closureMinCones, b.x + 30, good);
+    ok('AS23 nor three spread out somewhere else entirely', !closed());
+
+    // A proper taper, the right length — but starting inside the truck's own footprint, so the
+    // approaching lane is coned and the far end of the obstruction is bare.
+    coneLine(g, P.closureMinCones, b.x + good / 2 - 0.5, good);
+    ok('AS24 nor three that stop short of one end of it', !closed());
+  }
+
+  /* Getting the cones out is the way out of it, at every stage. */
+  {
+    const g = job();
+    const st = g.state;
+    const b = blockRoad(g);
+    const span = 6 + 4 * P.closureCoverMarginM;
+    until(g, (s) => s.police.state === 'enroute');
+    eq('AS25 a unit is on its way', st.police.state, 'enroute');
+    eq('AS26 and says so, without saying what to do about it',
+       describePolice(st).line, 'A unit is on its way.');
+    coneLine(g, P.closureMinCones, b.x, Math.max(span, 20));
+    g.step(STEP, st.simTimeMs + STEP, null);
+    eq('AS27 close the road and it turns round on the next step', st.police.state, 'none');
+    eq('AS28 having cost nothing at all', st.police.citations, 0);
+  }
+
+  /* Exposure decays, it does not reset: the cone kicked out by a wheel for one frame must not
+   * hand back a whole minute. Same shape as the anchors' pullNs (recovery/anchors.js). */
+  {
+    const g = job();
+    const st = g.state;
+    const b = blockRoad(g);
+    until(g, (s) => s.police.unsafeSec >= P.dispatchSec - 10);
+    const peak = st.police.unsafeSec;
+    coneLine(g, P.closureMinCones, b.x, 24);
+    g.skipMs(3000);
+    const given = peak - st.police.unsafeSec;
+    near(`AS29 three seconds of a closed road gives back ${given.toFixed(1)} s, not all of it`,
+         given, 3 * P.recoverPerSec, 0.2);
+    gt('AS30 so the exposure it built up is still mostly there', st.police.unsafeSec, 0);
+    coneLine(g, 0, b.x, 0);
+    const reopened = st.simTimeMs / 1000;
+    const back = until(g, (s) => s.police.state === 'enroute');
+    lt(`AS31 and reopening it calls a unit in ${(back - reopened).toFixed(1)} s, `
+       + 'not a whole callout again', back - reopened, P.dispatchSec);
+    near('AS32 exactly the exposure it had left to run',
+         back - reopened, P.dispatchSec - (peak - 3 * P.recoverPerSec), 0.1);
+  }
+
+  /* Driving down the road is not obstructing it. */
+  {
+    const g = job();
+    const st = g.state;
+    const b = blockRoad(g);
+    b.angle = 0;
+    b.vx = 8;
+    for (let i = 0; i < 30; i++) { b.vx = 8; g.step(STEP, st.simTimeMs + STEP, null); }
+    ok('AS33 a truck driving down the road is not an obstruction',
+       !describePolice(st).obstructed);
+    eq('AS34 so nothing accumulates against it', Math.round(st.police.unsafeSec), 0);
+  }
+
+  /* What it is worth, at the point where money changes hands. */
+  {
+    const g = job();
+    const st = g.state;
+    blockRoad(g);
+    until(g, (s) => s.police.citations === 2);
+    const pay = computePayout(st, g.bus);
+    const line = pay.deductions.find((d) => /citation/.test(d.label));
+    ok('AS35 citations come off the fee', !!line);
+    eq('AS36 at the config rate, per citation', line.amount, 2 * P.citationN);
+    lt('AS37 so leaving the road open is worse than a clean job', pay.paid, pay.baseFee);
+    note(`AS  two citations: £${pay.baseFee} less £${line.amount} = £${pay.paid}`);
+
+    /* And it is in the story, in the player's own terms. GDD §9: the recap has to be able to read
+     * back what they DID, and parking across a live road without coning it is a decision. */
+    const recap = recapFrom(g.bus, st);
+    eq('AS38 the recap carries the count', recap.summary.citations, 2);
+    gt('AS39 and says it happened, with the time it happened at',
+       recap.lines.filter(([, t]) => /cited for the carriageway/.test(t)).length, 0);
+    gt('AS40 having said a unit was called first',
+       recap.lines.filter(([, t]) => /unit was called/.test(t)).length, 0);
+  }
+
+  /* What the county makes of it, which is a different fact from what the fee does. */
+  {
+    const clean = newCompany(), cited = newCompany();
+    settleJob(clean, recapOf({ clean: true }), { impactsNs: 0, peakTensionN: 0, simTimeMs: 39000 });
+    settleJob(cited, recapOf({ clean: true, citations: 2 }),
+              { impactsNs: 0, peakTensionN: 0, simTimeMs: 39000 });
+    lt('AS41 two citations cost the outfit its name as well as its fee',
+       cited.reputation, clean.reputation);
+    eq('AS42 by exactly what the config says a citation is worth',
+       clean.reputation - cited.reputation, 2 * CONFIG.company.repPerCitation);
+    note(`AS  the same clean delivery: ${clean.reputation} reputation, `
+      + `${cited.reputation} having been cited twice`);
+  }
+
+  /* THE NUMBER dispatchSec WAS CHOSEN AGAINST. The Milestone 1 recovery parks the wrecker on
+   * the carriageway and leaves it there for the whole pull. If that earns a citation, the
+   * mechanic is a tax on playing the game rather than a consequence of ignoring the road. */
+  {
+    const g = job();
+    const st = g.state;
+    const s = st.vehicles.sedan.body, b = st.vehicles.truck.body;
+    b.x = s.x + 11; b.y = BANDS.roadN + 1.4; b.angle = 0; b.vx = 0; b.vy = 0; b.omega = 0;
+    st.vehicles.truck.parkBrake = true;
+    const zone = findZone(st.vehicles.sedan.def, 'towHook');
+    const p = s.toWorld(zone.local.x, zone.local.y);
+    st.winch.hook.x = p.x; st.winch.hook.y = p.y;
+    st.winch.state = WINCH.ATTACHED; st.winch.targetId = 'sedan'; st.winch.zoneId = 'towHook';
+    const len = pathLength(cablePath(st.winch, st.vehicles.truck, st.vehicles, st.blocksById));
+    st.winch.state = WINCH.LOOSE;
+    attachHook(st, st.vehicles.sedan, zone, g.bus, st.simTimeMs);
+    st.winch.lineM = len;
+    for (let t = 0; t < 60000 && !st.goal.complete; t += 250) { st.winch.motor = 1; g.skipMs(250); }
+    ok('AS43 the far-lane recovery still finishes', st.goal.complete);
+    eq('AS44 with no cones out and the wrecker on the road for all of it, nobody is called',
+       st.police.state, 'none');
+    eq('AS45 and it costs nothing', st.police.citations, 0);
+    note(`AS  the M1 recovery: ${(st.goal.completedAtMs / 1000).toFixed(0)} s on an open road, `
+      + `against a ${P.dispatchSec} s callout`);
+  }
+
+  // No new nondeterminism, same check the rest of the milestone gets.
+  {
+    const src = await (await fetch('../src/world/police.js')).text();
+    const bad = [];
+    if (/Math\.random/.test(src)) bad.push('Math.random');
+    if (/(Date\.now|performance\.now|new Date)\s*\(/.test(src)) bad.push('wall clock');
+    eq('AS46 no Math.random or wall clock in world/police.js', bad.length, 0, bad.join('; '));
+  }
+}
+
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['AN', sectionAN], ['AP', sectionAP], ['AR', sectionAR], ['AK2', sectionAK2]];
+  const sections = [['AN', sectionAN], ['AP', sectionAP], ['AR', sectionAR],
+                    ['AS', sectionAS], ['AK2', sectionAK2]];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {

@@ -419,6 +419,7 @@ export class Renderer {
     this._drawBoom(ctx, st);              // and the boom is on top of it
 
     this._drawTraffic(ctx, st);             // on the road, under the recovery vehicles
+    this._drawPolice(ctx, st);              // with the traffic: it is another car on the road
     this._drawBoulders(ctx, st.terrain);    // on the ground, so vehicles sit in front of them
     this._drawTrees(ctx, st.terrain);       // canopies overhang everything on the ground
     this._drawCables(ctx, st);
@@ -605,6 +606,57 @@ export class Renderer {
         rect(ctx, -L, W * 0.4, 0.18, W * 0.5, true);
       }
       ctx.restore();
+    }
+  }
+
+  /* The unit that turned out, when one has (Milestone 7).
+   *
+   * Drawn at traffic's level of detail rather than the recovery vehicles' — it is not something
+   * the player operates and never becomes one. What it does get is a light bar, because that is
+   * the whole message: somebody is here about the road, and the player should be able to read
+   * that from the far end of the map without opening a panel.
+   *
+   * The flash is driven off st.simTimeMs and NOT off a wall clock, for the reason everything
+   * else in this project is: the renderer may not have a second time source, or a replay of a
+   * seed stops matching the recording of it. It also means the bar freezes with the pause, which
+   * is correct — nothing about this scene moves while the clock is stopped.
+   */
+  _drawPolice(ctx, st) {
+    const pol = st.police;
+    if (!pol || pol.state === 'none') return;
+    const L = CONFIG.sedan.lengthM / 2, W = CONFIG.sedan.widthM / 2;
+
+    ctx.save();
+    ctx.translate(pol.x, pol.y);
+    ctx.rotate(pol.angle);
+    ctx.fillStyle = 'rgba(4,6,10,0.38)';
+    rect(ctx, -L - LIGHT.x * 0.2, -W - LIGHT.y * 0.2, L * 2, W * 2, true);
+    fillLit(ctx, pol.x, pol.y, W, '#1b2733', pol.angle, 0.72, 1.2);
+    ctx.fillStyle = shadeHex('#1b2733', 1.14);
+    rect(ctx, -L, -W, L * 2, W * 2, true);
+    // The white door panel: the one marking that says at a glance this is not another commuter.
+    ctx.fillStyle = 'rgba(226,230,236,0.86)';
+    rect(ctx, -L * 0.30, -W, L * 0.46, W * 2, true);
+    ctx.fillStyle = 'rgba(24,28,36,0.55)';
+    rect(ctx, -L * 0.30, -W * 0.82, L * 0.72, W * 1.64, true);   // glass
+    ctx.restore();
+
+    // The bar. Two lamps, alternating on a fixed period, over the roofline.
+    const on = Math.floor(st.simTimeMs / 260) % 2 === 0;
+    const bar = [{ off: -W * 0.5, col: on ? '#4d7fe8' : '#1d2b4a' },
+                 { off:  W * 0.5, col: on ? '#25324f' : '#e05a45' }];
+    for (const lamp of bar) {
+      const lx = pol.x - Math.sin(pol.angle) * lamp.off;
+      const ly = pol.y + Math.cos(pol.angle) * lamp.off;
+      const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 1.9);
+      g.addColorStop(0, lamp.col);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(lx, ly, 1.9, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = lamp.col;
+      ctx.beginPath(); ctx.arc(lx, ly, 0.16, 0, Math.PI * 2); ctx.fill();
     }
   }
 

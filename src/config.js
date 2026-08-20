@@ -196,6 +196,11 @@ export const CONFIG = {
     repPerPartLost: 2,
     repPerDrop: 5,              // dropping a customer's car in the road is the worst thing here
     repPerSnap: 1,
+    /* A citation is a black mark against the OUTFIT, not against the car — the county remembers
+     * which recovery firm leaves the road open. Deliberately between a snapped cable (1) and a
+     * lost part (2): worse than a piece of gear failing, nowhere near dropping somebody's car in
+     * the road (5), and it stacks, because the citations themselves do. Milestone 7. */
+    repPerCitation: 2,
 
     gearPrices: {
       strap: 70, chain: 120, chock: 45, cribbing: 30, jack: 260, snatchBlock: 340,
@@ -581,6 +586,53 @@ export const CONFIG = {
       holdN: 22000,         // on ground with an anchorHoldMul of 1 (wet grass)
       reachM: 1.6,          // how close the block has to be mounted to it
     },
+  },
+
+  /* ── scene safety, and the authorities ──────────────────────────────────────
+   * GDD §7 Milestone 7. See src/world/police.js for the reasoning; these are the numbers.
+   *
+   * A closure is the CONES, formalised — the same three cones that have been in the pile since
+   * Milestone 5 and until now only slowed traffic down. The standard is geometry: enough of them,
+   * spread far enough to be a taper rather than a pile, and actually bracketing whatever is
+   * stopped on the road.
+   *
+   * `dispatchSec` is the number that decides whether this is a mechanic or a trap. Measured: a
+   * far-lane recovery takes 39 s with the wrecker stopped on the carriageway for all of it, and
+   * walking three cones out takes about 25. At 45 s a crew that sets up first is never troubled
+   * and one that starts winching immediately sees a unit turn out — and the FIRST crossing only
+   * dispatches. The money starts when they are watching you, which is both fairer and more
+   * legible than a fine arriving from an empty road. */
+  police: {
+    /* What counts as a closure. `closureMinCones` is not a round number chosen here: it is the
+     * exact count at which traffic.js's own zoneSlowPerCone/zoneSlowFloor already bottoms out
+     * (m5 suite AE10-12, ~78 km/h down to ~40), so a closure is defined as "enough cones to
+     * cause the slowdown that was measured two milestones ago" rather than as a new effect.
+     * MEASURED: a light wrecker blocks 6.69 m of carriageway and a heavy one 9.29 m, so 14 m of
+     * spread is a taper round either of them and a pile dropped in one spot is not. */
+    closureMinCones: 3,
+    closureMinSpreadM: 14,
+    closureCoverMarginM: 2.5,   // cones must reach PAST each end of the obstruction, not just to it
+    /* How long an open road is tolerated, and what it costs once it is not. Neither is a physics
+     * measurement — an unprotected carriageway is not a newton reading — but both are checked
+     * against numbers that ARE measured. A far-lane recovery runs 36-45 s with the wrecker
+     * stopped on the road for all of it, and walking three cones out takes about 25, so at 45 s
+     * a crew that sets up first is never troubled and one that starts winching immediately sees
+     * a unit turn out. The FIRST crossing only dispatches: the money starts when somebody is
+     * actually there watching, roughly 5 s later, which is fairer and far more legible than a
+     * fine arriving from an empty road. MEASURED at recoverPerSec 4: after 55 s built up, 3 s of
+     * a cleared road gives back exactly 12 — it is accumulate-and-decay, not a flag.
+     * `citationN` sits between cableCost (250) and railCost (300): a citation weighs about what
+     * parting the cable does, and it repeats. */
+    dispatchSec: 45,
+    recoverPerSec: 4,
+    citationN: 260,
+    /* The responding unit. MEASURED: spawned 5 m off the nearer world edge, ~64 m out on the
+     * bend's default layout, it parks in 5.1 s. Brisk on purpose against a 36-45 s recovery. */
+    respondMps: 16,
+    brakeMps2: 5.0,
+    spawnMarginM: 5,
+    parkOffsetM: 1.4,        // onto the shoulder, clear of both travel lanes
+    arriveSnapM: 0.4,
   },
 
   /* ── the customer ───────────────────────────────────────────────────────────

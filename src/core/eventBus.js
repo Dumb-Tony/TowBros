@@ -41,6 +41,10 @@ export const EVENTS = Object.freeze({
 
   /* The people at the scene. GDD §7 Milestone 7. */
   CUSTOMER_MOOD:      'CUSTOMER_MOOD',   // { mood, from, moodFrac } the owner's opinion moved
+  POLICE_DISPATCHED:  'POLICE_DISPATCHED', // { fromX, toX } a unit has turned out to an open road
+  POLICE_ON_SCENE:    'POLICE_ON_SCENE',
+  POLICE_CITED:       'POLICE_CITED',    // { citations, amountN, totalN } and it is costing you
+  POLICE_CLEARED:     'POLICE_CLEARED',  // the road is closed, or nothing is on it any more
 
   // winch
   WINCH_IN:           'WINCH_IN',
@@ -94,6 +98,7 @@ const STORY = new Set([
   'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
   'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
   'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS', 'CUSTOMER_MOOD',
+  'POLICE_DISPATCHED', 'POLICE_CITED',
 ]);
 
 export class EventBus {

@@ -6,8 +6,9 @@ embankment; a tow truck is on the road; nothing tells you how to connect the two
 **Milestone 7 — the scene, and everybody at it — is playable.** Pick a job off the board — a place,
 a forecast, a fee, and what is off the road — winch it out of the ditch while its owner watches from
 the verge, pick it up on the wheel lift, strap it down, drive it home through live traffic, reverse
-it into the bay, and get paid what the damage left of the fee. Then fix the truck, save up for a
-bigger one, and watch the afternoon go: a careful morning means the second job is in falling light.
+it into the bay, and get paid what the damage left of the fee — less whatever you were cited for
+leaving the road open. Then fix the truck, save up for a bigger one, and watch the afternoon go: a
+careful morning means the second job is in falling light.
 Two to four people, over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies,
 and still zero external requests — including the multiplayer and the save file.
 
@@ -103,6 +104,32 @@ are worth 29 reputation with a happy owner and 22 with a furious one.
 the problem — it has no side-to-side base and goes wherever the line points. A car on its roof is
 the same shell with 0.55× the grip, and the same straight pull needs **17.3 kN upright and 28.7 kN
 on its roof**.
+
+**The road you left open.** The cones have been in the pile since Milestone 5, and until now the
+only thing that cared about them was the traffic. A *closure* is those same cones held to a
+standard — three of them, spread over at least 14 m, actually reaching past each end of whatever is
+stopped on the carriageway — and it is computed from where the cones and the vehicle **are**, never
+from a flag the player sets.
+
+![a unit on the shoulder, a wrecker across both lanes](docs/m7-road.png)
+
+Leave the road blocked and unclosed and the exposure accumulates in seconds, the same shape the
+ground anchors accumulate an overload:
+
+| | |
+|---|---|
+| a unit turns out at | **45 s** of continuous exposure, and costs nothing |
+| it parks | **5.2 s** later, and *that* is the first citation |
+| and again every | 45 s the road is still open — £260 each |
+| the Milestone 1 recovery takes | **38 s** with the wrecker on the road for all of it |
+
+That last row is the number the other four were chosen against: a crew doing an ordinary job is
+never troubled by this, and a crew that parks across both lanes and walks away is. The first
+threshold crossing only *dispatches* — nobody is charged from an empty road, and closing up while a
+unit is en route turns it round having cost nothing. Three seconds of a properly closed road gives
+back 12 s of the 55 you had built up, so a cone clipped by a wheel is not a reprieve and is not a
+catastrophe either. Citations come off the fee **and** off the outfit's name: two of them turn a
+£1400 job into £880, and 26 reputation into 22.
 
 ## What Milestone 6 is
 
@@ -395,6 +422,7 @@ src/
   sim/               rigid body, tire model, vehicle step, contacts
   recovery/          the winch line, attachment failure and debris, equipment effects
   world/scene.js     scene assembly, the one objective, and the recap
+  world/             the county, the forecast, the traffic, the owner, and the closure standard
   player/player.js   the crew: walking, driving, and the context-key priority chain
   crew/authority.js  who owns the hook, the gear and the seats — and nothing else does
   net/               the command frame, the lockstep scheduler, and two serverless transports
@@ -439,9 +467,9 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m7-tests.js -Quiet
 ```
 
-**1150 assertions** across seven suites in headless Chrome — 265 for Milestone 1, 219 for
+**1200 assertions** across seven suites in headless Chrome — 265 for Milestone 1, 219 for
 Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
-93 for Milestone 7.
+143 for Milestone 7.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
@@ -559,10 +587,16 @@ where more than one person can grab the same thing.
 - **The boom slews and does nothing else.** No lift, no telescope, no load chart: a rotator's boom
   in a top-down game can plausibly change where the line leaves the machine, and the rest of what a
   real one does needs a third axis this game does not have.
-- **Traffic is a lane model, not a driver model.** Cars keep station, brake for what they can see,
-  overtake a stopped obstruction and creep round one that will not move — which is enough to make
-  the road a hazard and the cones worth putting out. They do not indicate, give way, or react to
-  each other beyond the car directly ahead.
+- **Traffic is a lane model, not a driver model.** Cars brake for what they can see, overtake a
+  stopped obstruction and creep round one that will not move — which is enough to make the road a
+  hazard and the cones worth putting out. What they look ahead for is the two recovery vehicles, the
+  crew, the cones and the cable, and *not each other*: two cars in one lane are kept apart by the
+  contact solver rather than by anybody lifting off. They do not indicate or give way.
+- **The responding unit is kinematic and deliberately not a physical object.** It drives in on a
+  braking curve and parks on the shoulder, but it is not in the contact pass and cannot be hit,
+  shoved, or shove anything — a police car that could put an impulse into the recovery it was sent
+  to protect would be a worse bug than the one it prevents. It also never gets out of the car: the
+  citation is the whole of what it does.
 - The save is one browser's localStorage. Clear the site data and the company is gone.
 - A wrecker with a load on is governed to 9 m/s. That is partly realism and partly honesty: a
   two-wheeled trailer on a hitch is dynamically unstable above about ten metres a second no matter

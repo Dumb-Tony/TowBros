@@ -17,6 +17,7 @@ import { createTerrain, siteById } from '../data/terrain.js';
 import { weatherById } from './weather.js';
 import { createTraffic } from './traffic.js';
 import { createCustomer, settleCustomer, describeCustomer } from './customer.js';
+import { createPolice } from './police.js';
 import { SEDAN_DEF, TRUCK_DEF, casualtyDefById, truckDefById } from '../data/vehicles.js';
 import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
@@ -185,6 +186,10 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
       present: !(job && job.customerPresent === false),
       name: (job && job.customerName) || 'the owner',
     }),
+    /* Scene safety and the authorities (Milestone 7). Always present, unlike traffic, which a
+     * job may switch off: whether the carriageway you stopped across is protected is not a fact
+     * about whether ambient cars are being simulated. See world/police.js. */
+    police: createPolice(),
     blocksById: {},
     debris: [],
     nextDebrisId: 1,
@@ -334,6 +339,15 @@ export function computePayout(st, bus) {
   take(rails === 1 ? 'damaged the guardrail' : `damaged ${rails} guardrail sections`, rails * P.railCost);
   take('dropped the load in transit', (st.job.droppedInTransit || 0) * P.dropCost);
   if (bus.count(EVENTS.ROLLED_OVER) > 0) take('rolled a vehicle', bus.count(EVENTS.ROLLED_OVER) * P.rollCost);
+  /* Citations (Milestone 7). Counted off st.police rather than off the event log for the reason
+   * the dropped load is counted off st.job: the ring evicts, and a long job that earned its first
+   * citation early must still be charged for it. The number lives in CONFIG.police, spent here
+   * and nowhere else — world/police.js deliberately keeps only the count. */
+  if (st.police && st.police.citations > 0) {
+    const n = st.police.citations;
+    take(n === 1 ? 'left the road open: a citation' : `left the road open: ${n} citations`,
+      n * CONFIG.police.citationN);
+  }
 
   const total = deductions.reduce((a, d) => a + d.amount, 0);
   const paid = Math.max(P.minimumFee, baseFee - total);
@@ -513,6 +527,15 @@ export function recapFrom(bus, st) {
       case EVENTS.JOB_DELIVERED:
         lines.push([t, `delivered${e.clean ? ', without a scratch' : ''}`]);
         break;
+      /* The road you left open, in the player's own words (Milestone 7). Both of these are facts
+       * about a decision — you parked across the carriageway and did not cone it — which is the
+       * only kind of line this recap is allowed to contain. */
+      case EVENTS.POLICE_DISPATCHED:
+        lines.push([t, 'a unit was called to the open road']);
+        break;
+      case EVENTS.POLICE_CITED:
+        lines.push([t, `cited for the carriageway — £${e.amountN}`]);
+        break;
       default: break;
     }
   }
@@ -542,6 +565,7 @@ export function recapFrom(bus, st) {
       delivered: st.job.phase === JOB.DELIVERED,
       deliveredAtMs: st.job.deliveredAtMs,
       droppedInTransit: st.job.droppedInTransit,
+      citations: st.police ? st.police.citations : 0,
       strapsUsed: bus.count(EVENTS.LOAD_SECURED),
       payout: st.job.payout,
       /* What the owner made of it (Milestone 7). Settled here rather than in the payout because it
