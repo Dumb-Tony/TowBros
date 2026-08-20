@@ -53,6 +53,11 @@ export const ROAD = Object.freeze({
 /* Height of the road above the bottom of the ditch, for reference in the UI. */
 export const DROP_M = 4.57;
 
+/** Mud depth at which the ground counts as mud. The renderer fades its colour in over the next
+ *  few centimetres above this, so the painted edge and the behavioural edge stay together. */
+export const MUD_EDGE_M = 0.04;
+export const MUD_FADE_M = 0.11;
+
 /** Surface properties. `mu` is the peak friction coefficient the tire model clamps to;
  *  `crr` is rolling resistance. The two are independent on purpose: mud has poor grip AND
  *  huge drag, wet grass has poor grip and modest drag, and the difference between those
@@ -160,8 +165,8 @@ export function createTerrain(rng) {
   const mud = {
     x: 38.0 + rng.spread(6.0),
     y: 28.6 + rng.spread(1.6),
-    rx: 9.0 + rng.range(0, 3.0),
-    ry: 4.2 + rng.range(0, 1.4),
+    rx: 6.6 + rng.range(0, 2.2),
+    ry: 3.3 + rng.range(0, 1.1),
     depth: 0.42 + rng.range(0, 0.22),
   };
 
@@ -245,15 +250,22 @@ export function createTerrain(rng) {
     return { gx, gy, mag, normalFrac: 1 / Math.sqrt(1 + mag * mag) };
   }
 
-  /** Which surface is underfoot. Mud wins wherever the bowl is deeper than a token 4 cm,
-   *  so the mud's painted edge and its behaviour are the same edge. */
-  function surfaceAt(x, y) {
-    if (mudDepthAt(x, y) > 0.04) return SURFACES.mud;
+  /** The surface a y-band implies, ignoring the mud. The renderer needs this to fade the mud
+   *  into the grass at its rim instead of stamping a hard-edged ellipse on the hillside. */
+  function bandSurfaceAt(x, y) {
     const B = BANDS;
     if (y >= B.roadN && y <= B.roadS) return SURFACES.pavement;
     if (y >= B.bankTop && y < B.roadN) return SURFACES.shoulder;
     if (y > B.roadS && y <= B.shoulderS) return SURFACES.shoulder;
     return SURFACES.wetGrass;
+  }
+
+  /** Which surface is underfoot. THE authority — physics and success detection both ask this.
+   *  Mud wins wherever the bowl is deeper than a token 4 cm, so the mud's painted edge and its
+   *  behaviour are within a few centimetres of each other. */
+  function surfaceAt(x, y) {
+    if (mudDepthAt(x, y) > MUD_EDGE_M) return SURFACES.mud;
+    return bandSurfaceAt(x, y);
   }
 
   /** Is a point on the road? Used by success detection and by the HUD. */
@@ -272,7 +284,7 @@ export function createTerrain(rng) {
   return {
     world: WORLD, bands: BANDS, road: ROAD, surfaces: SURFACES,
     mud, trees, rail, railPosts, railSegments, anchors,
-    heightAt, slopeAt, surfaceAt, mudDepthAt, onRoad, clampToWorld,
+    heightAt, slopeAt, surfaceAt, bandSurfaceAt, mudDepthAt, onRoad, clampToWorld,
     /** Steepest gradient anywhere on the embankment, for the debug overlay and tests. */
     describe() {
       let worst = 0, worstY = 0;

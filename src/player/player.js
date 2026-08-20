@@ -115,23 +115,38 @@ function rideAlong(st) {
 
 /* ── the hook ───────────────────────────────────────────────────────────────── */
 
-/** Carry the hook: it sits just ahead of the player, and the drum will only give so much. */
-function carryHook(st, terrain) {
+/**
+ * Carry the hook: it sits just ahead of the player, and THE LINE IS A LEASH.
+ *
+ * The invariant that matters: the paid-out length must never be less than the distance the hook
+ * has actually travelled. Without it, `lineM` while carrying is fiction — and then the moment the
+ * player hooks on, the cable spring sees `dist - lineM` metres of stretch it did not earn and
+ * parts a 42 kN line on the first step. Caught by m1 J9, which walked the hook 20 m out with 1.5 m
+ * off the drum and watched the attachment explode.
+ *
+ * So: pay out at up to freeSpoolMps, and if the drum cannot keep up — or if the drum is simply
+ * empty — pull the player back to the end of the line. They are stopped by a cable, not by an
+ * invisible wall, and it is the same code path for both reasons.
+ */
+function carryHook(st, terrain, dtSec) {
   const p = st.player;
   const w = st.winch;
   const off = CONFIG.player.hookCarryOffsetM;
   w.hook.x = p.x + Math.cos(p.facing) * off;
   w.hook.y = p.y + Math.sin(p.facing) * off;
 
-  // Out of cable: the player is stopped by the line, not by an invisible wall. Pull them
-  // back along the route so the constraint reads as a taut cable and not as a bug.
   const path = cablePath(w, st.vehicles.truck, st.vehicles, st.blocksById);
   const total = pathLength(path);
-  const limit = CONFIG.winch.spoolLengthM;
-  if (total > limit) {
+
+  const want = total + 0.15;
+  if (want > w.lineM) {
+    w.lineM = Math.min(CONFIG.winch.spoolLengthM, w.lineM + CONFIG.winch.freeSpoolMps * dtSec, want);
+  }
+
+  const over = total - w.lineM;
+  if (over > 0) {
     const anchor = path.length > 2 ? path[1] : path[0];
     const back = unit(anchor.x - w.hook.x, anchor.y - w.hook.y);
-    const over = total - limit;
     p.x += back.x * over; p.y += back.y * over;
     w.hook.x += back.x * over; w.hook.y += back.y * over;
     p.vx *= 0.2; p.vy *= 0.2;
@@ -435,7 +450,7 @@ export function stepPlayer(st, terrain, dtSec, input, bus, simTimeMs) {
       if (!st.vehicles[id].occupied) releaseDriverInput(st.vehicles[id]);
     }
     walk(st, terrain, dtSec, input);
-    if (p.holdingHook) carryHook(st, terrain);
+    if (p.holdingHook) carryHook(st, terrain, dtSec);
 
     // Holding the context key on a jack keeps pumping it.
     if (p._pumpingGearId) {

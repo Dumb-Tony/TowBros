@@ -5,13 +5,13 @@
 #   .\tools\shot.ps1 -Setup tools\_shot-playing.js -Out docs\m0-airport.png
 #
 # -Setup injects a module that runs AFTER main.js, so it can pose the game through
-# window.__ABC before the frame is captured.
+# window.__TB before the frame is captured.
 param(
   [string]$Setup = "",
   [string]$Out   = "docs\shot.png",
   [int]$Width    = 1600,
   [int]$Height   = 900,
-  [int]$Port     = 8378
+  [int]$Port     = 8391
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -48,7 +48,7 @@ if (-not $up) {
 $outPath = Join-Path $root $Out
 $outDir = Split-Path $outPath -Parent
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Force $outDir | Out-Null }
-$profileDir = Join-Path $env:TEMP ("abc-shot-" + [System.Guid]::NewGuid().ToString("N").Substring(0,8))
+$profileDir = Join-Path $env:TEMP ("tb-shot-" + [System.Guid]::NewGuid().ToString("N").Substring(0,8))
 
 Start-Process $chrome -ArgumentList `
   "--headless=new","--disable-gpu","--no-first-run","--no-default-browser-check",

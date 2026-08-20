@@ -25,6 +25,7 @@ import { CONFIG } from '../config.js';
 import { WINCH, cablePath, fairleadPos, hookPos } from '../recovery/cable.js';
 import { clamp, clamp01, lerp, unit, norm } from '../core/vec.js';
 import { GEAR } from '../data/equipment.js';
+import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 
 /** Resolution of the painted terrain, pixels per metre. The height field is smooth, so this
  *  is a sharpness/build-time trade: 16 px/m paints a 92x48 m site in ~150 ms. */
@@ -126,35 +127,53 @@ export class Renderer {
         const gy = (hf[jp + i] - hf[jm + i]) / (2 * perPx);
         const gmag = Math.hypot(gx, gy);
 
-        const surf = terrain.surfaceAt(wx, wy);
         // Two-tone dither by a cheap integer hash: texture without a noise function and
         // without Math.random.
         let s = (i * 73856093) ^ (j * 19349663);
         s = (s ^ (s >>> 13)) & 0xffff;
         const mix = (s / 65535) * 0.55;
-        let r = hex(surf.tint, 0) * (1 - mix) + hex(surf.tint2, 0) * mix;
-        let g = hex(surf.tint, 1) * (1 - mix) + hex(surf.tint2, 1) * mix;
-        let b = hex(surf.tint, 2) * (1 - mix) + hex(surf.tint2, 2) * mix;
 
-        // Hillshade. Slopes facing the light brighten; slopes facing away darken.
-        const shade = 1 + clamp((-gx * Lx - gy * Ly) / Math.sqrt(1 + gmag * gmag), -0.85, 0.85) * 0.46;
-        // Depth tint: the bottom of the ditch is in its own shadow, which reads as "down".
-        const depth = 1 - clamp01(-h / 6.2) * 0.30;
+        // The band's own colour, then the mud faded IN over the few centimetres above the depth
+        // at which the ground starts behaving like mud. Stamping the ellipse hard (which is what
+        // asking surfaceAt per pixel does) put a black-edged oval on the hillside that read as a
+        // hole in the world rather than as a wet low point.
+        const band = terrain.bandSurfaceAt(wx, wy);
+        let r = hex(band.tint, 0) * (1 - mix) + hex(band.tint2, 0) * mix;
+        let g = hex(band.tint, 1) * (1 - mix) + hex(band.tint2, 1) * mix;
+        let b = hex(band.tint, 2) * (1 - mix) + hex(band.tint2, 2) * mix;
+        const md = terrain.mudDepthAt(wx, wy);
+        if (md > MUD_EDGE_M) {
+          const w = clamp01((md - MUD_EDGE_M) / MUD_FADE_M);
+          const M = terrain.surfaces.mud;
+          const mr = hex(M.tint, 0) * (1 - mix) + hex(M.tint2, 0) * mix;
+          const mg = hex(M.tint, 1) * (1 - mix) + hex(M.tint2, 1) * mix;
+          const mb = hex(M.tint, 2) * (1 - mix) + hex(M.tint2, 2) * mix;
+          r += (mr - r) * w; g += (mg - g) * w; b += (mb - b) * w;
+        }
+
+        // Hillshade. Slopes facing the light brighten; slopes facing away darken. This is doing
+        // most of the work of making a hill look like a hill, so it is worth being bold with.
+        const shade = 1 + clamp((-gx * Lx - gy * Ly) / Math.sqrt(1 + gmag * gmag), -0.85, 0.85) * 0.62;
+        // Depth tint: the bottom of the ditch sits in its own shadow, which reads as "down".
+        const depth = 1 - clamp01(-h / 6.2) * 0.22;
         r *= shade * depth; g *= shade * depth; b *= shade * depth;
 
         // Contour lines, at constant screen width regardless of steepness: a line appears
         // where the height passes a multiple of `step`, and "passes" is judged against how
         // much height one pixel covers here.
         if (gmag > 0.02) {
-          const band = h / step;
-          const d = Math.abs(band - Math.round(band)) * step;   // metres to the nearest contour
+          const bandIdx = h / step;
+          const d = Math.abs(bandIdx - Math.round(bandIdx)) * step;  // metres to nearest contour
           const wide = gmag * perPx * 0.85;
           if (d < wide) {
-            const strength = (1 - d / wide) * 0.42;
+            // Bold on purpose. These lines are the ONLY thing telling a player how steep the
+            // bank is, and at 0.42 strength they were a texture rather than information — the
+            // first screenshot of the finished scene read as flat ground.
+            const strength = (1 - d / wide) * 0.68;
             // Every metre is a heavier line, the way a real map does it.
             const major = Math.abs(h / 1.0 - Math.round(h / 1.0)) < 0.06;
-            const kk = strength * (major ? 1.55 : 1);
-            r *= 1 - kk * 0.75; g *= 1 - kk * 0.7; b *= 1 - kk * 0.55;
+            const kk = strength * (major ? 1.7 : 1);
+            r *= 1 - kk * 0.78; g *= 1 - kk * 0.72; b *= 1 - kk * 0.56;
           }
         }
 

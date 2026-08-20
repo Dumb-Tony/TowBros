@@ -144,7 +144,11 @@ export const CONFIG = {
     // far enough away to get the geometry right. A 20 m rig is 48 seconds of holding the key.
     reelInMps: 0.42,
     reelOutMps: 0.85,
-    freeSpoolMps: 2.6,      // how fast the drum pays out to someone walking the hook away
+    // How fast the drum pays out to someone walking the hook away. MUST exceed the 3.4 m/s walk
+    // speed, or the line becomes a leash during ordinary play: the drum is free-spooling, and the
+    // effort of dragging cable off it is modelled as player.carryHookDrag instead. It is still a
+    // rate rather than "instant" so the pathological cases stay bounded.
+    freeSpoolMps: 4.6,
     minLineM: 0.45,         // cannot reel the hook into the drum
     stallMarginN: 2000,     // the motor eases off this far below the stall force
     cableBreakN: 42000,

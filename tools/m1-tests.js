@@ -972,6 +972,160 @@ emit('running H...');
 }
 }
 
+/* ══ J. the actual interface ════════════════════════════════════════════ */
+/* Everything above drives the simulation directly, which is exactly what a suite should not do
+ * as its only coverage: a player cannot call attachHook(). They walk somewhere and press E, and
+ * the priority chain in src/player/player.js decides what that means. This section presses keys.
+ *
+ * GDD §5 is the specification: one contextual action, walking and driving share the movement
+ * axis, and the winch is reachable at all times. */
+function sectionJ() {
+lines.push('--- J. controls: one context key, driven through Input (GDD §5) ---');
+{
+  const g = newGame(5001, 1);
+  const st = g.state;
+  const input = new Input(window);          // NOT attached: no real listeners, just the buffers
+  const p = st.player;
+  const truck = st.vehicles.truck;
+
+  const tap = (code, steps = 1) => {
+    input._debugPress(code);
+    for (let i = 0; i < steps; i++) g.step(STEP, st.simTimeMs + STEP, input), input.endStep();
+  };
+  const hold = (code, ms) => {
+    input._debugPress(code);
+    const n = Math.round(ms / STEP);
+    for (let i = 0; i < n; i++) { g.step(STEP, st.simTimeMs + STEP, input); input.endStep(); input._debugPress(code); }
+    input._debugRelease(code);
+  };
+  const idle = (ms) => {
+    const n = Math.round(ms / STEP);
+    for (let i = 0; i < n; i++) { g.step(STEP, st.simTimeMs + STEP, input); input.endStep(); }
+  };
+  /** Walk there on the movement keys, the way a player would. Teleporting is not equivalent:
+   *  the hook is on a leash now (see carryHook), so a player who is moved rather than walked
+   *  gets pulled straight back to the drum — which is how this helper came to exist. */
+  const walkTo = (tx, ty, maxMs = 20000) => {
+    const n = Math.round(maxMs / STEP);
+    for (let i = 0; i < n; i++) {
+      const dx = tx - p.x, dy = ty - p.y;
+      if (Math.hypot(dx, dy) < 0.5) break;
+      input.clear();
+      if (dx > 0.2) input._debugPress('KeyD'); else if (dx < -0.2) input._debugPress('KeyA');
+      if (dy > 0.2) input._debugPress('KeyS'); else if (dy < -0.2) input._debugPress('KeyW');
+      g.step(STEP, st.simTimeMs + STEP, input);
+      input.endStep();
+    }
+    input.clear();
+    return Math.hypot(tx - p.x, ty - p.y);
+  };
+
+  // Walking. The axis is the same one that drives, and it must actually move a person.
+  const p0 = { x: p.x, y: p.y };
+  hold('KeyA', 600);
+  gt('J1 holding a movement key walks the player', Math.abs(p.x - p0.x), 0.5);
+  lt('J2 at a walking pace, not a driving one', Math.hypot(p.x - p0.x, p.y - p0.y) / 0.6, CONFIG.player.maxSpeed + 0.1);
+
+  // Take the hook off the drum: stand at the fairlead, press the context key.
+  const fl = fairleadPos(truck);
+  p.x = fl.x - 1.0; p.y = fl.y + 0.4; p.vx = 0; p.vy = 0;
+  idle(STEP * 2);
+  ok('J3 standing at the drum, the prompt offers the hook',
+     !!p.contextHint && /hook/.test(p.contextHint.label), p.contextHint && p.contextHint.label);
+  tap('KeyE');
+  eq('J4 pressing it takes the hook', st.winch.state, WINCH.HELD);
+  eq('J5 and the player is carrying it', p.holdingHook, true);
+
+  // Walk it to the car. The drum free-spools to whoever is carrying it, and the line must end up
+  // as long as the walk was — see the note on carryHook in src/player/player.js.
+  const line0 = st.winch.lineM;
+  const sedan = st.vehicles.sedan;
+  const eye = sedan.body.toWorld(findZone(sedan.def, 'towHook').local.x, findZone(sedan.def, 'towHook').local.y);
+  const left = walkTo(eye.x, eye.y - 0.9);
+  lt(`J6 the player can walk the hook to the car (${left.toFixed(2)} m short)`, left, 1.2);
+  gt('J7 which pays cable off the drum', st.winch.lineM, line0 + 8);
+  const reach = pathLength(cablePath(st.winch, truck, st.vehicles, st.blocksById));
+  near('J8 and the line ends up as long as the walk, not shorter', st.winch.lineM, reach + 0.15, 0.4);
+
+  // Standing at the car, the prompt names the zone the hook would land on — and only that.
+  idle(STEP * 2);
+  ok('J9 the prompt names a specific attachment point',
+     !!p.contextHint && /hook onto the /.test(p.contextHint.label), p.contextHint && p.contextHint.label);
+  tap('KeyE');
+  eq('J10 pressing it attaches', st.winch.state, WINCH.ATTACHED);
+  ok('J11 to a real zone on the car', !!findZone(sedan.def, st.winch.zoneId));
+  eq('J12 and the player is no longer holding it', p.holdingHook, false);
+  eq('J13 the attachment was logged for the recap', g.bus.count(EVENTS.HOOK_ATTACHED), 1);
+
+  // The winch is reachable on foot — GDD §5 says always.
+  const lineBefore = st.winch.lineM;
+  hold('KeyI', 500);
+  lt('J14 reeling in works while standing on the grass', st.winch.lineM, lineBefore);
+  hold('KeyO', 300);
+  gt('J15 and paying out works too', st.winch.lineM, st.winch.lineM - 1);
+  idle(STEP * 2);
+  eq('J16 releasing the key stops the drum', st.winch.motor, 0);
+
+  // Let go.
+  tap('KeyF');
+  eq('J17 the detach key unhooks', st.winch.state, WINCH.LOOSE);
+  gt('J18 and that is in the log as a player decision', g.bus.count(EVENTS.HOOK_DETACHED), 0);
+
+  // Look at things. Facts, not instructions.
+  tap('KeyQ');
+  ok('J19 the look key produces an inspection', !!p.inspect);
+  ok('J20 with something to say', !!p.inspect && p.inspect.lines.length > 0);
+  ok('J21 and no instructions in it',
+     !!p.inspect && !/you should|try |press |use the/i.test(p.inspect.lines.join(' ')),
+     p.inspect && p.inspect.lines.join(' '));
+
+  // Gear: pick one up, carry it, put it down somewhere else. The expectation is "the NEAREST
+  // item", asked of the game rather than hard-coded — standing 0.6 m west of the first item in the
+  // pile puts you 0.25 m from the second one, and the game was right about that.
+  p.x = st.gear[0].x + 0.7; p.y = st.gear[0].y - 0.3; p.vx = 0; p.vy = 0;
+  idle(STEP * 2);
+  const expect = nearestGear(st, p.x, p.y);
+  ok('J22 there is gear within reach of the staging area', !!expect);
+  tap('KeyE');
+  eq('J23 the context key picks up the nearest item', p.carryingGearId, expect && expect.item.id);
+  eq('J24 one object at a time — no inventory', st.gear.filter((q) => q.carriedBy).length, 1);
+  const carried = st.gear.find((q) => q.id === p.carryingGearId);
+  p.x = 30; p.y = 20; p.facing = 0;
+  idle(STEP * 2);
+  tap('KeyE');
+  eq('J25 and puts it down', p.carryingGearId, null);
+  ok(`J26 where the player was standing (${carried.x.toFixed(1)},${carried.y.toFixed(1)})`,
+     Math.hypot(carried.x - 30, carried.y - 20) < 2.0);
+
+  // Get in, drive, get out. Same movement keys.
+  const c = closestOnBox(truck.body, truck.body.x, truck.body.y + truck.def.widthM / 2 + 0.5);
+  p.x = c.x; p.y = c.y + 0.5; p.vx = 0; p.vy = 0;
+  idle(STEP * 2);
+  tap('Enter');
+  eq('J27 Enter gets in the truck', p.inVehicleId, 'truck');
+  const t0 = { x: truck.body.x, y: truck.body.y };
+  hold('KeyW', 1500);
+  gt('J28 the same key that walked now drives', Math.hypot(truck.body.x - t0.x, truck.body.y - t0.y), 1.0);
+  ok('J29 and the player went with it', Math.hypot(p.x - truck.body.x, p.y - truck.body.y) < 4);
+  const steer0 = truck.steerRad;
+  hold('KeyD', 400);
+  ok('J30 and steers', truck.steerRad !== steer0);
+  tap('Enter');
+  eq('J31 Enter gets out again', p.inVehicleId, null);
+  eq('J32 leaving the truck stops it being driven', truck.throttle, 0);
+
+  // The parking brake, and the fact that touching the throttle releases it.
+  tap('Enter');
+  truck.parkBrake = true;
+  tap('Space');
+  eq('J33 Space works the parking brake', truck.parkBrake, false);
+  tap('Space');
+  eq('J34 both ways', truck.parkBrake, true);
+  hold('KeyW', 200);
+  eq('J35 and the throttle releases it, because everybody does that anyway', truck.parkBrake, false);
+}
+}
+
 /* ══ I. hygiene ═════════════════════════════════════════════════════════ */
 async function sectionI() {
 lines.push('--- I. project hygiene ---');
@@ -1028,7 +1182,8 @@ lines.push('--- I. project hygiene ---');
 
   const sections = [
     ['A', sectionA], ['B', sectionB], ['C', sectionC], ['D', sectionD],
-    ['E', sectionE], ['F', sectionF], ['G', sectionG], ['H', sectionH], ['I', sectionI],
+    ['E', sectionE], ['F', sectionF], ['G', sectionG], ['H', sectionH],
+    ['J', sectionJ], ['I', sectionI],
   ];
   for (const [name, fn] of sections) {
     try { await fn(); }
