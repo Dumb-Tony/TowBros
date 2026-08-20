@@ -26,6 +26,7 @@
 import { CONFIG } from '../config.js';
 import { STARTER_PILE } from '../data/equipment.js';
 import { loadRaw, saveRaw, clearSave, LOAD } from './save.js';
+import { spendTime, resetClock, describeClock } from './clock.js';
 
 /**
  * What a fleet vehicle looks like. Condition is 0..1 and 1 is "as new".
@@ -54,6 +55,8 @@ export function newCompany() {
      * meta-layer means a game that plays itself while nobody is looking. */
     day: 1,
     slotsLeft: 2,
+    /** Minutes of the working day spent (Milestone 7 — see meta/clock.js). Advances on JOBS. */
+    clockMin: 0,
     takenToday: [],
     /** What the outfits down the road picked up while you were busy. See dispatch.js endDay. */
     rivalTook: [],
@@ -85,6 +88,7 @@ export function loadCompany() {
     ledger: Array.isArray(d.ledger) ? d.ledger.slice(-CONFIG.company.ledgerSize) : [],
     day: Math.max(1, num(d.day, 1) | 0),
     slotsLeft: Math.max(0, num(d.slotsLeft, 2) | 0),
+    clockMin: Math.max(0, num(d.clockMin, 0)),
     takenToday: Array.isArray(d.takenToday) ? d.takenToday.slice(0, 8) : [],
     rivalTook: Array.isArray(d.rivalTook) ? d.rivalTook.slice(0, 8) : [],
   };
@@ -239,6 +243,11 @@ export function settleJob(company, recap, wear) {
   if (s.delivered) company.jobsDelivered += 1;
   truck.jobs += 1;
 
+  /* The day (Milestone 7). A job spends the time it actually took, so a careful recovery costs the
+   * afternoon and the next one is in the dark. Nothing here ends a job or refuses one; it only
+   * records what the morning went on. See meta/clock.js. */
+  const spent = spendTime(company, (wear && wear.simTimeMs) || 0);
+
   /* Wear. The body takes what it was hit with; the winch takes how hard it was worked, and a
    * parted cable is most of a winch service on its own. Both are fractions of a whole condition,
    * so the numbers below are "how many jobs like this before it needs attention". */
@@ -257,6 +266,12 @@ export function settleJob(company, recap, wear) {
   rep -= (s.partsLost || 0) * C.repPerPartLost;
   rep -= (s.droppedInTransit || 0) * C.repPerDrop;
   rep -= (s.cableSnaps || 0) * C.repPerSnap;
+  /* And what the OWNER made of it (Milestone 7), which is a different fact about the same
+   * afternoon: the deductions above are about the car, this is about the person who watched. It
+   * can be positive — a quick clean job in front of its owner is worth something on its own, or
+   * the customer would only ever be a penalty and the player would learn to ignore them. */
+  const customerRep = s.customer ? s.customer.rep : 0;
+  rep += customerRep;
   company.reputation = clamp01to100(rep);
 
   // Gear that was destroyed is gone and has to be bought again. Gear merely left lying at the site
@@ -283,6 +298,12 @@ export function settleJob(company, recap, wear) {
     winchWear: Math.round(winchWear * 100) / 100,
     reputation: Math.round(company.reputation),
     repairDue: repairQuote(truck).total,
+    /* What the job took out of the day, so the results card can say so. */
+    minutesTaken: spent.minutes,
+    /* The owner's verdict, and what it was worth. The results card says the sentence. */
+    customer: s.customer || null,
+    customerRep,
+    clock: describeClock(company),
   };
 }
 
@@ -296,6 +317,7 @@ export function describeCompany(c) {
     jobsDelivered: c.jobsDelivered,
     day: c.day,
     slotsLeft: c.slotsLeft,
+    clock: describeClock(c),
     truck: t.name,
     truckDefId: t.defId,
     fleet: c.fleet.map((v) => v.defId),

@@ -505,6 +505,19 @@ export class Hud {
       if (s2.winchWear > 0.005) bits.push(`<div class="pay-row minus"><span>wear on the winch</span><b>-${Math.round(s2.winchWear * 100)}%</b></div>`);
       if (s2.repairDue > 0) bits.push(`<div class="pay-row"><span>repairs waiting</span><b>&pound;${s2.repairDue}</b></div>`);
       bits.push(`<div class="pay-row"><span>reputation</span><b>${s2.reputation}</b></div>`);
+      /* What it took out of the day (Milestone 7). A fact about the afternoon, stated the same way
+       * the deductions are: this is what it cost, and the next job is in whatever light is left. */
+      if (s2.minutesTaken > 0 && s2.clock) {
+        const h = Math.floor(s2.minutesTaken / 60), m = Math.round(s2.minutesTaken % 60);
+        bits.push(`<div class="pay-row"><span>on site</span><b>${h > 0 ? `${h}h ` : ''}${m}m</b></div>`);
+        bits.push(`<div class="pay-row"><span>it is ${s2.clock.label}</span><b>${s2.clock.leftLabel}</b></div>`);
+      }
+      /* And the owner, in one sentence and one number. The sentence is what they saw; the number
+       * is what it did to the outfit's name. Milestone 7 — see world/customer.js. */
+      if (s2.customer) {
+        bits.push(`<div class="pay-row ${s2.customerRep < 0 ? 'minus' : ''}"><span>${
+          s2.customer.line}</span><b>${s2.customerRep >= 0 ? '+' : ''}${s2.customerRep}</b></div>`);
+      }
       bits.push('</div>');
     }
     this.el.doneBody.innerHTML = bits.join('');

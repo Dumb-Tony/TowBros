@@ -28,6 +28,7 @@ import {
   loadCompany, saveCompany, settleJob, conditionEffects, activeTruck, loadOutFor,
 } from './meta/company.js';
 import { acceptOffer, useSlot } from './meta/dispatch.js';
+import { daylightAt, describeClock } from './meta/clock.js';
 import {
   BroadcastChannelPeer, ManualWebRtcPeer, broadcastAvailable, webRtcAvailable,
 } from './net/transports.js';
@@ -109,6 +110,10 @@ function jobPacketFor(offer) {
      * says what is going to it. Taking the little truck to a seven-tonner is a decision the player
      * is allowed to make, and the bank will explain it to them. */
     truckId: activeTruck(company).defId,
+    /* And WHAT TIME IT IS (Milestone 7). A job taken at four in the afternoon is a job that gets
+     * dark while you are still rigging — the light level is already wired to the traffic's sight
+     * distance and to the renderer, so this is the whole of it. */
+    daylight: daylightAt(company),
   };
 }
 
@@ -155,6 +160,8 @@ game.bus.on(EVENTS.JOB_DELIVERED, () => {
     // The hardest-worked drum decides the service interval — Milestone 6 put two on the heavy.
     peakTensionN: Math.max(...drumsOf(st).map((w) => w.peakTensionN || 0), 0),
     cableSnaps: game.bus.count(EVENTS.CABLE_SNAPPED),
+    /* How long the job took, so the day can be spent on it (Milestone 7, meta/clock.js). */
+    simTimeMs: st.simTimeMs,
     // Gear destroyed rather than merely left lying about: what was strapped to a load that came off.
     gearLost: [],
   });

@@ -443,9 +443,14 @@ export class Renderer {
    */
   _drawWeather(ctx, cam, st) {
     const w = st.terrain.weather;
-    if (!w || w.id === 'dry') return;
+    if (!w) return;
+    /* The forecast TIMES the time of day (Milestone 7). Same number the traffic reads for its
+     * sight distance, so what you can see and what a driver can see still agree — and a dry job
+     * that has run into the evening is now dark, which a check on `w.id === 'dry'` alone missed. */
+    const light = typeof st.terrain.light === 'number' ? st.terrain.light : w.light;
+    if (w.id === 'dry' && light >= 0.999) return;
     const W = cam.cssW, H = cam.cssH;
-    const dark = 1 - w.light;
+    const dark = 1 - light;
 
     if (w.id === 'fog') {
       ctx.fillStyle = `rgba(196,200,206,${(0.16 + dark * 0.22).toFixed(3)})`;
@@ -458,8 +463,8 @@ export class Renderer {
      * different job rather than a darker one — and it is the same number the traffic uses to decide
      * how late it commits, so what you can see and what a driver can see agree. */
     if (dark > 0.1) {
-      const inner = Math.min(W, H) * (0.10 + w.light * 0.28);
-      const outer = Math.max(W, H) * (0.30 + w.light * 0.45);
+      const inner = Math.min(W, H) * (0.10 + light * 0.28);
+      const outer = Math.max(W, H) * (0.30 + light * 0.45);
       const g = ctx.createRadialGradient(W / 2, H / 2, inner, W / 2, H / 2, outer);
       g.addColorStop(0, 'rgba(0,0,0,0)');
       g.addColorStop(1, `rgba(${w.id === 'fog' ? '208,212,218' : '4,6,16'},${(dark * 0.92).toFixed(3)})`);
@@ -1180,7 +1185,34 @@ export class Renderer {
    * `gear.carriedBy`, `vehicle.occupiedBy`. The renderer keeps no idea of its own about who has
    * what, which is the whole point of doing authority this way.
    */
+  /**
+   * The owner, standing on the verge (Milestone 7).
+   *
+   * Deliberately drawn as a smaller, duller figure than a crew member, with no hard hat and no
+   * facing wedge: they are not somebody you can be, and the silhouette has to say so at a glance or
+   * a player will walk over and press E at them. Their coat carries their mood, because "the person
+   * watching you is unhappy" is a fact the player should be able to read off the scene rather than
+   * out of a panel — GDD pillar 5, readable force, applied to a person.
+   */
+  _drawCustomer(ctx, st) {
+    const c = st.customer;
+    if (!c || !c.present) return;
+    const r = 0.30;
+    const mood = c.mood;
+    // Grey-green when they are fine, through to a washed-out red when they are not.
+    const coat = mood > 0.7 ? '#6d7a63' : mood > 0.45 ? '#7a6f5a' : '#8a5c53';
+
+    ctx.fillStyle = 'rgba(4,6,10,0.36)';
+    ctx.beginPath(); ctx.arc(c.x - LIGHT.x * 0.14, c.y - LIGHT.y * 0.14, r * 1.02, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(c.x, c.y, r * 1.12, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10,12,18,0.7)'; ctx.fill();
+    fillLit(ctx, c.x, c.y, r, coat, 0, 0.7, 1.16);
+    // A head, not a helmet. The difference between a member of the public and a member of the crew.
+    fillLit(ctx, c.x, c.y, r * 0.44, '#c8ab8c', 0, 0.8, 1.1);
+  }
+
   _drawCrew(ctx, st) {
+    this._drawCustomer(ctx, st);
     for (const p of st.crew) {
       if (seatOf(st, p)) continue;    // in a cab; the vehicle is the avatar now
       const me = p === st.player;

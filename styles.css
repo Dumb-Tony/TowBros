@@ -294,3 +294,4 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .fleet-row button{grid-column:2/3;grid-row:2/3;justify-self:end}
 .fleet-row b.going{grid-column:2/3;grid-row:2/3;justify-self:end;font-size:11px;color:#8fd6a2;
   text-transform:uppercase;letter-spacing:.08em}
+.gar-stat b.late{color:#d8b13c}

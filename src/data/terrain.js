@@ -390,6 +390,10 @@ export function createTerrain(rng, site = SITES[0]) {
     gearPile: { x: ANCHOR_PLAN.gearPile.x + rng.spread(1.0), y: ANCHOR_PLAN.gearPile.y },
   };
   anchors.player.x = anchors.truck.x - 2.4;
+  /* Where the owner stands (Milestone 7): on the shoulder above their car, out of the way of the
+   * pull line and well clear of the recovery. They do not move, so this is the whole of it — see
+   * world/customer.js for why they are scenery with a memory rather than a crew member. */
+  anchors.customer = { x: sedanX + 3.4, y: BANDS.shoulderS - 0.8 };
 
   /** Depth of the mud bowl at (x,y): 0 outside, `depth` at the centre. */
   function mudDepthAt(x, y) {

@@ -31,6 +31,9 @@ import { boxInertia } from '../data/vehicles.js';
 import { obbOverlap } from '../sim/collision.js';
 import { drumsOf } from '../recovery/cable.js';
 
+/** How much light there is: the forecast times the time of day. ONE number — see world/scene.js. */
+const lightOf = (t) => (typeof t.light === 'number' ? t.light : (t.weather ? t.weather.light : 1));
+
 /** Which way a car is going. Eastbound uses the south lane, westbound the north, as they should. */
 export const EAST = 1;
 export const WEST = -1;
@@ -174,7 +177,7 @@ export function stepTraffic(st, dtSec, rng, bus, simTimeMs) {
     const seen = lookAhead(st, car);
     /* Sight is what the weather takes away, and it is the only place the light level touches a
      * decision. In fog a driver commits later, which is exactly what fog does. */
-    const sight = T.sightM * (0.45 + 0.55 * (st.terrain.weather ? st.terrain.weather.light : 1));
+    const sight = T.sightM * (0.45 + 0.55 * lightOf(st.terrain));
     const blocked = seen.distM < sight;
 
     // A work zone is a request, not a wall: a driver slows through it whether or not they can see

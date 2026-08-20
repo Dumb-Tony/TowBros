@@ -32,6 +32,7 @@ import { stepAttachment, applyImpactDamage, stepDebris } from './recovery/attach
 import { stepGearEffects } from './recovery/gear.js';
 import { stepAnchors } from './recovery/anchors.js';
 import { stepRig } from './recovery/rig.js';
+import { stepCustomer, noteCableSnap } from './world/customer.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
 
 export const MODES = Object.freeze({
@@ -71,6 +72,10 @@ export class Game {
     this.bus.on(EVENTS.LIFT_RELEASED, (e) => {
       if (e.dropped && this.state && this.state.job) this.state.job.droppedInTransit++;
     });
+    /* A parted cable is loud, and the owner standing on the verge will remember it (Milestone 7).
+     * Counted from the event for the same reason the drop is: it must survive the log rolling
+     * over, and world/customer.js recomputes everything else from the damage state itself. */
+    this.bus.on(EVENTS.CABLE_SNAPPED, () => { if (this.state) noteCableSnap(this.state); });
     /** Optional CommandLink (src/net/commands.js). When set, it supplies one input per seat every
      *  step and whatever the caller passed to frame()/step() is ignored. Null means "the keyboard
      *  is the input", which is what the M1 suite drives. */
@@ -278,6 +283,9 @@ export class Game {
     stepGoal(st, this.bus, simTimeMs);
     stepJob(st, this.bus, simTimeMs);
     stepEscalation(st, this.bus, simTimeMs);
+    /* 7b. And the person whose car it is (Milestone 7). Last, with the other reporters, because
+     *     they only ever READ what the step already did — they own nothing and change nothing. */
+    stepCustomer(st, dt, this.bus, simTimeMs);
   }
 
   /** Fast-forward without real frames. Also how the test suite runs a whole recovery. */

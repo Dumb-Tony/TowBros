@@ -39,6 +39,9 @@ export const EVENTS = Object.freeze({
   /* The heavy wrecker. GDD §7 Milestone 6. */
   OUTRIGGERS:         'OUTRIGGERS',      // { vehicle, down } legs going down, or coming up
 
+  /* The people at the scene. GDD §7 Milestone 7. */
+  CUSTOMER_MOOD:      'CUSTOMER_MOOD',   // { mood, from, moodFrac } the owner's opinion moved
+
   // winch
   WINCH_IN:           'WINCH_IN',
   WINCH_OUT:          'WINCH_OUT',
@@ -90,7 +93,7 @@ const STORY = new Set([
   'WINCH_STALLED', 'CABLE_SNAPPED', 'ZONE_FAILED', 'COMPONENT_DETACHED', 'COMPONENT_DAMAGED',
   'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
   'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
-  'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS',
+  'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS', 'CUSTOMER_MOOD',
 ]);
 
 export class EventBus {

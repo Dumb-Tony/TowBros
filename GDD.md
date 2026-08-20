@@ -2,7 +2,7 @@
 ## Game Design Document & Development Plan
 
 **Document status:** Living design contract  
-**Current target:** Milestone 1 — One Vehicle, One Ditch, One Recovery  
+**Current target:** Milestone 7 — The scene, and everybody at it  
 **Primary implementation:** Standalone HTML5 Canvas browser game  
 
 > The game does not care how you got the car out of the ditch. It only cares that the car is no longer in the ditch.
@@ -165,6 +165,37 @@ Connect job scenes with a regional map or compact open county, dynamic dispatch,
 ### Milestone 6 — Heavy and procedural recovery
 
 Add heavy wreckers/rotators, multiple winches and outriggers, large vehicles, richer anchors, water recovery, and procedural situation generation from vehicle + incident + terrain + damage + conditions.
+
+### Milestone 7 — The scene, and everybody at it
+
+*Authored after Milestone 6 shipped. Milestones 1–6 were written before a line of code existed;
+this one is written knowing exactly what is on the ground, and it is drawn from §8's deferred list
+rather than invented — police systems, a wider content library, and the parts of "open world" that a
+compact county can honestly carry.*
+
+Six milestones built the machinery of a recovery and the company around it. What the scene still
+has is nobody in it. Traffic goes past, but nothing at the site cares how long you take, whether the
+road is safe, or what the owner of the car thinks of the state it is in.
+
+Add:
+
+- **Scene safety and the authorities.** A formal road closure the crew sets up and takes down, built
+  from the cones that already exist. A police unit that turns out to a carriageway left unprotected,
+  and a citation that reaches the payout. The work zone stops being "traffic slows down" and becomes
+  the difference between a clean job and one that costs you.
+- **The customer, at the scene.** The person whose car it is, standing on the verge, watching. They
+  have an opinion about the state it comes back in, and that opinion reaches reputation directly
+  rather than through the damage table.
+- **A wider casualty library.** A vehicle that arrived on its roof, and a motorcycle — two situations
+  the existing rig cannot simply out-pull, because one has to be righted and the other weighs less
+  than the cable's breaking strain.
+- **A job clock.** The county's afternoon runs while you work. A job that takes all day costs the
+  second slot, so "do it properly" and "do it now" are finally in tension with each other.
+
+**Completion criteria.** Milestone 7 succeeds only if a player who leaves the road unprotected can
+name what it cost them; if the customer's reaction is something they could have changed; if a car on
+its roof requires a different plan rather than a longer pull; and if at least one job in a day is
+lost to time rather than to a mistake.
 
 ## 8. Explicitly deferred
 

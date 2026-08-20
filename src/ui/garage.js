@@ -19,6 +19,7 @@ import {
 } from '../meta/company.js';
 import { TRUCK_DEFS, truckDefById } from '../data/vehicles.js';
 import { offersFor, acceptOffer } from '../meta/dispatch.js';
+import { describeClock } from '../meta/clock.js';
 import { SITES } from '../data/terrain.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
@@ -173,6 +174,8 @@ export class Garage {
         <div class="gar-stat"><span>reputation</span><b>${Math.round(c.reputation)}</b></div>
         <div class="gar-stat"><span>jobs</span><b>${c.jobsDelivered}/${c.jobsDone}</b></div>
         <div class="gar-stat"><span>day ${c.day}</span><b>${c.slotsLeft} left</b></div>
+        <div class="gar-stat"><span>${esc(describeClock(c).label)}</span>
+          <b class="${describeClock(c).minutesLeft <= 90 ? 'late' : ''}">${esc(describeClock(c).leftLabel)}</b></div>
       </div>`);
 
     /* The truck. Its condition is printed as what it DOES, not as a health bar with a number:

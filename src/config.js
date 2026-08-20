@@ -164,6 +164,24 @@ export const CONFIG = {
 
     bodyRepairFull: 1200,       // to put a written-off body back to new
     winchRepairFull: 900,
+    /* ── the working day (Milestone 7) ──────────────────────────────────────
+     * See src/meta/clock.js for why the clock advances on JOBS rather than on time, and why it
+     * never ends one. `simMsPerHour` is the exchange rate and the only number here worth arguing
+     * about: measured against the suites, a clean far-lane recovery is 39 s of simulation and a box
+     * truck in two parks is 67, so at 12 000 ms to the hour a straightforward job is a bit over
+     * three hours and a bad one is most of a day. Two jobs fill it with nothing to spare. */
+    dayStartHour: 8,
+    dayEndHour: 18,
+    /* 9 500 rather than 12 000, and the difference is the whole feature. At 12 000 a 39 s recovery
+     * was 3.3 hours, so two of them finished at 14:40 and the light never went — the clock existed
+     * and cost nothing. At 9 500 the same job is 4.1 hours, two of them run to about 16:15, and the
+     * tail of the second one is in falling light. A slow morning now genuinely costs the afternoon,
+     * which is the only reason to have a clock at all. */
+    simMsPerHour: 9500,
+    duskHours: 3.0,         // the light starts going this long before the end of the day
+    afterDarkHours: 1.0,    // and keeps going for this long past it, down to the floor
+    nightLightFloor: 0.34,  // a scene lit by the truck's own lamps. Dark, not invisible.
+
     /* The second truck (Milestone 6). Priced as a SEASON of work rather than a purchase: a clean
      * job pays about 1400, so this is roughly eighteen of them. It has to be far enough away that
      * the outfit is a small outfit for a long time, and close enough that it is obviously the
@@ -541,6 +559,28 @@ export const CONFIG = {
       holdN: 22000,         // on ground with an anchorHoldMul of 1 (wet grass)
       reachM: 1.6,          // how close the block has to be mounted to it
     },
+  },
+
+  /* ── the customer ───────────────────────────────────────────────────────────
+   * GDD §7 Milestone 7. The person whose car it is, standing on the verge.
+   *
+   * The weights are chosen against what the payout already charges for, not in isolation: the fee
+   * docks about a tenth of itself for a torn bumper, and that is the REPAIR. This is the owner
+   * watching it come off, which is a different fact about the same afternoon, so a part is worth
+   * far more here than a dent is and a dropped car is worth more than both.
+   *
+   * `perSecond` is set against the clock: a job that takes 60 s of simulation (about three hours of
+   * the working day) costs 0.18 of their patience, so time alone never makes anybody furious — it
+   * takes time AND a mistake, which is the combination worth being afraid of. */
+  customer: {
+    startMood: 0.90,
+    neutralMood: 0.55,      // above this they are pleased with you; below it they are not
+    repSwing: 9,            // full swing, in reputation points, from furious to grateful
+    perDent: 0.055,
+    perPart: 0.20,
+    perDrop: 0.30,
+    perSnap: 0.12,
+    perSecond: 0.003,
   },
 
   /* ── water ──────────────────────────────────────────────────────────────────

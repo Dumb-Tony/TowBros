@@ -23,6 +23,7 @@ import { SITES } from '../data/terrain.js';
 import { casualtyDefById } from '../data/vehicles.js';
 import { rollWeather } from '../world/weather.js';
 import { rollSituation, situationToOffer } from './situations.js';
+import { resetClock, minutesLeft } from './clock.js';
 
 /**
  * The job templates. Each is a shape, not a scenario — the terrain is the same site every time,
@@ -241,17 +242,25 @@ export function endDay(company) {
   company.day += 1;
   company.slotsLeft = SLOTS_PER_DAY;
   company.takenToday = [];
+  resetClock(company);              // eight in the morning again — Milestone 7, meta/clock.js
   // The board is keyed off the cursor, so moving it past the offers nobody took is what makes
   // tomorrow's work genuinely new rather than the same three jobs with one crossed out.
   company.dispatchCursor += 1;
   return company.rivalTook;
 }
 
-/** Take a job and spend a slot. Ends the day when the last one goes. */
+/**
+ * Take a job and spend a slot. Ends the day when the last one goes — or when the light does.
+ *
+ * The clock is the Milestone 7 half of this. A day ends on whichever runs out first: two jobs, or
+ * the working day the jobs consumed. It is checked HERE, when a job is taken, and never mid-job:
+ * GDD §4's "no instant fail" means the light going while you are still rigging is a thing that
+ * happens to you, not a thing that stops you.
+ */
 export function useSlot(company, offer) {
   if (!company.takenToday.includes(offer.id)) company.takenToday.push(offer.id);
   company.slotsLeft = Math.max(0, company.slotsLeft - 1);
-  if (company.slotsLeft === 0) return endDay(company);
+  if (company.slotsLeft === 0 || minutesLeft(company) <= 0) return endDay(company);
   return null;
 }
 
