@@ -36,6 +36,13 @@ are blocked on `file://`, and the page will tell you so if you try.
 One situation, and no authored solution to it. The objective is *get the sedan onto the road* —
 all four corners on pavement, settled. How is entirely yours.
 
+**Where you park matters, and it is a decision rather than a puzzle.** The wrecker has to sit
+far enough up the road that the car has somewhere to land — the winch pulls it to a point about
+2.5 m short of the drum, so the drum needs roughly 3 m of pavement south of it. The northern two
+thirds of the 9.4 m road all work. Park in the last third and the pull stalls with the car
+against your own truck: the winch holds at its limit, the HUD goes red, the line stays attached,
+and you drive forward or re-park. A bad park costs time, not the attempt.
+
 Four approaches are verified to work, and they are not variations on one:
 
 - **Straight pull from the pavement.** Park the wrecker along the road with its tail to the job,
@@ -98,14 +105,17 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1
 ```
 
-243 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
+249 assertions in headless Chrome. There is no Node.js on this machine, so the harness *is* a
 browser: it injects [`tools/m1-tests.js`](tools/m1-tests.js) into a copy of the page, serves it,
 and greps the dumped DOM.
 
 Sections A–G test the machinery numerically. Section H drives **whole recoveries** and checks the
 GDD's nine completion criteria one at a time — including that two runs of one seed are identical,
 that six attempts produce six different layouts, and that at least three meaningfully different
-approaches work. Section J presses keys, because a player cannot call `attachHook()`.
+approaches work. Section Hk sweeps a grid of parking positions across the road and asserts both
+halves of the claim above: the northern two thirds recover the car, and **no** park anywhere on
+the road costs you the cable. Section J presses keys, because a player cannot call
+`attachHook()` — and it is the section that found the worst bug in the project.
 
 Every live test drives `game.skipMs()` rather than waiting for frames. Headless Chrome in
 `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total — measured, and

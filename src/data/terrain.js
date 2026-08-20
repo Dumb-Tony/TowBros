@@ -81,8 +81,8 @@ export const MUD_FADE_M = 0.11;
 export const SURFACES = Object.freeze({
   pavement:  { id: 'pavement',  label: 'pavement',     mu: 0.95, crr: 0.014, soft: 0.00, tint: '#3b3d45', tint2: '#454750' },
   shoulder:  { id: 'shoulder',  label: 'gravel',       mu: 0.62, crr: 0.055, soft: 0.35, tint: '#6b6152', tint2: '#7a705e' },
-  wetGrass:  { id: 'wetGrass',  label: 'wet grass',    mu: 0.34, crr: 0.090, soft: 0.70, tint: '#4a5f38', tint2: '#57703f' },
-  mud:       { id: 'mud',       label: 'mud',          mu: 0.22, crr: 0.300, soft: 1.00, tint: '#4a3b2c', tint2: '#584634' },
+  wetGrass:  { id: 'wetGrass',  label: 'wet grass',    mu: 0.34, crr: 0.090, soft: 0.70, tint: '#52683c', tint2: '#617a45' },
+  mud:       { id: 'mud',       label: 'mud',          mu: 0.22, crr: 0.300, soft: 1.00, tint: '#41352a', tint2: '#4d3f30' },
 });
 
 /* Trees. Solid, and the only anchors a snatch block can be mounted to in Milestone 1.
@@ -180,7 +180,10 @@ export function createTerrain(rng) {
     y: 29.8 + rng.spread(1.6),
     rx: 6.6 + rng.range(0, 2.2),
     ry: 3.3 + rng.range(0, 1.1),
-    depth: 0.42 + rng.range(0, 0.22),
+    // Deep enough for its own bowl to SHADE. At 0.42 m over a 7 m radius the gradient is 0.12
+    // and the hillshade could not see it, so the mud painted as a flat brown stain rather than a
+    // hollow. It is also a better trap at this depth, which is what it is for.
+    depth: 0.80 + rng.range(0, 0.30),
   };
 
   const trees = TREE_PLAN.map((t) => ({

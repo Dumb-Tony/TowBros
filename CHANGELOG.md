@@ -1,5 +1,55 @@
 # Changelog
 
+## Parking, and a graphics pass — 2026-08-19
+
+### Where you park is a decision, not a gate
+
+Measured on a 15-park grid instead of argued about. Before: one lane of three worked, and every
+other park ran the line to 42 kN and parted it. After: the northern two thirds of the road all
+recover the car, and **no park anywhere on the road costs you the cable**. A bad park stalls with
+the line attached and the HUD red, and you drive forward or re-park.
+
+The first diagnosis was wrong and the sweep said so. Widening the road (8.0 → 9.4 m, which is a
+more honest rural two-lane anyway) helped but did not fix it, because the binding constraint was
+never the road's width — it was that a winch will happily grind a car into an immovable object
+until its own cable fails. Four model gaps, all found by instrumenting rather than guessing:
+
+- **Winch overload relief.** A stalled drum stopped pulling but the geometry kept moving, walking
+  tension from the 34 kN stall straight through the 42 kN break. The drum now gives line back to
+  hold at the motor's limit, capped — so slow jams stall and genuine snatch loads still break.
+- **Contact positional correction** was 80% with no slop, which teleports a body up to 2 cm in one
+  step. A 520 kN/m cable reads a teleport as 10 kN of instant stretch, which outran any relief.
+  Now 1 cm of slop resolved at 25%.
+- **Cable damping** is clamped to 60% of the spring term, so a line parts because it is stretched
+  too far rather than because of a velocity spike.
+- **The guardrail** needed two separate failure tests. Per-step impulse only made a "weak
+  guardrail" a 34 kN wall against a slow push; accumulating for both let a slow push snap it
+  outright and the car ploughed through. A shunt breaks it, a lean folds it flat.
+- **Yaw resistance is static-only** now, fading out above 0.4 m/s. Applied while moving it
+  double-counts the per-wheel lateral forces and stops a dragged car swinging its nose toward the
+  pull — worth 3x the line tension, and the reason a southern park looked impossible.
+
+Section Hk keeps the sweep as an assertion so a retune cannot quietly put the gate back.
+
+### Graphics
+
+One light direction (`LIGHT`, north-west) now drives the terrain hillshade, vehicle bodies, tree
+canopies, rail posts and the cable highlight, so the scene agrees with itself.
+
+- Terrain baked at 20 px/m with two octaves of hash texture, asphalt grain on the pavement, and a
+  specular sheen on wet mud. The mud bowl is 0.8 m deep so its own gradient can shade it — at
+  0.42 m the hillshade could not see it and it painted as a flat brown stain.
+- Contour lines as a light/heavy index pair. This took three attempts to balance: at 0.42 the set
+  vanished and a 28° bank photographed as flat; at 0.68 for every line the same bank photographed
+  as corduroy.
+- Vehicles are lit with a gradient rotated into body space, plus wheel arches, treaded tires,
+  glass with a specular streak, tail and head lights, and a two-beacon light bar on the wrecker.
+- The guardrail is a W-beam on posts with cast shadows, and its damage state is visible: bent
+  sections sag and darken, folded ones lie down, broken ones twist out of line.
+- Trees are eleven small canopy lobes shaded by which way they face, not one green disc.
+- A screen-space vignette, and a dark ring on the player so a 0.64 m figure is findable on a dark
+  green hillside.
+
 ## Milestone 1 — One Vehicle, One Ditch, One Recovery — 2026-08-19
 
 The GDD's first milestone, playable. 243 assertions passing.

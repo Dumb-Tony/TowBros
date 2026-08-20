@@ -67,7 +67,10 @@ export const CONFIG = {
     followLerp: 6,
     fitPaddingM: 2,
     maxPixelRatio: 2,
-    contourM: 0.5,          // terrain contour interval. THE slope-legibility device.
+    // Terrain contour interval. THE slope-legibility device — but at 0.5 m on a 28-degree bank
+    // the lines land every 0.9 m and the hillside reads as corduroy rather than as terrain. At
+    // 0.75 m, with every second line drawn heavy, it reads as a map.
+    contourM: 0.75,
     trackFadePerSec: 0.05,  // tire tracks on soft ground fade this fast
     maxParticles: 520,
   },

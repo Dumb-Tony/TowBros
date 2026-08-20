@@ -27,9 +27,15 @@ import { clamp, clamp01, lerp, unit, norm } from '../core/vec.js';
 import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 
-/** Resolution of the painted terrain, pixels per metre. The height field is smooth, so this
- *  is a sharpness/build-time trade: 16 px/m paints a 92x48 m site in ~150 ms. */
-const TERRAIN_PPM = 16;
+/** Resolution of the painted terrain, pixels per metre. A sharpness/build-time trade, paid once
+ *  per attempt: 20 px/m paints the 92x48 m site in ~250 ms and holds up at the default zoom,
+ *  which is about 33 screen px/m. Below 16 the contour lines visibly soften under upscaling. */
+const TERRAIN_PPM = 20;
+
+/** Direction the light comes FROM: north-west, low. Everything that shades — the terrain
+ *  hillshade, vehicle bodies, tree canopies, rail posts — reads this one vector, so the whole
+ *  scene agrees about where the sun is. */
+const LIGHT = { x: -0.62, y: -0.78 };
 /** Tire tracks accumulate on their own layer at lower resolution — they are smudges. */
 const TRACK_PPM = 9;
 
@@ -110,7 +116,7 @@ export class Renderer {
     // Pass 2: colour. Light from the north-west, which is where a low sun would be for a road
     // running east-west and is also the direction that makes the embankment read as falling
     // away rather than rising.
-    const Lx = -0.62, Ly = -0.78;
+    const Lx = LIGHT.x, Ly = LIGHT.y;
     const step = CONFIG.render.contourM;
     const perPx = 1 / TERRAIN_PPM;
 
@@ -127,11 +133,21 @@ export class Renderer {
         const gy = (hf[jp + i] - hf[jm + i]) / (2 * perPx);
         const gmag = Math.hypot(gx, gy);
 
-        // Two-tone dither by a cheap integer hash: texture without a noise function and
-        // without Math.random.
+        // TEXTURE, from two octaves of a cheap integer hash — no noise function, no Math.random.
+        //   fine  per-pixel dither, so nothing is a flat colour
+        //   clump ~0.4 m blobs, which is what makes grass read as grass rather than as felt
+        // One octave alone looked like paper; the second is most of the improvement.
         let s = (i * 73856093) ^ (j * 19349663);
         s = (s ^ (s >>> 13)) & 0xffff;
-        const mix = (s / 65535) * 0.55;
+        const fine = s / 65535;
+        const ci = (i / 8) | 0, cj = (j / 8) | 0;
+        let c2 = (ci * 374761393) ^ (cj * 668265263);
+        c2 = (c2 ^ (c2 >>> 13)) * 1274126177;
+        c2 = (c2 ^ (c2 >>> 16)) & 0xffff;
+        const clump = c2 / 65535;
+        // Clump amplitude stays LOW. At 0.44 the 0.4 m blocks fought the contour lines and the
+        // hillside turned into plaid; the clumping only has to break up flatness, not compete.
+        const mix = fine * 0.40 + clump * 0.20;
 
         // The band's own colour, then the mud faded IN over the few centimetres above the depth
         // at which the ground starts behaving like mud. Stamping the ellipse hard (which is what
@@ -153,10 +169,24 @@ export class Renderer {
 
         // Hillshade. Slopes facing the light brighten; slopes facing away darken. This is doing
         // most of the work of making a hill look like a hill, so it is worth being bold with.
-        const shade = 1 + clamp((-gx * Lx - gy * Ly) / Math.sqrt(1 + gmag * gmag), -0.85, 0.85) * 0.62;
+        const lambert = clamp((-gx * Lx - gy * Ly) / Math.sqrt(1 + gmag * gmag), -0.85, 0.85);
+        const shade = 1 + lambert * 0.62;
         // Depth tint: the bottom of the ditch sits in its own shadow, which reads as "down".
         const depth = 1 - clamp01(-h / 6.2) * 0.22;
         r *= shade * depth; g *= shade * depth; b *= shade * depth;
+
+        // WET GROUND IS SHINY, and that is the only cue that says "this is water and mud" rather
+        // than "this is brown grass". A specular lobe on the faces tilted toward the light, scaled
+        // by how deep the mud is, so the middle of the bowl glares and the rim does not.
+        if (md > MUD_EDGE_M) {
+          const wet = clamp01((md - MUD_EDGE_M) / 0.30) * clamp01(lambert + 0.35) * 62;
+          r += wet * 0.9; g += wet * 0.95; b += wet;
+        }
+        // Asphalt is not smooth either: coarse aggregate speckle, only on the pavement.
+        if (band.id === 'pavement') {
+          const grit = (fine - 0.5) * 22;
+          r += grit; g += grit; b += grit + 2;
+        }
 
         // Contour lines, at constant screen width regardless of steepness: a line appears
         // where the height passes a multiple of `step`, and "passes" is judged against how
@@ -166,14 +196,15 @@ export class Renderer {
           const d = Math.abs(bandIdx - Math.round(bandIdx)) * step;  // metres to nearest contour
           const wide = gmag * perPx * 0.85;
           if (d < wide) {
-            // Bold on purpose. These lines are the ONLY thing telling a player how steep the
-            // bank is, and at 0.42 strength they were a texture rather than information — the
-            // first screenshot of the finished scene read as flat ground.
-            const strength = (1 - d / wide) * 0.68;
-            // Every metre is a heavier line, the way a real map does it.
-            const major = Math.abs(h / 1.0 - Math.round(h / 1.0)) < 0.06;
-            const kk = strength * (major ? 1.7 : 1);
-            r *= 1 - kk * 0.78; g *= 1 - kk * 0.72; b *= 1 - kk * 0.56;
+            // A light index line and a heavy one every second interval, the way a real map does
+            // it. Getting this balance wrong is very visible: at 0.42 the whole set vanished into
+            // texture and a 28-degree bank photographed as flat, and at 0.68 for EVERY line the
+            // same bank photographed as corduroy. Faint minors carry the gradient; the heavy
+            // majors are what the eye actually counts.
+            const idx = Math.round(h / step);
+            const major = Math.abs(idx) % 2 === 0;
+            const strength = (1 - d / wide) * (major ? 0.70 : 0.34);
+            r *= 1 - strength * 0.78; g *= 1 - strength * 0.72; b *= 1 - strength * 0.56;
           }
         }
 
@@ -291,6 +322,23 @@ export class Renderer {
     if (this.showForces) this._drawForces(ctx, st);
 
     cam.resetTransform(ctx);
+    this._drawVignette(ctx, cam);
+  }
+
+  /** A soft corner darkening in SCREEN space. It is doing one job: pulling the eye to the middle
+   *  of the frame, which is where the camera has put the thing that matters. Cached as a gradient
+   *  keyed on viewport size, because building a radial gradient every frame is pure waste. */
+  _drawVignette(ctx, cam) {
+    const w = cam.cssW, h = cam.cssH;
+    if (!this._vig || this._vigW !== w || this._vigH !== h) {
+      const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.34,
+                                         w / 2, h / 2, Math.max(w, h) * 0.72);
+      g.addColorStop(0, 'rgba(6,6,12,0)');
+      g.addColorStop(1, 'rgba(6,6,12,0.42)');
+      this._vig = g; this._vigW = w; this._vigH = h;
+    }
+    ctx.fillStyle = this._vig;
+    ctx.fillRect(0, 0, w, h);
   }
 
   /* ── layers ────────────────────────────────────────────────────────────── */
@@ -303,24 +351,50 @@ export class Renderer {
     for (let y = 0; y <= w.heightM; y += 5) line(ctx, 0, y, w.widthM, y);
   }
 
+  /** The guardrail as a W-beam: two parallel rails on posts, drawn with a cast shadow. A single
+   *  line read as a scratch on the ground; the doubled beam and the shadow are what make it a
+   *  thing standing up in the world, which matters because the player has to decide whether to
+   *  pull through it. Its state is visible too: a bent section sags and darkens, a flattened one
+   *  lies down (and stops colliding), a broken one is twisted out of line. */
   _drawRail(ctx, terrain) {
+    const off = 0.075;    // half the beam's depth, so it reads as two rails not one
     for (const s of terrain.railSegments) {
       if (s.broken) continue;
-      const bendAlpha = 1 - clamp01(s.bend) * 0.4;
-      ctx.strokeStyle = COL.rail;
-      ctx.globalAlpha = bendAlpha;
-      ctx.lineWidth = 0.17 + s.bend * 0.05;
+      const n = unit(-(s.by - s.ay), s.bx - s.ax);
+      const sag = clamp01(s.bend);
+      // Shadow first, offset away from the light and shrinking as the rail folds down.
+      ctx.strokeStyle = 'rgba(4,6,10,0.34)';
+      ctx.lineWidth = 0.22;
+      line(ctx, s.ax - LIGHT.x * 0.3 * (1 - sag * 0.7), s.ay - LIGHT.y * 0.3 * (1 - sag * 0.7),
+                s.bx - LIGHT.x * 0.3 * (1 - sag * 0.7), s.by - LIGHT.y * 0.3 * (1 - sag * 0.7));
+      if (s.flat) {
+        // Folded flat: a crumpled ribbon on the ground, no longer standing.
+        ctx.strokeStyle = '#6f757d'; ctx.lineWidth = 0.3;
+        ctx.globalAlpha = 0.75;
+        line(ctx, s.ax, s.ay + 0.1, s.bx, s.by + 0.1);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      const dark = 1 - sag * 0.35;
+      ctx.lineWidth = 0.085;
+      ctx.strokeStyle = shadeHex(COL.rail, 1.12 * dark);      // lit edge, facing the light
+      line(ctx, s.ax + n.x * off, s.ay + n.y * off, s.bx + n.x * off, s.by + n.y * off);
+      ctx.strokeStyle = shadeHex(COL.rail, 0.74 * dark);      // shaded edge
+      line(ctx, s.ax - n.x * off, s.ay - n.y * off, s.bx - n.x * off, s.by - n.y * off);
+      ctx.strokeStyle = shadeHex(COL.rail, 0.95 * dark);      // the web between them
+      ctx.lineWidth = 0.05;
       line(ctx, s.ax, s.ay, s.bx, s.by);
-      ctx.globalAlpha = 1;
     }
-    ctx.fillStyle = COL.railPost;
     for (const p of terrain.railPosts) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 0.12, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = 'rgba(4,6,10,0.34)';
+      rect(ctx, p.x - 0.09 - LIGHT.x * 0.26, p.y - 0.09 - LIGHT.y * 0.26, 0.18, 0.18, true);
+      ctx.fillStyle = COL.railPost;
+      rect(ctx, p.x - 0.085, p.y - 0.085, 0.17, 0.17, true);
+      ctx.fillStyle = shadeHex(COL.railPost, 1.25);
+      rect(ctx, p.x - 0.085, p.y - 0.085, 0.17, 0.06, true);
     }
     // A broken section leaves the ends visible, twisted out of line.
-    ctx.strokeStyle = '#6d737a'; ctx.lineWidth = 0.14;
+    ctx.strokeStyle = '#6d737a'; ctx.lineWidth = 0.13;
     for (const s of terrain.railSegments) {
       if (!s.broken) continue;
       const mx = (s.ax + s.bx) / 2, my = (s.ay + s.by) / 2;
@@ -329,16 +403,47 @@ export class Renderer {
     }
   }
 
+  /** Trees as a cluster of canopy lobes rather than one disc. A single circle read as a green
+   *  coin; five overlapping lobes, shaded by which side faces the light, read as foliage — and
+   *  it costs five arcs. Lobe placement is hashed from the trunk position so a given tree looks
+   *  the same on every frame and every replay of its seed. */
   _drawTrees(ctx, terrain) {
     for (const t of terrain.trees) {
-      ctx.fillStyle = COL.shadow;
-      ctx.beginPath(); ctx.arc(t.x + 0.35, t.y + 0.45, t.canopy * 0.92, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = COL.canopy;
-      ctx.beginPath(); ctx.arc(t.x, t.y, t.canopy, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = COL.canopyRim; ctx.lineWidth = 0.12;
-      ctx.beginPath(); ctx.arc(t.x, t.y, t.canopy * 0.98, 0, Math.PI * 2); ctx.stroke();
+      const R = t.canopy;
+      // Cast shadow, thrown away from the light.
+      ctx.fillStyle = 'rgba(4,6,10,0.30)';
+      ctx.beginPath();
+      ctx.ellipse(t.x - LIGHT.x * R * 0.42, t.y - LIGHT.y * R * 0.42, R * 0.95, R * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Base mass, then lobes. Each lobe is tinted by how much it faces the light.
+      ctx.fillStyle = shadeHex('#3a5c2e', 0.92);
+      ctx.beginPath(); ctx.arc(t.x, t.y, R * 0.80, 0, Math.PI * 2); ctx.fill();
+
+      // Many small lobes, not a few big ones. Five lobes at 0.46 R read as a clover leaf — the
+      // silhouette has to stay round and the variation has to live at a smaller scale than the
+      // canopy itself, or the tree stops looking like a tree.
+      let h = ((t.x * 8191) | 0) ^ ((t.y * 131071) | 0);
+      for (let i = 0; i < 11; i++) {
+        h = (h ^ (h >>> 13)) * 1274126177;
+        const a = ((h >>> 8) & 0xffff) / 65535 * Math.PI * 2;
+        const d = 0.20 + (((h >>> 20) & 0xff) / 255) * 0.46;
+        const lx = Math.cos(a) * R * d, ly = Math.sin(a) * R * d;
+        const facing = -(lx * LIGHT.x + ly * LIGHT.y) / Math.max(0.001, Math.hypot(lx, ly));
+        ctx.fillStyle = shadeHex('#476d36', 0.90 + clamp01(facing * 0.5 + 0.5) * 0.26);
+        ctx.beginPath();
+        ctx.arc(t.x + lx, t.y + ly, R * (0.24 + (((h >>> 4) & 0x3f) / 63) * 0.13), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // A gap in the canopy, so the trunk reads as being under something.
+      ctx.fillStyle = 'rgba(22,32,18,0.22)';
+      ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 1.45, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = COL.trunk;
       ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = shadeHex(COL.trunk, 1.5);
+      ctx.beginPath();
+      ctx.arc(t.x + LIGHT.x * t.r * 0.35, t.y + LIGHT.y * t.r * 0.35, t.r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -427,7 +532,17 @@ export class Renderer {
     roundRect(ctx, -L, -W, L * 2, W * 2, 0.34, true);
     ctx.restore();
 
-    // Wheels first, so the body overlaps them.
+    // Wheel arches, then wheels, then the body over the top. The arch is a dark recess: without
+    // it the tires look stuck onto the outside of the car rather than sitting under it.
+    ctx.save();
+    ctx.translate(b.x, b.y); ctx.rotate(b.angle);
+    ctx.fillStyle = 'rgba(10,12,16,0.55)';
+    for (const wdef of veh.def.wheels) {
+      const r = wdef.radiusM;
+      roundRect(ctx, wdef.local.x - r * 1.15, wdef.local.y - r * 0.62, r * 2.3, r * 1.24, r * 0.4, true);
+    }
+    ctx.restore();
+
     for (let i = 0; i < veh.def.wheels.length; i++) {
       const wdef = veh.def.wheels[i];
       const ws = veh.wheelState[i];
@@ -436,16 +551,28 @@ export class Renderer {
       ctx.translate(p.x, p.y);
       ctx.rotate(b.angle + (wdef.steer ? veh.steerRad : 0));
       if (ws.attached) {
-        ctx.fillStyle = COL.tire;
         const r = wdef.radiusM;
-        roundRect(ctx, -r, -r * 0.42, r * 2, r * 0.84, r * 0.28, true);
+        roundRect(ctx, -r, -r * 0.42, r * 2, r * 0.84, r * 0.28, false);
+        fillLit(ctx, 0, 0, r, COL.tire, b.angle + (wdef.steer ? veh.steerRad : 0), 0.75, 1.9);
+        // Tread bars, so a rotating wheel is legible as a wheel and slip has something to smear.
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = r * 0.09;
+        for (let k = -2; k <= 2; k++) {
+          line(ctx, k * r * 0.34, -r * 0.4, k * r * 0.34, r * 0.4);
+        }
         if (ws.lifted) {
           ctx.strokeStyle = '#f0e2a6'; ctx.lineWidth = 0.05;
           roundRect(ctx, -r, -r * 0.42, r * 2, r * 0.84, r * 0.28, false);
+          ctx.stroke();
         }
       } else {
+        // A bare hub, digging in. Draw the scar it is ploughing, because that drag is a force the
+        // player is paying for and it should be visible on the vehicle.
+        ctx.fillStyle = '#3a2f26';
+        rect(ctx, -0.34, -0.1, 0.68, 0.2, true);
         ctx.fillStyle = COL.hub;
         ctx.beginPath(); ctx.arc(0, 0, 0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#5a6068';
+        ctx.beginPath(); ctx.arc(0, 0, 0.07, 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
     }
@@ -453,33 +580,75 @@ export class Renderer {
     ctx.save();
     ctx.translate(b.x, b.y);
     ctx.rotate(b.angle);
+    const A = b.angle;
 
     if (isTruck) {
-      ctx.fillStyle = COL.truckBed;
-      roundRect(ctx, -L, -W * 0.92, L * 1.05, W * 1.84, 0.16, true);
-      ctx.fillStyle = COL.truckBody;
-      roundRect(ctx, -L * 0.1, -W * 0.95, L * 1.1, W * 1.9, 0.3, true);
-      ctx.fillStyle = COL.truckCab;
-      roundRect(ctx, L * 0.16, -W * 0.86, L * 0.66, W * 1.72, 0.24, true);
+      // Bed, then body, then cab: each one lit, so the truck reads as three boxes of different
+      // heights rather than one flat silhouette.
+      roundRect(ctx, -L, -W * 0.92, L * 1.05, W * 1.84, 0.16, false);
+      fillLit(ctx, -L * 0.48, 0, W, COL.truckBed, A, 0.68, 1.2);
+      roundRect(ctx, -L * 0.1, -W * 0.95, L * 1.1, W * 1.9, 0.3, false);
+      fillLit(ctx, L * 0.45, 0, W, COL.truckBody, A);
+      roundRect(ctx, L * 0.16, -W * 0.86, L * 0.66, W * 1.72, 0.24, false);
+      fillLit(ctx, L * 0.49, 0, W * 0.9, COL.truckCab, A);
+
+      // Windscreen, with a specular streak across it.
       ctx.fillStyle = COL.glass;
       roundRect(ctx, L * 0.52, -W * 0.72, L * 0.24, W * 1.44, 0.1, true);
+      ctx.fillStyle = 'rgba(255,255,255,0.20)';
+      roundRect(ctx, L * 0.53, -W * 0.70, L * 0.09, W * 1.40, 0.08, true);
+
+      // Chequered stripe down the bed side — a recovery truck is a warning sign with wheels.
+      for (let i = 0; i < 7; i++) {
+        ctx.fillStyle = i % 2 ? '#f2c14e' : '#2a2a30';
+        rect(ctx, -L * 0.96 + i * (L * 0.85 / 7), W * 0.74, L * 0.85 / 7, W * 0.2, true);
+      }
+
       // The boom and the drum, at the end the cable actually leaves from.
-      ctx.fillStyle = '#6f7681';
-      rect(ctx, -L * 0.98, -0.34, L * 0.9, 0.68, true);
-      ctx.fillStyle = '#4a5058';
-      rect(ctx, -L * 0.99, -0.52, 0.3, 1.04, true);
-      // Amber beacon, blinking on real time.
-      const on = (this._t % 1.1) < 0.5;
-      ctx.fillStyle = on ? '#ffb43a' : '#6d5320';
-      ctx.beginPath(); ctx.arc(L * 0.12, 0, 0.17, 0, Math.PI * 2); ctx.fill();
+      rect(ctx, -L * 0.98, -0.34, L * 0.9, 0.68, false);
+      fillLit(ctx, -L * 0.5, 0, 0.5, '#7c838e', A, 0.6, 1.35);
+      rect(ctx, -L * 0.99, -0.52, 0.3, 1.04, false);
+      fillLit(ctx, -L * 0.93, 0, 0.6, '#565d66', A, 0.6, 1.4);
+
+      // Light bar: two amber beacons out of phase, so it flashes rather than blinks.
+      const p1 = (this._t % 1.1) < 0.5, p2 = ((this._t + 0.55) % 1.1) < 0.5;
+      ctx.fillStyle = '#2e3038';
+      rect(ctx, L * 0.06, -W * 0.62, 0.22, W * 1.24, true);
+      for (const [on, oy] of [[p1, -W * 0.42], [p2, W * 0.42]]) {
+        ctx.fillStyle = on ? '#ffc44d' : '#6d5320';
+        ctx.beginPath(); ctx.arc(L * 0.17, oy, 0.15, 0, Math.PI * 2); ctx.fill();
+        if (on) {
+          ctx.fillStyle = 'rgba(255,196,77,0.22)';
+          ctx.beginPath(); ctx.arc(L * 0.17, oy, 0.42, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      // Headlights and rear work lamps.
+      ctx.fillStyle = '#f6f0d8';
+      rect(ctx, L * 0.94, -W * 0.72, 0.16, 0.3, true);
+      rect(ctx, L * 0.94, W * 0.42, 0.16, 0.3, true);
+      ctx.fillStyle = '#c2483c';
+      rect(ctx, -L * 1.0, -W * 0.78, 0.12, 0.26, true);
+      rect(ctx, -L * 1.0, W * 0.52, 0.12, 0.26, true);
     } else {
-      ctx.fillStyle = veh.rolled ? '#4a5f75' : COL.sedanBody;
-      roundRect(ctx, -L, -W, L * 2, W * 2, 0.42, true);
-      ctx.fillStyle = COL.sedanRoof;
-      roundRect(ctx, -L * 0.42, -W * 0.82, L * 0.92, W * 1.64, 0.26, true);
+      const shell = veh.rolled ? '#4a5f75' : COL.sedanBody;
+      roundRect(ctx, -L, -W, L * 2, W * 2, 0.42, false);
+      fillLit(ctx, 0, 0, W * 1.1, shell, A);
+      // Greenhouse: roof, then glass front and back, then a streak.
+      roundRect(ctx, -L * 0.42, -W * 0.82, L * 0.92, W * 1.64, 0.26, false);
+      fillLit(ctx, 0, 0, W * 0.9, COL.sedanRoof, A, 0.7, 1.18);
       ctx.fillStyle = COL.glass;
       roundRect(ctx, L * 0.3, -W * 0.66, L * 0.2, W * 1.32, 0.1, true);
       roundRect(ctx, -L * 0.52, -W * 0.66, L * 0.16, W * 1.32, 0.1, true);
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      roundRect(ctx, L * 0.31, -W * 0.64, L * 0.07, W * 1.28, 0.08, true);
+      // Lights: red at the back, pale at the front. Small, but they tell you instantly which end
+      // of the car the hook is on.
+      ctx.fillStyle = '#d8483c';
+      rect(ctx, -L * 0.99, -W * 0.82, 0.14, 0.34, true);
+      rect(ctx, -L * 0.99, W * 0.48, 0.14, 0.34, true);
+      ctx.fillStyle = '#efe6c8';
+      rect(ctx, L * 0.93, -W * 0.8, 0.13, 0.32, true);
+      rect(ctx, L * 0.93, W * 0.48, 0.13, 0.32, true);
       if (veh.rolled) {
         ctx.strokeStyle = 'rgba(20,24,30,0.55)'; ctx.lineWidth = 0.08;
         for (let i = -2; i <= 2; i++) line(ctx, -L, i * 0.42, L, i * 0.42 + 0.5);
@@ -547,8 +716,15 @@ export class Renderer {
     else if (frac >= CONFIG.winch.tensionWarnFrac) stroke = COL.cableWarn;
 
     ctx.lineCap = 'round';
-    // A shadow line underneath sells the line as being above the ground.
-    for (const pass of [{ c: 'rgba(0,0,0,0.35)', o: 0.06, wd: 0.11 }, { c: stroke, o: 0, wd: 0.075 + frac * 0.055 }]) {
+    // Three passes: a shadow on the ground under it, the rope itself, then a thin highlight along
+    // the lit side. The highlight is what turns a drawn line into a round steel cable, and under
+    // load it is the brightest thing in the scene — which is where the player's eye should be.
+    const passes = [
+      { c: 'rgba(0,0,0,0.38)', o: 0.07, wd: 0.115 },
+      { c: stroke, o: 0, wd: 0.075 + frac * 0.055 },
+      { c: shadeHex(frac >= CONFIG.winch.tensionWarnFrac ? '#ffe9b0' : '#eef3f7', 1), o: -0.022, wd: 0.026 + frac * 0.016 },
+    ];
+    for (const pass of passes) {
       ctx.strokeStyle = pass.c;
       ctx.lineWidth = pass.wd;
       ctx.beginPath();
@@ -598,16 +774,22 @@ export class Renderer {
   _drawPlayer(ctx, st) {
     const p = st.player;
     if (p.inVehicleId) return;      // in the cab; the truck is the avatar now
-    ctx.fillStyle = COL.shadow;
-    ctx.beginPath(); ctx.arc(p.x + 0.08, p.y + 0.1, p.radiusM, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = COL.playerCoat;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = COL.player;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.radiusM * 0.55, 0, Math.PI * 2);
-    ctx.fill();
+
+    // The player is 0.64 m across on a dark green hillside — about twenty pixels. The dark ring
+    // is not decoration, it is the only reason they can be found at a glance.
+    ctx.fillStyle = 'rgba(4,6,10,0.4)';
+    ctx.beginPath(); ctx.arc(p.x - LIGHT.x * 0.16, p.y - LIGHT.y * 0.16, p.radiusM * 1.05, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM * 1.18, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10,12,18,0.85)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM, 0, Math.PI * 2);
+    fillLit(ctx, p.x, p.y, p.radiusM, COL.playerCoat, 0, 0.72, 1.24);
+    // Hard hat, lit from the same direction as everything else.
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.radiusM * 0.52, 0, Math.PI * 2);
+    fillLit(ctx, p.x, p.y, p.radiusM * 0.52, COL.player, 0, 0.8, 1.15);
     // Facing wedge: which way "place it ahead of me" means.
-    ctx.strokeStyle = 'rgba(242,234,217,0.8)'; ctx.lineWidth = 0.07;
+    ctx.strokeStyle = 'rgba(20,22,28,0.75)'; ctx.lineWidth = 0.1;
+    line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * 0.56, p.y + Math.sin(p.facing) * 0.56);
+    ctx.strokeStyle = 'rgba(242,234,217,0.95)'; ctx.lineWidth = 0.06;
     line(ctx, p.x, p.y, p.x + Math.cos(p.facing) * 0.55, p.y + Math.sin(p.facing) * 0.55);
 
     if (p.carryingGearId) {
@@ -746,4 +928,43 @@ function roundRect(ctx, x, y, w, h, r, fill) {
  *  kept to two parseInts and no allocation. */
 function hex(s, ch) {
   return parseInt(s.substr(1 + ch * 2, 2), 16);
+}
+
+/** Brighten or darken a #rrggbb by a factor. Memoised, because the draw path asks for the same
+ *  dozen shades every frame and string parsing per call is the kind of waste that adds up at
+ *  60 Hz with a few hundred strokes. */
+const _shadeCache = new Map();
+function shadeHex(s, k) {
+  const key = s + '|' + k.toFixed(3);
+  let out = _shadeCache.get(key);
+  if (out) return out;
+  const c = (ch) => Math.max(0, Math.min(255, Math.round(hex(s, ch) * k)));
+  out = `rgb(${c(0)},${c(1)},${c(2)})`;
+  _shadeCache.set(key, out);
+  return out;
+}
+
+/**
+ * Fill the current path with a body colour that is lit from LIGHT.
+ *
+ * A flat fill is what made the vehicles read as paper cut-outs: a car is a curved metal shell and
+ * the single strongest cue for that is a bright edge on the side facing the sun and a dark one
+ * opposite. The gradient runs along the light direction in WORLD space, so both vehicles agree
+ * with each other and with the terrain's hillshade no matter which way they are pointing.
+ */
+function fillLit(ctx, cx, cy, radius, base, bodyAngle = 0, lo = 0.62, hi = 1.28) {
+  // The gradient is created inside the body's rotated transform, so the world light has to be
+  // rotated into local space or every vehicle would be lit from its own nose.
+  const c = Math.cos(-bodyAngle), s = Math.sin(-bodyAngle);
+  const lx = LIGHT.x * c - LIGHT.y * s;
+  const ly = LIGHT.x * s + LIGHT.y * c;
+  const g = ctx.createLinearGradient(
+    cx + lx * radius, cy + ly * radius,
+    cx - lx * radius, cy - ly * radius,
+  );
+  g.addColorStop(0, shadeHex(base, hi));
+  g.addColorStop(0.55, base);
+  g.addColorStop(1, shadeHex(base, lo));
+  ctx.fillStyle = g;
+  ctx.fill();
 }
