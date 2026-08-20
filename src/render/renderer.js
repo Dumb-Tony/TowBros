@@ -895,6 +895,38 @@ export class Renderer {
       ctx.fillStyle = '#c2483c';
       rect(ctx, -L * 1.0, -W * 0.78, 0.12, 0.26, true);
       rect(ctx, -L * 1.0, W * 0.52, 0.12, 0.26, true);
+    } else if (veh.def.id === 'motorcycle') {
+      /* Two wheels in a line and almost nothing between them. The silhouette is doing real work:
+       * a player has to be able to see at a glance that the thing on the bank weighs less than the
+       * cable's breaking strain, because that is the fact that decides how they rig it. */
+      ctx.fillStyle = shadeHex('#2a2d33', 1.0);
+      roundRect(ctx, -L * 0.86, -W * 0.30, L * 1.72, W * 0.60, 0.10, true);   // frame spine
+      fillLit(ctx, L * 0.1, 0, W * 0.7, '#8a2f28', A, 0.72, 1.2);             // tank and bodywork
+      roundRect(ctx, -L * 0.15, -W * 0.62, L * 0.72, W * 1.24, 0.16, true);
+      ctx.fillStyle = shadeHex('#3b3f47', 1.0);                               // seat
+      roundRect(ctx, -L * 0.62, -W * 0.44, L * 0.5, W * 0.88, 0.12, true);
+      ctx.fillStyle = shadeHex('#9aa2ad', 1.05);                              // bars, across the front
+      rect(ctx, L * 0.58, -W * 0.95, 0.09, W * 1.9, true);
+      ctx.fillStyle = '#f6f0d8';
+      ctx.beginPath(); ctx.arc(L * 0.86, 0, 0.10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c2483c';
+      rect(ctx, -L * 0.92, -0.06, 0.09, 0.12, true);
+    } else if (veh.def.id === 'sedanRoof') {
+      /* On its roof, so what you are looking at is the UNDERSIDE: a floor pan, the exhaust down
+       * the middle, and four wheels in the air. Drawn upside down rather than tinted differently,
+       * because "this one is the wrong way up" has to survive being glanced at from across the
+       * map — it is the whole reason the job is a different job. */
+      roundRect(ctx, -L, -W, L * 2, W * 2, 0.42, false);
+      fillLit(ctx, 0, 0, W * 1.1, '#7d7568', A, 0.72, 1.18);                   // underseal, not paint
+      ctx.fillStyle = 'rgba(30,26,22,0.55)';                                   // sills, front and back
+      rect(ctx, -L * 0.9, -W * 0.94, L * 1.8, 0.12, true);
+      rect(ctx, -L * 0.9, W * 0.82, L * 1.8, 0.12, true);
+      ctx.fillStyle = shadeHex('#a7adb6', 1.1);                                // exhaust down the middle
+      rect(ctx, -L * 0.84, -0.08, L * 1.6, 0.16, true);
+      ctx.fillStyle = shadeHex('#8e959f', 1.06);                               // axles, exposed
+      for (const s of [1, -1]) rect(ctx, L * 0.28 * s - 0.07, -W * 0.82, 0.14, W * 1.64, true);
+      ctx.fillStyle = 'rgba(36,32,28,0.5)';                                    // the roof, crushed under it
+      roundRect(ctx, -L * 0.34, -W * 0.48, L * 0.68, W * 0.96, 0.16, true);
     } else if (veh.def.id === 'boxTruck' || veh.def.id === 'van') {
       /* A cab and a body, not a very long car (Milestone 6). The silhouette is the whole point:
        * the player has to be able to tell at a glance that the thing on the bank is a seven-tonner

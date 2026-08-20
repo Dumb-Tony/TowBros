@@ -11,6 +11,7 @@
  *
  *   AN the working day: a clock that advances on JOBS, and a light level that goes with it
  *   AP the customer: an opinion formed from things that already happened, and what it is worth
+ *   AR a motorcycle and a car on its roof — two problems a longer pull does not solve
  *   AK2 hygiene — six milestones of numbers that must not have moved
  */
 
@@ -31,6 +32,8 @@ import {
 import {
   MOOD, moodOf, createCustomer, stepCustomer, settleCustomer, describeCustomer, noteCableSnap,
 } from '../src/world/customer.js';
+import { gripBudgetN } from '../src/sim/tires.js';
+import { rollSituation } from '../src/meta/situations.js';
 
 /* ── reporting ───────────────────────────────────────────────────────────── */
 
@@ -63,6 +66,7 @@ function emit(status) {
 }
 
 const STEP = CONFIG.sim.stepMs;
+const kN = (n) => (n / 1000).toFixed(1);
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -344,6 +348,120 @@ function sectionAP() {
   }
 }
 
+/* ══ AR. the two new casualties ═══════════════════════════════════════════ */
+
+function sectionAR() {
+  lines.push('--- AR. a motorcycle, and a car that arrived on its roof ---');
+
+  const bike = job({ casualtyId: 'motorcycle' });
+  const roof = job({ casualtyId: 'sedanRoof' });
+  const car = job({ casualtyId: 'sedan' });
+
+  /* A MOTORCYCLE is not a small car. The danger was never zone strength — it is that 230 kg under
+   * a 26 kN drum goes wherever the line points the moment the line comes tight, and that two
+   * wheels on the centreline is no base at all. */
+  {
+    const b = bike.state.vehicles.sedan;
+    lt('AR1 a motorcycle weighs a fraction of a car', b.body.massKg, 400);
+    eq('AR2 on two wheels', b.def.wheels.length, 2);
+    ok('AR3 both of them on the centreline', b.def.wheels.every((w) => Math.abs(w.local.y) < 0.2));
+    const strongest = Math.max(...b.def.zones.map((z) => z.strengthN));
+    const carWeakest = Math.min(...car.state.vehicles.sedan.def.zones.map((z) => z.strengthN));
+    lt(`AR4 and its BEST hookable point is weaker than a car's WORST (${(strongest / 1000).toFixed(1)} kN)`,
+       strongest, carWeakest);
+    lt('AR5 which is well inside what the drum can pull', strongest, CONFIG.winch.motorMaxN);
+    note(`AR  motorcycle: ${b.body.massKg} kg, strongest zone ${(strongest / 1000).toFixed(1)} kN, `
+       + `against a car's weakest at ${(carWeakest / 1000).toFixed(1)} kN`);
+  }
+
+  /* A CAR ON ITS ROOF is the same shell in the state the game already gives one that rolls over
+   * mid-recovery. That is the point: not a new mesh, a different problem. */
+  {
+    const r = roof.state.vehicles.sedan;
+    const c = car.state.vehicles.sedan;
+    eq('AR6 a car on its roof weighs what the same car weighs', r.body.massKg, c.body.massKg);
+    eq('AR7 and is the same size', r.def.lengthM, c.def.lengthM);
+    ok('AR8 but it arrives already rolled', r.rolled === true);
+    ok('AR9 which the upright one does not', c.rolled === false);
+    lt(`AR10 so it has far less grip (${kN(gripBudgetN(r, roof.state.terrain))} kN against `
+       + `${kN(gripBudgetN(c, car.state.terrain))})`,
+       gripBudgetN(r, roof.state.terrain), gripBudgetN(c, car.state.terrain) * 0.75);
+    gt('AR11 and drags harder', r.dragMul, 1);
+  }
+
+  /* AND THE DRAG PENALTY SURVIVES MORE THAN ONE FRAME. It did not: `resetAids` in gear.js set
+   * dragMul back to 1 every step before the tire model ran, so the 1.6x from ANY rollover — the
+   * dynamic one included, which has existed since Milestone 1 — was wiped immediately. */
+  {
+    const g = job({ casualtyId: 'sedanRoof' });
+    g.skipMs(2000);
+    gt('AR12 a hundred steps later it is still dragging', g.state.vehicles.sedan.dragMul, 1);
+    ok('AR13 and still on its roof', g.state.vehicles.sedan.rolled === true);
+  }
+
+  /* BOTH ARE RECOVERABLE — GDD §4, nothing is a wall — and each needs a different plan. */
+  {
+    const pull = (casualtyId, zoneId, ms = 70000) => {
+      const g = job({ casualtyId });
+      const st = g.state;
+      const s = st.vehicles.sedan.body, b = st.vehicles.truck.body;
+      b.x = s.x + 11; b.y = BANDS.roadN + 1.4; b.angle = 0; b.vx = 0; b.vy = 0; b.omega = 0;
+      st.vehicles.truck.parkBrake = true;
+      const veh = st.vehicles.sedan;
+      const zone = findZone(veh.def, zoneId);
+      const p = veh.body.toWorld(zone.local.x, zone.local.y);
+      const w = st.winch;
+      w.hook.x = p.x; w.hook.y = p.y;
+      w.state = WINCH.ATTACHED; w.targetId = 'sedan'; w.zoneId = zone.id;
+      const len = pathLength(cablePath(w, st.vehicles.truck, st.vehicles, st.blocksById));
+      w.state = WINCH.LOOSE;
+      attachHook(st, veh, zone, g.bus, st.simTimeMs, w);
+      w.lineM = len;
+      for (let t = 0; t < ms && !st.goal.complete; t += 250) {
+        w.motor = 1;
+        g.skipMs(250);
+      }
+      return {
+        done: st.goal.complete, secs: st.simTimeMs / 1000,
+        peak: w.peakTensionN,
+        lost: Object.values(veh.damage.parts).filter((s) => s === 'lost').length,
+        st, g,
+      };
+    };
+
+    const bikeGood = pull('motorcycle', 'frame');
+    ok('AR14 a motorcycle rigged to its frame comes up', bikeGood.done, `${bikeGood.secs.toFixed(0)} s`);
+    lt('AR15 on a fraction of the tension a car needs', bikeGood.peak, 12000);
+    eq('AR16 with nothing torn off it', bikeGood.lost, 0);
+
+    const bikeBad = pull('motorcycle', 'footpegL', 25000);
+    gt('AR17 rigged to a footpeg, the peg comes off instead', bikeBad.lost, 0);
+    ok('AR18 and it is still there to have another go at', !bikeBad.done);
+    note(`AR  motorcycle: ${bikeGood.secs.toFixed(0)} s at ${kN(bikeGood.peak)} kN off the frame; `
+       + `off a footpeg the peg tears and it does not move`);
+
+    const roofPull = pull('sedanRoof', 'frameFront');
+    const carPull = pull('sedan', 'frameFront');
+    ok('AR19 a car on its roof can be recovered', roofPull.done, `${roofPull.secs.toFixed(0)} s`);
+    gt(`AR20 but the same straight pull needs more tension (${kN(roofPull.peak)} kN against `
+       + `${kN(carPull.peak)})`, roofPull.peak, carPull.peak * 1.2);
+    note(`AR  the same car, same rig, same geometry: ${kN(carPull.peak)} kN upright, `
+       + `${kN(roofPull.peak)} kN on its roof — the only difference is the grip`);
+  }
+
+  /* And both are REACHABLE: a casualty the dispatcher never sends is a library, not a game. */
+  {
+    const rolled = [];
+    for (let i = 0; i < 300; i++) rolled.push(rollSituation(i * 7919 + 11, 100));
+    const kinds = new Set(rolled.map((s) => s.vehicle.id));
+    ok('AR21 a motorcycle turns up on the board', kinds.has('motorcycle'));
+    ok('AR22 and so does a car on its roof', kinds.has('sedanRoof'));
+    const bikeJobs = rolled.filter((s) => s.vehicle.id === 'motorcycle');
+    lt('AR23 a motorcycle job pays less than a car one, because it is a smaller job',
+       bikeJobs[0].vehicle.feeMul, 1);
+  }
+}
+
 /* ══ AK2. hygiene ═════════════════════════════════════════════════════════ */
 
 async function sectionAK2() {
@@ -411,7 +529,7 @@ async function sectionAK2() {
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['AN', sectionAN], ['AP', sectionAP], ['AK2', sectionAK2]];
+  const sections = [['AN', sectionAN], ['AP', sectionAP], ['AR', sectionAR], ['AK2', sectionAK2]];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {
