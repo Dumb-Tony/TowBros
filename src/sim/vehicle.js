@@ -23,9 +23,19 @@ import { clamp, unit } from '../core/vec.js';
  * @param {number} [opts.boggedN]  starting bogged-in resistance, N (0 for the truck)
  * @param {string[]} [opts.lockedWheels]  wheel ids seized from the start
  */
+/**
+ * @param {object} def
+ * @param {{x:number,y:number,angle?:number}} spawn
+ * @param {object} [opts]
+ * @param {string} [opts.id]  the vehicle's identity IN THE WORLD, which from Milestone 6 is not
+ *   the same thing as its type: the casualty slot is `sedan` and what is standing in it may be a
+ *   van. Everything that names a vehicle — `winch.targetId`, `occupiedBy`, contact ids, the event
+ *   log — means the slot, and `def.id` / `def.label` are how the type is asked for.
+ */
 export function createVehicle(def, spawn, opts = {}) {
+  const id = opts.id || def.id;
   const body = new Body({
-    id: def.id,
+    id,
     x: spawn.x, y: spawn.y, angle: spawn.angle || 0,
     massKg: def.massKg,
     inertia: boxInertia(def.massKg, def.lengthM, def.widthM),
@@ -49,7 +59,7 @@ export function createVehicle(def, spawn, opts = {}) {
   }));
 
   return {
-    id: def.id,
+    id,
     def,
     body,
     wheelState,
@@ -249,6 +259,39 @@ export function applyChockResistance(veh, dtSec) {
 }
 
 /**
+ * Outriggers (Milestone 6). Four pads on the ground instead of four tyres.
+ *
+ * Deliberately the same SHAPE as a chock and not a special case: a static resistance, capped by
+ * `resistanceCap` so it can never reverse anything, applied in both axes plus yaw. It is enormous
+ * — 260 kN against a light wrecker's 63 kN of grip — which is exactly what standing on legs is
+ * worth, and it is still a finite number, so a large enough load still moves the machine.
+ *
+ * See recovery/rig.js for why the trade is legs-down-cannot-drive.
+ */
+export function applyOutriggerResistance(veh, dtSec) {
+  const hold = veh.outriggerHoldN || 0;
+  if (hold <= 0) return 0;
+  const b = veh.body;
+  let used = 0;
+  for (const [vel, force, apply] of [
+    [b.vx, b.fx, (f) => { b.fx += f; }],
+    [b.vy, b.fy, (f) => { b.fy += f; }],
+  ]) {
+    const rc = resistanceCap(b.massKg, vel, force, dtSec);
+    const use = Math.min(hold, rc.cap);
+    if (use > 0) { apply(-rc.dir * use); used += use; }
+  }
+  const spin = veh.outriggerSpinN || 0;
+  if (spin > 0) {
+    const dir = Math.sign(b.omega) || Math.sign(b.torque) || 1;
+    const cap = Math.abs(b.omega) * b.inertia / dtSec + Math.max(0, dir * b.torque);
+    const use = Math.min(spin, cap);
+    if (use > 0) b.applyTorque(-dir * use);
+  }
+  return used;
+}
+
+/**
  * One vehicle, one step. Order is fixed:
  *
  *   external forces already in the accumulator (cable, contacts)
@@ -268,6 +311,7 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
   applySlopeForce(veh, terrain);
   applyBoggedResistance(veh, dtSec);
   applyChockResistance(veh, dtSec);
+  applyOutriggerResistance(veh, dtSec);   // before the tires, in parallel with the chocks
   applyWheelForces(veh, terrain, dtSec);
   applyYawResistance(veh, dtSec);       // must follow the tires: it reads their friction budget
   applySpinResistance(veh, dtSec);

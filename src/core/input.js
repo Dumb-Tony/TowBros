@@ -37,6 +37,12 @@ export const DEFAULT_BINDINGS = Object.freeze({
   winchIn:   ['KeyI', 'BracketRight'],
   winchOut:  ['KeyO', 'BracketLeft'],
 
+  /* The heavy wrecker's machinery (Milestone 6). Machine controls, on the same tier as the
+   * drum keys — they operate a thing rather than deciding what the one context key means. */
+  slewLeft:  ['KeyZ'],
+  slewRight: ['KeyC'],
+  outriggers: ['KeyX'],
+
   restart:   ['KeyR'],
   pause:     ['Escape'],
   debug:     ['F3'],
@@ -63,12 +69,14 @@ export const CREW_BINDINGS = Object.freeze([
     context: ['KeyE'], inspect: ['KeyQ'], detach: ['KeyF'],
     enterExit: ['KeyV', 'Enter'], brake: ['Space'],
     winchIn: ['KeyI'], winchOut: ['KeyO'],
+    slewLeft: ['KeyZ'], slewRight: ['KeyC'], outriggers: ['KeyX'],
   }),
   Object.freeze({
     moveUp: ['ArrowUp'], moveDown: ['ArrowDown'], moveLeft: ['ArrowLeft'], moveRight: ['ArrowRight'],
     context: ['Slash'], inspect: ['Period'], detach: ['Comma'],
     enterExit: ['ShiftRight'], brake: ['Backslash'],
     winchIn: ['BracketRight'], winchOut: ['BracketLeft'],
+    slewLeft: ['Semicolon'], slewRight: ['Quote'], outriggers: ['KeyL'],
   }),
 ]);
 
@@ -166,6 +174,11 @@ export class Input {
       steer:    (this.isDown('moveRight') ? 1 : 0) - (this.isDown('moveLeft') ? 1 : 0),
       throttle: (this.isDown('moveUp') ? 1 : 0) - (this.isDown('moveDown') ? 1 : 0),
     };
+  }
+
+  /** Which way the boom is being slewed, -1..1. Milestone 6, and only the heavy has one. */
+  slewAxis() {
+    return (this.isDown('slewRight') ? 1 : 0) - (this.isDown('slewLeft') ? 1 : 0);
   }
 
   /* ── on-screen controls ───────────────────────────────────────────────── */

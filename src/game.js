@@ -30,6 +30,8 @@ import { stepLift, describeLift } from './recovery/lift.js';
 import { stepTraffic, trafficBodies, describeTraffic } from './world/traffic.js';
 import { stepAttachment, applyImpactDamage, stepDebris } from './recovery/attach.js';
 import { stepGearEffects } from './recovery/gear.js';
+import { stepAnchors } from './recovery/anchors.js';
+import { stepRig } from './recovery/rig.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
 
 export const MODES = Object.freeze({
@@ -228,6 +230,12 @@ export class Game {
     //    lying where, so the cable and the tires below read a current world.
     stepGearEffects(st, st.terrain, dt, this.bus, simTimeMs);
 
+    /* 2b. The heavy wrecker's own machinery: legs down or up, boom slewed left or right
+     *     (Milestone 6). Before the cable, because where the fairleads ARE decides the direction
+     *     of the pull, and before the tires, because what the truck is standing on decides what it
+     *     can hold. Both are just numbers on the truck; nothing downstream branches on the model. */
+    stepRig(st.vehicles.truck, dt, inputs && inputs.find(Boolean), this.bus, simTimeMs);
+
     // 3. The line. Applies equal-and-opposite force at two offsets. FIRST force of the step.
     stepCable(st, dt, this.bus, simTimeMs);
 
@@ -237,9 +245,15 @@ export class Game {
      *     hold against its own load has to be asked in that order. */
     stepLift(st, dt, this.bus, simTimeMs);
 
-    // 4. Did the attachment survive what the line just did to it? WEAKEST LINK FIRST — the
-    //    attachment is judged before the cable, or a 9 kN bumper would outlive a 42 kN cable.
+    /* 4. Did anything in the chain survive what the line just did to it? WEAKEST LINK FIRST — the
+     *    attachment is judged before the cable, or a 9 kN bumper would outlive a 42 kN cable.
+     *
+     *    The ANCHOR (Milestone 6) sits between them, which is where it belongs by rating: a tree
+     *    holds 52-60 kN and a driven ground anchor 22 on its best day, so it is stronger than a
+     *    bumper and weaker than the rope. Redirecting through a block puts up to twice the line
+     *    tension on it, which is what makes it worth checking at all. */
     stepAttachment(st, this.bus, simTimeMs);
+    stepAnchors(st, dt, this.bus, simTimeMs);
     stepCableBreak(st, this.bus, simTimeMs);
 
     /* 4b. Traffic. Before the contact pass, so a car that has decided to brake has already had its

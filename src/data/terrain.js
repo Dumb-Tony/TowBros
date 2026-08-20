@@ -162,20 +162,26 @@ export const MUD_FADE_M = 0.11;
  *  huge drag, wet grass has poor grip and modest drag, and the difference between those
  *  two facts is a real recovery decision.
  *
+ *  `anchorHoldMul` (Milestone 6) is what a driven ground anchor is worth in this stuff, and it is
+ *  authored per surface rather than derived from `soft` because the relationship is not monotonic:
+ *  you need ground a spike will go INTO and then be held BY. Tarmac takes no spike at all (0), wet
+ *  grass is the best of them (1.0), and mud lets it shear straight out (0.35). Loose rock is the
+ *  worst thing that is not tarmac, which is why the quarry still has no answer.
+ *
  *  `tint`/`tint2` live here rather than in the renderer so that a patch of ground can
  *  never be drawn as grass while behaving like pavement. */
 export const SURFACES = Object.freeze({
-  pavement:  { id: 'pavement',  label: 'pavement',     mu: 0.95, crr: 0.014, soft: 0.00, tint: '#3b3d45', tint2: '#454750' },
-  shoulder:  { id: 'shoulder',  label: 'gravel',       mu: 0.62, crr: 0.055, soft: 0.35, tint: '#6b6152', tint2: '#7a705e' },
-  wetGrass:  { id: 'wetGrass',  label: 'wet grass',    mu: 0.34, crr: 0.090, soft: 0.70, tint: '#52683c', tint2: '#617a45' },
-  mud:       { id: 'mud',       label: 'mud',          mu: 0.22, crr: 0.300, soft: 1.00, tint: '#41352a', tint2: '#4d3f30' },
+  pavement:  { id: 'pavement',  label: 'pavement',     mu: 0.95, crr: 0.014, soft: 0.00, anchorHoldMul: 0.00, tint: '#3b3d45', tint2: '#454750' },
+  shoulder:  { id: 'shoulder',  label: 'gravel',       mu: 0.62, crr: 0.055, soft: 0.35, anchorHoldMul: 0.55, tint: '#6b6152', tint2: '#7a705e' },
+  wetGrass:  { id: 'wetGrass',  label: 'wet grass',    mu: 0.34, crr: 0.090, soft: 0.70, anchorHoldMul: 1.00, tint: '#52683c', tint2: '#617a45' },
+  mud:       { id: 'mud',       label: 'mud',          mu: 0.22, crr: 0.300, soft: 1.00, anchorHoldMul: 0.35, tint: '#41352a', tint2: '#4d3f30' },
   /* Milestone 5. A ford or a flooded hollow: better grip than mud and far more drag, because water
    * does not hold a tyre the way clay does but it takes a great deal more to push a car through.
    * The two together make it a different problem rather than a worse one. */
-  water:     { id: 'water',     label: 'standing water', mu: 0.30, crr: 0.420, soft: 0.85, tint: '#2c3f4a', tint2: '#35505e' },
+  water:     { id: 'water',     label: 'standing water', mu: 0.30, crr: 0.420, soft: 0.85, anchorHoldMul: 0.25, tint: '#2c3f4a', tint2: '#35505e' },
   /* Loose rock on a quarry approach. Grips reasonably and drags like gravel, but the site it
    * belongs to has no trees on it, which is where the difficulty actually lives. */
-  scree:     { id: 'scree',     label: 'loose rock',   mu: 0.52, crr: 0.130, soft: 0.45, tint: '#5a5650', tint2: '#69645c' },
+  scree:     { id: 'scree',     label: 'loose rock',   mu: 0.52, crr: 0.130, soft: 0.45, anchorHoldMul: 0.30, tint: '#5a5650', tint2: '#69645c' },
 });
 
 /* Trees. Solid, and the only anchors a snatch block can be mounted to in Milestone 1.
@@ -312,6 +318,11 @@ export function createTerrain(rng, site = SITES[0]) {
     ...t,
     x: t.x + rng.spread(1.7),
     y: t.y + rng.spread(1.0),
+    /* Per-attempt anchor state (Milestone 6). It lives on the instance and not on TREE_PLAN for
+     * the same reason zone damage lives on the vehicle: the plan is shared frozen data, and one
+     * attempt's uprooted tree must not follow the player into the next. */
+    pullNs: 0,
+    fallen: false,
   }));
 
   // Where the sedan came to rest. Drawn BEFORE the guardrail, because the gap in the rail has

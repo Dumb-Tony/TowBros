@@ -29,6 +29,7 @@
  */
 
 import { EVENTS } from '../core/eventBus.js';
+import { drumsOf } from '../recovery/cable.js';
 
 /** Nothing is owned at the start of an attempt. Claims are recorded on the objects themselves,
  *  so this exists only to say so out loud — there is no table to initialise. */
@@ -36,24 +37,37 @@ export const UNOWNED = null;
 
 /* ── the hook ──────────────────────────────────────────────────────────────── */
 
-/** @returns {boolean} true if `crewId` may take the hook right now. */
-export function hookFree(st, crewId) {
-  return st.winch.heldBy === UNOWNED || st.winch.heldBy === crewId;
+/* Every function below takes an optional `winch`: which DRUM's hook is being claimed. Omitted
+ * means the primary, which is what every caller meant before Milestone 6 put two drums on the
+ * heavy wrecker. The ownership rule is unchanged and is per hook, because two hooks are two
+ * objects and one person can only be holding one of them. */
+
+/** @returns {boolean} true if `crewId` may take that hook right now. */
+export function hookFree(st, crewId, winch = null) {
+  const w = winch || st.winch;
+  return w.heldBy === UNOWNED || w.heldBy === crewId;
 }
 
 /** Take the hook. Fails (returns false) if somebody else has it. */
-export function claimHook(st, crewId, bus, simTimeMs, from = 'drum') {
-  if (!hookFree(st, crewId)) return false;
-  st.winch.heldBy = crewId;
-  bus.emit(EVENTS.HOOK_TAKEN, { crew: crewId, from }, simTimeMs);
+export function claimHook(st, crewId, bus, simTimeMs, from = 'drum', winch = null) {
+  const w = winch || st.winch;
+  if (!hookFree(st, crewId, w)) return false;
+  // One person, one hook: taking a second means letting go of the first, the same way carrying a
+  // second gear item does. GDD §5, "the player carries one physical object".
+  for (const other of drumsOf(st)) {
+    if (other !== w && other.heldBy === crewId) releaseHook(st, crewId, bus, simTimeMs, 'swapped', other);
+  }
+  w.heldBy = crewId;
+  bus.emit(EVENTS.HOOK_TAKEN, { crew: crewId, from, drum: w.drumId }, simTimeMs);
   return true;
 }
 
 /** Put the hook down. Only the holder can, which is the whole point. */
-export function releaseHook(st, crewId, bus, simTimeMs, where = 'ground') {
-  if (st.winch.heldBy !== crewId) return false;
-  st.winch.heldBy = UNOWNED;
-  bus.emit(EVENTS.HOOK_STOWED, { crew: crewId, where }, simTimeMs);
+export function releaseHook(st, crewId, bus, simTimeMs, where = 'ground', winch = null) {
+  const w = winch || st.winch;
+  if (w.heldBy !== crewId) return false;
+  w.heldBy = UNOWNED;
+  bus.emit(EVENTS.HOOK_STOWED, { crew: crewId, where, drum: w.drumId }, simTimeMs);
   return true;
 }
 
@@ -113,7 +127,9 @@ export function releaseSeat(st, veh, crewId, bus, simTimeMs) {
  */
 export function releaseAll(st, crewId, bus, simTimeMs) {
   let released = 0;
-  if (st.winch.heldBy === crewId) { releaseHook(st, crewId, bus, simTimeMs, 'abandoned'); released++; }
+  for (const w of drumsOf(st)) {
+    if (w.heldBy === crewId) { releaseHook(st, crewId, bus, simTimeMs, 'abandoned', w); released++; }
+  }
   for (const item of st.gear) {
     if (item.carriedBy === crewId) { item.carriedBy = UNOWNED; item.placed = true; released++; }
   }
@@ -130,7 +146,8 @@ export function releaseAll(st, crewId, bus, simTimeMs) {
  */
 export function ownedBy(st, crewId) {
   return {
-    hook: st.winch.heldBy === crewId,
+    hook: drumsOf(st).some((w) => w.heldBy === crewId),
+    drums: drumsOf(st).filter((w) => w.heldBy === crewId).map((w) => w.drumId),
     gear: st.gear.filter((g) => g.carriedBy === crewId).map((g) => g.id),
     seat: Object.keys(st.vehicles).find((id) => st.vehicles[id].occupiedBy === crewId) || null,
   };
@@ -147,8 +164,14 @@ export function validateAuthority(st) {
   const problems = [];
   const ids = new Set(st.crew.map((c) => c.id));
 
-  if (st.winch.heldBy && !ids.has(st.winch.heldBy)) {
-    problems.push(`hook held by unknown crew ${st.winch.heldBy}`);
+  const holding = new Map();
+  for (const w of drumsOf(st)) {
+    if (!w.heldBy) continue;
+    if (!ids.has(w.heldBy)) problems.push(`hook held by unknown crew ${w.heldBy}`);
+    // One person, one hook, for the same reason one person carries one object.
+    const n = (holding.get(w.heldBy) || 0) + 1;
+    holding.set(w.heldBy, n);
+    if (n > 1) problems.push(`crew ${w.heldBy} holds ${n} hooks`);
   }
   const carrying = new Map();
   for (const item of st.gear) {
@@ -169,8 +192,10 @@ export function validateAuthority(st) {
   }
   // Holding the hook and sitting in the cab at the same time is physically impossible and would
   // put the cable's far end inside the truck that is pulling it.
-  if (st.winch.heldBy && seated.has(st.winch.heldBy)) {
-    problems.push(`crew ${st.winch.heldBy} holds the hook from inside a vehicle`);
+  for (const w of drumsOf(st)) {
+    if (w.heldBy && seated.has(w.heldBy)) {
+      problems.push(`crew ${w.heldBy} holds the hook from inside a vehicle`);
+    }
   }
   return problems;
 }

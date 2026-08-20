@@ -21,7 +21,7 @@ import { EVENTS } from '../core/eventBus.js';
 import { FAIL } from '../data/vehicles.js';
 import { Body } from '../sim/body.js';
 import { boxInertia } from '../data/vehicles.js';
-import { WINCH } from './cable.js';
+import { WINCH, drumsOf } from './cable.js';
 import { unit, clamp } from '../core/vec.js';
 
 /** Physical shape of each part once it is no longer part of a car. */
@@ -51,9 +51,10 @@ export function rigZone(veh, zoneId, kind, bus, simTimeMs) {
   bus.emit(EVENTS.RIG_APPLIED, { vehicle: veh.id, zone: zoneId, rig: kind }, simTimeMs);
 }
 
-/** Hook the line onto a zone. Always allowed. */
-export function attachHook(st, veh, zone, bus, simTimeMs) {
-  const w = st.winch;
+/** Hook the line onto a zone. Always allowed.
+ *  @param {object} [winch]  which drum's hook. Omitted means the primary — see recovery/cable.js. */
+export function attachHook(st, veh, zone, bus, simTimeMs, winch = null) {
+  const w = winch || st.winch;
   const rig = veh.rigging[zone.id] || 'bare';
   w.state = WINCH.ATTACHED;
   w.targetId = veh.id;
@@ -72,8 +73,8 @@ export function attachHook(st, veh, zone, bus, simTimeMs) {
 }
 
 /** Unhook, leaving the line where it is. */
-export function detachHook(st, bus, simTimeMs, reason = 'player') {
-  const w = st.winch;
+export function detachHook(st, bus, simTimeMs, reason = 'player', winch = null) {
+  const w = winch || st.winch;
   if (w.state !== WINCH.ATTACHED) return false;
   const p = { x: w.hook.x, y: w.hook.y };
   const veh = st.vehicles[w.targetId];
@@ -106,10 +107,12 @@ export function detachPart(st, veh, partId, bus, simTimeMs, kick = null) {
     veh.wheelState[wi].dragMul = CONFIG.damage.wheelLostDragMul;
     veh.wheelState[wi].lifted = false;
   }
-  // Whatever the hook was holding is gone, so the hook is on the ground.
-  if (st.winch.state === WINCH.ATTACHED && st.winch.targetId === veh.id) {
-    const z = veh.def.zones.find((q) => q.id === st.winch.zoneId);
-    if (z && z.part === partId) detachHook(st, bus, simTimeMs, 'part-detached');
+  // Whatever a hook was holding is gone, so that hook is on the ground. Every drum, because two
+  // of them can be rigged to two zones on the same vehicle (Milestone 6).
+  for (const w of drumsOf(st)) {
+    if (w.state !== WINCH.ATTACHED || w.targetId !== veh.id) continue;
+    const z = veh.def.zones.find((q) => q.id === w.zoneId);
+    if (z && z.part === partId) detachHook(st, bus, simTimeMs, 'part-detached', w);
   }
 
   if (!spec) {
@@ -164,7 +167,11 @@ export function bendPart(st, veh, partId, bus, simTimeMs) {
  * `lastEffectiveN` (tension plus rigging shock) comes from.
  */
 export function stepAttachment(st, bus, simTimeMs) {
-  const w = st.winch;
+  // Every drum, because from Milestone 6 there may be two of them on two different zones.
+  for (const w of drumsOf(st)) stepOneAttachment(st, w, bus, simTimeMs);
+}
+
+function stepOneAttachment(st, w, bus, simTimeMs) {
   if (w.state !== WINCH.ATTACHED) return;
   const veh = st.vehicles[w.targetId];
   if (!veh) return;

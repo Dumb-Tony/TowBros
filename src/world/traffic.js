@@ -29,6 +29,7 @@ import { EVENTS } from '../core/eventBus.js';
 import { Body } from '../sim/body.js';
 import { boxInertia } from '../data/vehicles.js';
 import { obbOverlap } from '../sim/collision.js';
+import { drumsOf } from '../recovery/cable.js';
 
 /** Which way a car is going. Eastbound uses the south lane, westbound the north, as they should. */
 export const EAST = 1;
@@ -113,9 +114,10 @@ function lookAhead(st, car) {
 
   /* The cable, sampled along its span. A line across the road is not a point, and testing only its
    * endpoints would let a car drive straight through the middle of it. */
-  if (st.winch.state === 'attached') {
+  for (const w of drumsOf(st)) {
+    if (w.state !== 'attached') continue;
     const a = st.vehicles.truck.body.toWorld(-st.vehicles.truck.def.lengthM / 2 - 0.6, 0);
-    const b = st.winch.hook;
+    const b = w.hook;
     for (let t = 0; t <= 1.001; t += 0.1) {
       consider(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 'cable');
     }

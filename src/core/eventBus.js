@@ -33,6 +33,11 @@ export const EVENTS = Object.freeze({
   BLOCK_MOUNTED:      'BLOCK_MOUNTED',   // snatch block secured to an anchor
   BLOCK_REMOVED:      'BLOCK_REMOVED',
   CABLE_ROUTED:       'CABLE_ROUTED',    // line now runs through the block
+  ANCHOR_PLANTED:     'ANCHOR_PLANTED',  // a ground anchor driven in { gear, holdN }
+  ANCHOR_FAILED:      'ANCHOR_FAILED',   // { anchor, kind, ratedN, loadN } — it went over
+
+  /* The heavy wrecker. GDD §7 Milestone 6. */
+  OUTRIGGERS:         'OUTRIGGERS',      // { vehicle, down } legs going down, or coming up
 
   // winch
   WINCH_IN:           'WINCH_IN',
@@ -85,7 +90,7 @@ const STORY = new Set([
   'WINCH_STALLED', 'CABLE_SNAPPED', 'ZONE_FAILED', 'COMPONENT_DETACHED', 'COMPONENT_DAMAGED',
   'IMPACT', 'GUARDRAIL_BENT', 'TRUCK_SLIPPING', 'ROLLED_OVER', 'GEAR_SCATTERED', 'CREW_STUMBLED',
   'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
-  'TRAFFIC_HIT',
+  'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS',
 ]);
 
 export class EventBus {

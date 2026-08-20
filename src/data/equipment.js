@@ -61,6 +61,16 @@ export const GEAR = Object.freeze({
     inspect: 'Hardwood block. Spreads load onto ground that will not take a point load.',
     effect: 'Under a vehicle: less drag, less dug in, and it resists the body pivoting away.',
   },
+  /* A driven ground anchor. Milestone 6's "richer anchors", and the answer to a site with no tree
+   * worth rigging to — but only where the ground will hold it, which is not everywhere. It is
+   * placed like anything else and it is not validated: you can drive it into a quarry approach and
+   * it will pull straight back out under load, because the ground decides, not a flag. */
+  groundAnchor: {
+    kind: 'groundAnchor', label: 'ground anchor', use: USE.PLACE, target: 'ground',
+    massKg: 17, sizeM: { x: 0.40, y: 0.30 }, tint: '#7d6a4a',
+    inspect: 'A driven plate anchor. Whatever it holds, the ground is holding.',
+    effect: 'A place to mount the block where there is no tree. Worth what the ground under it is worth.',
+  },
   snatchBlock: {
     kind: 'snatchBlock', label: 'snatch block', use: USE.MOUNT, target: 'anchor',
     massKg: 9, sizeM: { x: 0.36, y: 0.36 }, tint: '#5f7fa8',

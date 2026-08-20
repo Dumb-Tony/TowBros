@@ -29,6 +29,7 @@ import { CONFIG } from '../config.js';
 import { clamp, clamp01, unit, norm } from '../core/vec.js';
 import { EVENTS } from '../core/eventBus.js';
 import { obbOverlap } from '../sim/collision.js';
+import { anchorLoadN } from './anchors.js';
 
 export const WINCH = Object.freeze({
   STOWED:   'stowed',    // hook on the drum
@@ -38,13 +39,27 @@ export const WINCH = Object.freeze({
 });
 
 /**
+ * One drum.
+ *
  * @param {number} strengthMul  what the outfit's cable is worth after however many jobs it has had.
  *   Milestone 4: a neglected drum is a weaker drum, and this is the one number that carries the
  *   company's winch condition into the physics. 1 is a new rope.
+ * @param {object} [drum]        the entry from `def.drums` this is: an id, a label, and where on
+ *   the truck its fairlead sits. A light wrecker has one; the heavy has two (Milestone 6).
  */
-export function createWinch(strengthMul = 1) {
+export function createWinch(strengthMul = 1, drum = null) {
   return {
     strengthMul,
+    /** Which drum on the truck this is. 'A' on a one-drum truck, so nothing has to special-case it. */
+    drumId: drum ? drum.id : 'A',
+    drumLabel: drum ? drum.label : 'the drum',
+    /** Fairlead offset in the truck's own frame. Null means "ask the truck def", which is what
+     *  every Milestone 1-5 caller does and what fairleadPos still falls back to. */
+    mountLocal: drum ? { ...drum.local } : null,
+    /** Per-drum limits. A heavy wrecker's drums pull harder and its rope is worth more; these
+     *  default to null, meaning "the numbers in CONFIG.winch", which is the light truck. */
+    motorMaxN: null,
+    cableBreakN: null,
     /** Worst tension this drum has seen this job. The company reads it as wear — a winch that
      *  spent the afternoon at 30 kN needs a service sooner than one that never left 12. */
     peakTensionN: 0,
@@ -56,6 +71,10 @@ export function createWinch(strengthMul = 1) {
     zoneId: null,
     rig: 'bare',                    // 'bare' | 'strap' | 'chain'
     blockId: null,                  // gear id of a mounted snatch block, or null
+    /** What the ANCHOR under that block is carrying, which is up to twice the line tension.
+     *  Milestone 6 — see src/recovery/anchors.js, which is the only thing that reads it. */
+    anchorLoadN: 0,
+    anchorId: null,
     hook: { x: 0, y: 0 },           // world position of the hook when not attached
     tensionN: 0,
     tensionPrevN: 0,
@@ -72,10 +91,24 @@ export function createWinch(strengthMul = 1) {
   };
 }
 
-/** Where the cable leaves the truck. */
-export function fairleadPos(truck) {
-  const l = truck.def.winchLocal;
-  return truck.body.toWorld(l.x, l.y);
+/**
+ * Where the cable leaves the truck.
+ *
+ * @param {object} truck
+ * @param {object} [winch]  which drum's fairlead. Omitted means the truck's primary, which is what
+ *   every caller before Milestone 6 meant and still means.
+ *
+ * On a truck with a slewing boom the fairleads MOVE: the mount is rotated about the boom pivot by
+ * `truck.boomRad` before it is taken into the world, so a slewed boom genuinely changes where the
+ * line leaves the machine, and therefore the direction of the pull and the torque it makes.
+ */
+export function fairleadPos(truck, winch = null) {
+  const l = (winch && winch.mountLocal) || truck.def.winchLocal;
+  if (!truck.def.boom || !truck.boomRad) return truck.body.toWorld(l.x, l.y);
+  const s = Math.sin(truck.boomRad), c = Math.cos(truck.boomRad);
+  const px = CONFIG.heavy.boomPivotX ?? (-truck.def.lengthM / 2 + 0.6);
+  const dx = l.x - px, dy = l.y;
+  return truck.body.toWorld(px + dx * c - dy * s, dx * s + dy * c);
 }
 
 /** Where the far end of the cable is right now, whatever state it is in. */
@@ -96,7 +129,7 @@ export function hookPos(winch, vehiclesById) {
  * in the physics too.
  */
 export function cablePath(winch, truck, vehiclesById, blocksById) {
-  const a = fairleadPos(truck);
+  const a = fairleadPos(truck, winch);
   const h = hookPos(winch, vehiclesById);
   const b = winch.blockId ? blocksById[winch.blockId] : null;
   return b ? [a, { x: b.x, y: b.y }, h] : [a, h];
@@ -109,19 +142,38 @@ export function pathLength(path) {
   return d;
 }
 
+/** Every drum on the truck. One entry on a light wrecker, two on the heavy (Milestone 6). */
+export const drumsOf = (st) => st.winches || [st.winch];
+
+/** What this drum's motor stalls at, and what its rope is worth. Per drum since Milestone 6. */
+export const motorMaxN = (w) => (w && w.motorMaxN) || CONFIG.winch.motorMaxN;
+export const cableBreakN = (w) => ((w && w.cableBreakN) || CONFIG.winch.cableBreakN) * (w ? w.strengthMul : 1);
+
 /**
- * One step of winch behaviour: motor, then tension, then forces, then failure.
+ * One step of winch behaviour, for every drum on the truck.
+ *
+ * @returns {number} the largest tension across the drums, in newtons
+ */
+export function stepCable(st, dtSec, bus, simTimeMs) {
+  let peak = 0;
+  for (const w of drumsOf(st)) peak = Math.max(peak, stepDrum(st, w, dtSec, bus, simTimeMs));
+  return peak;
+}
+
+/**
+ * One step of ONE drum: motor, then tension, then forces, then failure.
  *
  * @param {object} st        game state
+ * @param {object} w         the drum
  * @param {number} dtSec
  * @param {object} bus
  * @param {number} simTimeMs
  * @returns {number} tension in newtons
  */
-export function stepCable(st, dtSec, bus, simTimeMs) {
-  const w = st.winch;
+export function stepDrum(st, w, dtSec, bus, simTimeMs) {
   const truck = st.vehicles.truck;
   const W = CONFIG.winch;
+  const stallN = motorMaxN(w);
 
   const block = w.blockId ? st.blocksById[w.blockId] : null;
   const rigNow = CONFIG.rigging[w.rig] || CONFIG.rigging.bare;
@@ -145,8 +197,8 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
    * reliefMps. A real winch does this — hydraulics bypass, brakes creep, and an operator eases
    * off. The important part is what it does NOT protect against: the cap means a genuine snatch
    * load still outruns the relief and still parts the line. Slow jams stall; shocks break. */
-  if (w.state === WINCH.ATTACHED && w.tensionN > CONFIG.winch.motorMaxN) {
-    const over = w.tensionN - CONFIG.winch.motorMaxN;
+  if (w.state === WINCH.ATTACHED && w.tensionN > stallN) {
+    const over = w.tensionN - stallN;
     // The slip rate RISES with the overload, because that is what a brake band does. A flat rate
     // was enough to stop a slow jam destroying the line but not enough to survive TOWING on it:
     // driving away with a load attached built tension faster than 0.55 m/s of payout could shed,
@@ -189,9 +241,9 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
       // Reel in. The motor eases off as the load approaches its limit and stops dead at it,
       // which is a stall — GDD §4 wants the winch to be a machine with a capability, not an
       // infinite force. A stalled winch is a message: change something.
-      const overFrac = norm(w.tensionN, W.motorMaxN - W.stallMarginN, W.motorMaxN);
+      const overFrac = norm(w.tensionN, stallN - W.stallMarginN, stallN);
       const ease = 1 - overFrac;
-      w.stalled = w.tensionN >= W.motorMaxN;
+      w.stalled = w.tensionN >= stallN;
       const speed = W.reelInMps * ease * blockMul;
       if (w.stalled) {
         if (simTimeMs - w._stallSaidMs > 2200) {
@@ -212,6 +264,8 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
 
   /* ── tension ──────────────────────────────────────────────────────────── */
   w.tensionPrevN = w.tensionN;
+  w.anchorLoadN = 0;
+  w.anchorId = block ? block.anchorId : null;
   if (w.state !== WINCH.ATTACHED) { w.tensionN = 0; w.tensionFrac = 0; w.shockFrac = 0; return 0; }
 
   const target = st.vehicles[w.targetId];
@@ -225,7 +279,7 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
     return 0;
   }
 
-  const fl = fairleadPos(truck);
+  const fl = fairleadPos(truck, w);
   const hp = hookPos(w, st.vehicles);
 
   // Rate of change of the ROUTE length, which is what a spring along that route responds to.
@@ -260,9 +314,15 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
   const advantage = block ? CONFIG.gear.snatchBlock.forceMul : 1;
   const applied = T * advantage;
 
+  /* What the anchor under the block is holding. Both legs pull it back down themselves, so it is
+   * the vector sum — up to 2x the line tension when the line is folded right back, which is
+   * exactly the geometry that makes a redirect worth doing. Milestone 6 judges it in
+   * recovery/anchors.js; nothing else reads this. */
+  if (block) w.anchorLoadN = anchorLoadN(block, fl, hp, applied);
+
   w.tensionN = T;
   if (T > w.peakTensionN) w.peakTensionN = T;
-  w.tensionFrac = clamp01(T / (W.cableBreakN * w.strengthMul));
+  w.tensionFrac = clamp01(T / (cableBreakN(w)));
   // How violently the load is arriving. A chain multiplies this through to the attachment;
   // a strap absorbs it. See CONFIG.rigging.shockMul.
   const dT = (T - w.tensionPrevN) / dtSec;
@@ -293,24 +353,27 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
  * the hook, in which case there is no longer a loaded cable to part.
  */
 export function stepCableBreak(st, bus, simTimeMs) {
-  const w = st.winch;
-  if (w.state !== WINCH.ATTACHED) return false;
-  // What THIS drum's rope is worth, not what a new one is worth. Milestone 4's winch condition
-  // arrives here and nowhere else, so a game with no company behind it uses strengthMul 1 and this
-  // is the line it always was.
-  if (w.tensionN <= CONFIG.winch.cableBreakN * w.strengthMul) return false;
-  snapCable(st, w.tensionN, bus, simTimeMs);
-  return true;
+  let any = false;
+  for (const w of drumsOf(st)) {
+    if (w.state !== WINCH.ATTACHED) continue;
+    // What THIS drum's rope is worth, not what a new one is worth. Milestone 4's winch condition
+    // arrives here and nowhere else, so a game with no company behind it uses strengthMul 1 and
+    // this is the line it always was.
+    if (w.tensionN <= cableBreakN(w)) continue;
+    snapCable(st, w.tensionN, bus, simTimeMs, w);
+    any = true;
+  }
+  return any;
 }
 
 /**
  * The line parts. Both ends recoil, the hook lands on the ground, and the job continues —
  * GDD §4: "no instant fail for damage or a worsening scene."
  */
-export function snapCable(st, tensionN, bus, simTimeMs) {
-  const w = st.winch;
+export function snapCable(st, tensionN, bus, simTimeMs, winch = null) {
+  const w = winch || st.winch;
   const truck = st.vehicles.truck;
-  const fl = fairleadPos(truck);
+  const fl = fairleadPos(truck, w);
   const hp = hookPos(w, st.vehicles);
   const target = st.vehicles[w.targetId];
 
@@ -319,7 +382,7 @@ export function snapCable(st, tensionN, bus, simTimeMs) {
 
   // Stored energy leaves as a kick, scaled by how far past the limit it went. Equal and
   // opposite, like everything else the cable does.
-  const over = clamp(tensionN / CONFIG.winch.cableBreakN, 1, 1.6);
+  const over = clamp(tensionN / cableBreakN(w), 1, 1.6);
   truck.body.applyImpulseAt(-u.x * recoil * truck.body.massKg * 0.055 * over,
                            -u.y * recoil * truck.body.massKg * 0.055 * over, fl.x, fl.y);
   if (target) {

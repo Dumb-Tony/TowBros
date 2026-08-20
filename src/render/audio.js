@@ -25,6 +25,7 @@
 
 import { CONFIG } from '../config.js';
 import { clamp01, lerp } from '../core/vec.js';
+import { drumsOf } from '../recovery/cable.js';
 
 export class Audio {
   constructor() {
@@ -192,7 +193,8 @@ export class Audio {
 
     // Winch: only while the drum turns. A stalled winch drops in pitch and gets louder, which
     // is exactly what a stalled winch does.
-    const w = st.winch;
+    // The loudest drum. Two of them turning is one winch noise, not two.
+    const w = drumsOf(st).reduce((a, b) => (b.motor !== 0 && (a.motor === 0 || b.tensionN > a.tensionN) ? b : a), st.winch);
     const reeling = w.motor !== 0 && w.state === 'attached';
     const stallDrop = w.stalled ? 0.55 : 1;
     pitch(v.winch.o, (w.motor > 0 ? 260 : 190) * stallDrop);

@@ -236,6 +236,9 @@ export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
   for (const A of dynamics) {
     for (const S of scenery) {
       if (S.kind === 'rail' && (S.ref.broken || S.ref.flat)) continue;   // a folded rail is not a wall
+      // An uprooted tree is not a wall either (Milestone 6, recovery/anchors.js). It is lying
+      // across the slope where it fell, and driving over it is a nuisance rather than a stop.
+      if (S.kind === 'tree' && S.ref.fallen) continue;
       const hit = obbOverlap(A.body, S.box);
       if (!hit) continue;
       // A tree does not move and does not care. The rail is the opposite of that.

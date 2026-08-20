@@ -16,6 +16,8 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { GEAR, USE, gearDef } from '../data/equipment.js';
 import { clamp, clamp01, lerp, unit } from '../core/vec.js';
+import { anchorPoints } from './anchors.js';
+import { drumsOf } from './cable.js';
 
 /** Reset every gear-derived multiplier. Called first each step so nothing accumulates. */
 function resetAids(st) {
@@ -216,12 +218,18 @@ export function placeGear(st, item, x, y, angle, bus, simTimeMs) {
 
 /** Secure a snatch block to a tree. Needs a tree; there is nothing else strong enough here. */
 export function mountBlock(st, item, terrain, bus, simTimeMs) {
+  /* Trees AND driven ground anchors, from one list — Milestone 6. The block does not care which
+   * it is mounted to; what differs is what the thing is rated for, and that is the anchor's
+   * business (src/recovery/anchors.js). Reach is per kind: a tree is something you sling round,
+   * a plate anchor is something you shackle to. */
   let best = null, bestD = Infinity;
-  for (const t of terrain.trees) {
-    const d = Math.hypot(t.x - item.x, t.y - item.y) - t.r;
-    if (d < bestD) { bestD = d; best = t; }
+  for (const a of anchorPoints(st)) {
+    const reach = a.kind === 'tree'
+      ? CONFIG.gear.snatchBlock.anchorReachM : CONFIG.gear.groundAnchor.reachM;
+    const d = Math.hypot(a.x - item.x, a.y - item.y) - a.r;
+    if (d <= reach && d < bestD) { bestD = d; best = a; }
   }
-  if (!best || bestD > CONFIG.gear.snatchBlock.anchorReachM) return null;
+  if (!best) return null;
 
   // Sit it against the trunk on the side it was carried from, so the line clears the tree.
   const dir = unit(item.x - best.x, item.y - best.y);
@@ -236,23 +244,25 @@ export function mountBlock(st, item, terrain, bus, simTimeMs) {
 
 export function unmountBlock(st, item, bus, simTimeMs) {
   item.attachedTo = null;
-  if (st.winch.blockId === item.id) st.winch.blockId = null;
+  // Every drum, because more than one line can be routed through the same block.
+  for (const w of drumsOf(st)) if (w.blockId === item.id) w.blockId = null;
   bus.emit(EVENTS.BLOCK_REMOVED, { gear: item.id }, simTimeMs);
 }
 
 /** Route the line through a mounted block, or take it back out. The routing is a decision,
  *  not an automatic consequence of the block existing. */
-export function routeThroughBlock(st, item, bus, simTimeMs) {
+export function routeThroughBlock(st, item, bus, simTimeMs, winch = null) {
   if (!item || !item.attachedTo) return false;
-  st.winch.blockId = item.id;
+  (winch || st.winch).blockId = item.id;
   bus.emit(EVENTS.CABLE_ROUTED, { gear: item.id, anchor: item.attachedTo }, simTimeMs);
   return true;
 }
 
-export function unrouteBlock(st, bus, simTimeMs) {
-  if (!st.winch.blockId) return false;
-  const was = st.winch.blockId;
-  st.winch.blockId = null;
+export function unrouteBlock(st, bus, simTimeMs, winch = null) {
+  const w = winch || st.winch;
+  if (!w.blockId) return false;
+  const was = w.blockId;
+  w.blockId = null;
   bus.emit(EVENTS.CABLE_ROUTED, { gear: was, anchor: null, removed: true }, simTimeMs);
   return true;
 }
@@ -273,13 +283,19 @@ export function pumpJack(st, item, dtSec, bus, simTimeMs) {
 
 /** What the context key would do if pressed right now, as a label and a verb. The HUD shows
  *  the label; src/player/player.js performs the verb. One source of truth for both. */
-export function contextFor(st, terrain, px, py, carried) {
+export function contextFor(st, terrain, px, py, carried, winch = null) {
+  const activeWinch = winch || st.winch;
   if (carried) {
     const def = gearDef(carried.kind);
     if (def.use === USE.MOUNT) {
-      for (const t of terrain.trees) {
-        if (Math.hypot(t.x - px, t.y - py) - t.r <= CONFIG.gear.snatchBlock.anchorReachM) {
-          return { verb: USE.MOUNT, label: `secure the ${def.label} to the tree`, target: t };
+      /* Trees AND driven ground anchors (Milestone 6) — the same list mountBlock uses, so the
+       * prompt and the action cannot disagree about what counts as somewhere to hang a block. */
+      for (const a of anchorPoints(st)) {
+        const reach = a.kind === 'tree'
+          ? CONFIG.gear.snatchBlock.anchorReachM : CONFIG.gear.groundAnchor.reachM;
+        if (Math.hypot(a.x - px, a.y - py) - a.r <= reach) {
+          const what = a.kind === 'tree' ? 'tree' : 'ground anchor';
+          return { verb: USE.MOUNT, label: `secure the ${def.label} to the ${what}`, target: a.ref };
         }
       }
     }
@@ -296,7 +312,7 @@ export function contextFor(st, terrain, px, py, carried) {
       const near = vehicleNear(st, g.item.x, g.item.y, CONFIG.gear.jack.reachM);
       if (near) return { verb: USE.OPERATE, label: `pump the jack (${g.item.liftStep}/${CONFIG.gear.jack.liftSteps})`, target: g.item };
     }
-    if (g.item.kind === 'snatchBlock' && g.item.attachedTo && st.winch.blockId !== g.item.id) {
+    if (g.item.kind === 'snatchBlock' && g.item.attachedTo && activeWinch.blockId !== g.item.id) {
       return { verb: 'route', label: 'run the line through the block', target: g.item };
     }
     return { verb: 'pickup', label: `pick up the ${def.label}`, target: g.item };

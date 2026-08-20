@@ -276,3 +276,7 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .linky:hover{color:var(--paper)}
 .county-n{fill:#7d8a9a;font-weight:400}
 .county-road.spur{stroke-dasharray:1 4;opacity:.7}
+
+/* The heavy wrecker: the other drum, the legs, the boom. Hidden until there is one. */
+.rig-line{display:none;font-size:10.5px;color:#8fb0c0;letter-spacing:.02em;margin:2px 0 0}
+.rig-line.on{display:block}

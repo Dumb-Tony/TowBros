@@ -16,11 +16,11 @@ import { EVENTS } from '../core/eventBus.js';
 import { createTerrain, siteById } from '../data/terrain.js';
 import { weatherById } from './weather.js';
 import { createTraffic } from './traffic.js';
-import { SEDAN_DEF, TRUCK_DEF } from '../data/vehicles.js';
+import { SEDAN_DEF, TRUCK_DEF, casualtyDefById, truckDefById } from '../data/vehicles.js';
 import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
 import { buildScenery } from '../sim/collision.js';
-import { createWinch } from '../recovery/cable.js';
+import { createWinch, drumsOf } from '../recovery/cable.js';
 import { createLift, LIFT } from '../recovery/lift.js';
 import { createCrewMember } from '../player/player.js';
 
@@ -63,8 +63,17 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
     locked.push(rng.chance(0.5) ? 'wheelFL' : 'wheelFR');
   }
 
-  const boggedN = (CONFIG.sedan.boggedBaseN + rng.spread(CONFIG.sedan.boggedRangeN))
-    * (mods.boggedMul || 1);
+  /* WHAT went off the road (Milestone 6). The sedan keeps its own authored numbers to the last
+   * decimal — four suites measure them — and anything bigger is bogged in per tonne, because how
+   * far in a nose is buried is a fact about the ground and the weight rather than about the model.
+   * Both branches draw exactly one number from the stream, so the seeded layout does not shift. */
+  const casualtyDef = casualtyDefById(job && job.casualtyId);
+  const tonnes = casualtyDef.massKg / 1000;
+  const boggedN = (casualtyDef === SEDAN_DEF
+    ? CONFIG.sedan.boggedBaseN + rng.spread(CONFIG.sedan.boggedRangeN)
+    : CONFIG.bigCasualty.boggedPerTonneN * tonnes
+      + rng.spread(CONFIG.bigCasualty.boggedRangePerTonneN * tonnes)
+  ) * (mods.boggedMul || 1);
 
   /* How it is lying. The single biggest source of variety between jobs, so a dispatch offer is
    * allowed to widen it — an "awkward lie" is a car across the slope, where the straight pull is
@@ -74,8 +83,18 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   if (extraSpread > 0) lieAnchor.angle += rng.spread(extraSpread);
   if (mods.lieBias) lieAnchor.angle += mods.lieBias;
 
-  const sedan = createVehicle(SEDAN_DEF, lieAnchor, { boggedN, lockedWheels: locked });
-  const truck = createVehicle(TRUCK_DEF, terrain.anchors.truck, {});
+  // `id: 'sedan'` is the SLOT, not the type — see createVehicle. A box truck in the ditch is still
+  // st.vehicles.sedan, and winch.targetId still says 'sedan', which is what keeps four milestones
+  // of code and a network protocol from having to care what turned up.
+  const sedan = createVehicle(casualtyDef, lieAnchor, { boggedN, lockedWheels: locked, id: 'sedan' });
+  /* WHICH wrecker turned out (Milestone 6). `id: 'truck'` for the same reason the casualty slot
+   * keeps its name: everything that names the recovery vehicle means the slot. */
+  const truckDef = truckDefById(job && job.truckId);
+  const truck = createVehicle(truckDef, terrain.anchors.truck, { id: 'truck' });
+  if (truckDef.outriggers) {
+    truck.outriggers = { down: false, deployMs: 0, frac: 0 };
+  }
+  if (truckDef.boom) truck.boomRad = 0;
 
   /* What the outfit's own truck is like. Milestone 4: a neglected wrecker is a worse wrecker, and
    * these are the only three places that fact reaches the physics. Defaults of 1 mean a game with
@@ -100,6 +119,18 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   // Baseline it, so the payout charges for what the RECOVERY did and not for the crash.
   sedan.damage.arrived = { dents: sedan.damage.dents, parts: { ...sedan.damage.parts } };
 
+  /* One winch object per drum the truck has. The heavy wrecker's drums are rated on the machine
+   * rather than in CONFIG.winch, which is where a light wrecker's numbers live and stay. */
+  const winches = (truckDef.drums || [{ id: 'A', label: 'the drum', local: truckDef.winchLocal }])
+    .map((d) => {
+      const w = createWinch(eff ? eff.cableMul : 1, d);
+      if (truckDef.heavy) {
+        w.motorMaxN = CONFIG.heavy.motorMaxN;
+        w.cableBreakN = CONFIG.heavy.cableBreakN;
+      }
+      return w;
+    });
+
   const gear = createGearPile(terrain.anchors.gearPile, rng, job && job.loadout);
 
   // The crew. GDD §7 Milestone 2 puts two to four of them on site; they arrive together, spread
@@ -117,9 +148,18 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
     terrain,
     scenery: buildScenery(terrain),
     vehicles: { truck, sedan },
+    /** What the casualty is, when it is not a sedan. `vehicles.sedan` is the CASUALTY SLOT and
+     *  has been since Milestone 1; from Milestone 6 the thing in it may be a van or a box truck.
+     *  Renaming the key would rewrite four suites and every id on the wire for no gain, so the
+     *  slot keeps its name and this says what is actually in it. */
+    casualtyId: casualtyDef.id,
     gear,
     crew,
-    winch: createWinch(eff ? eff.cableMul : 1),
+    /* The drums. One on a light wrecker, two on the heavy — and `winch` is a plain reference to
+     * the first of them, not a copy, so five milestones of code that says `st.winch` goes on
+     * meaning the primary drum and goes on working unchanged. */
+    winches,
+    winch: winches[0],
     /* A live carriageway (Milestone 5). Absent when a job says so, because the yard's own approach
      * road is not the A-road and a test that does not care should not have to step it. */
     traffic: (job && job.traffic === false) ? null : createTraffic(),
@@ -360,14 +400,15 @@ export function stepEscalation(st, bus, simTimeMs) {
 
   // Slipping means: nobody is driving it, and it is moving anyway.
   const driven = truck.occupied && (truck.throttle !== 0);
-  const slipping = !driven && b.speed > 0.45 && st.winch.tensionN > 4000;
+  const pulling = Math.max(...drumsOf(st).map((w) => w.tensionN), 0);
+  const slipping = !driven && b.speed > 0.45 && pulling > 4000;
   if (slipping) e.worstTruckSlipMps = Math.max(e.worstTruckSlipMps, b.speed);
 
   if (slipping && !e.truckSlipping && simTimeMs - e._saidMs > 2500) {
     e._saidMs = simTimeMs;
     bus.emit(EVENTS.TRUCK_SLIPPING, {
       speed: Math.round(b.speed * 100) / 100,
-      tensionN: Math.round(st.winch.tensionN),
+      tensionN: Math.round(pulling),
       surface: st.terrain.surfaceAt(b.x, b.y).id,
     }, simTimeMs);
   }

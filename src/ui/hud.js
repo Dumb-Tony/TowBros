@@ -20,7 +20,8 @@
 
 import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
-import { describeWinch, WINCH } from '../recovery/cable.js';
+import { describeWinch, WINCH, drumsOf } from '../recovery/cable.js';
+import { describeRig } from '../recovery/rig.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
 import { seatOf, holdsHook, carriedItem } from '../player/player.js';
@@ -116,6 +117,7 @@ export class Hud {
       tension: root.querySelector('.tension-val'),
       lineOut: root.querySelector('.line-val'),
       winchState: root.querySelector('.winch-state'),
+      rig: root.querySelector('.rig-line'),
       clock: root.querySelector('.hud-time'),
 
       bottom: root.querySelector('.hud-bottom'),
@@ -242,28 +244,52 @@ export class Hud {
 
     if (!playing) return;
 
-    const w = describeWinch(st.winch);
-    const frac = st.winch.tensionFrac;
+    /* The gauge shows the BUSIEST drum. On a light wrecker that is the only one; on the heavy it
+     * is whichever line is closest to its limit, which is the one worth looking at. The second
+     * drum gets a line of its own below rather than a second gauge — two gauges side by side is
+     * twice the furniture for a number the player only needs when it matters. */
+    const drums = drumsOf(st);
+    const busiest = drums.reduce((a, b) => (b.tensionFrac > a.tensionFrac ? b : a), drums[0]);
+    const w = describeWinch(busiest);
+    const frac = busiest.tensionFrac;
 
-    this._set(this.el.tension, `${(st.winch.tensionN / 1000).toFixed(1)} kN`);
+    this._set(this.el.tension, `${(busiest.tensionN / 1000).toFixed(1)} kN`);
     this.el.gaugeFill.style.width = `${(clamp01(frac) * 100).toFixed(1)}%`;
     this.el.gauge.dataset.level = w.level;
     this._set(this.el.lineOut, `${w.lineM.toFixed(1)} m out`);
 
     let ws = 'hook stowed';
-    if (st.winch.state === WINCH.HELD) ws = 'carrying the hook';
-    else if (st.winch.state === WINCH.LOOSE) ws = 'hook on the ground';
-    else if (st.winch.state === WINCH.ATTACHED) {
+    if (busiest.state === WINCH.HELD) ws = 'carrying the hook';
+    else if (busiest.state === WINCH.LOOSE) ws = 'hook on the ground';
+    else if (busiest.state === WINCH.ATTACHED) {
       ws = `rigged: ${w.zoneId}${w.rig !== 'bare' ? ` / ${w.rig}` : ''}${w.throughBlock ? ' / through block' : ''}`;
     }
+    if (drums.length > 1) ws = `${busiest.drumLabel}: ${ws}`;
     // "Blocked" and "stalled" are different facts and the player needs the difference: one means
     // the load has nowhere left to go, the other means the motor cannot beat it. Both stop the
     // drum, and only one of them is worth pulling harder at.
-    if (st.winch.contested) ws += " — TWO HANDS ON THE DRUM";
-    else if (st.winch.blocked) ws += " — AGAINST THE TRUCK";
-    else if (st.winch.stalled) ws += " — STALLED";
+    if (busiest.contested) ws += " — TWO HANDS ON THE DRUM";
+    else if (busiest.blocked) ws += " — AGAINST THE TRUCK";
+    else if (busiest.stalled) ws += " — STALLED";
     this._set(this.el.winchState, ws);
-    this.el.winchState.classList.toggle("stalled", st.winch.stalled || st.winch.blocked || st.winch.contested);
+    this.el.winchState.classList.toggle("stalled", busiest.stalled || busiest.blocked || busiest.contested);
+
+    /* The other drum, and the legs, when there is a machine that has them (Milestone 6). Facts
+     * only: what the second line is doing and whether the truck is standing on its outriggers. */
+    if (this.el.rig) {
+      const truck = st.vehicles.truck;
+      const bits = [];
+      for (const d of drums) {
+        if (d === busiest) continue;
+        bits.push(`${d.drumLabel}: ${d.state === WINCH.ATTACHED
+          ? `${(d.tensionN / 1000).toFixed(1)} kN` : d.state}`);
+      }
+      const rig = describeRig(truck);
+      if (rig && rig.outriggers) bits.push(`legs ${rig.outriggers}`);
+      if (rig && rig.boomDeg !== null && rig.boomDeg !== 0) bits.push(`boom ${rig.boomDeg}°`);
+      this._set(this.el.rig, bits.join('  ·  '));
+      this.el.rig.classList.toggle('on', bits.length > 0);
+    }
 
 
     this._set(this.el.clock, GameClock.formatMs(st.simTimeMs));
@@ -503,6 +529,7 @@ const TEMPLATE = `
         <div class="gauge-fill"></div>
         <div class="gauge-warn"></div>
       </div>
+      <div class="rig-line"></div>
       <div class="winch-nums"><span class="tension-val">0.0 kN</span><span class="line-val">0.5 m out</span></div>
     </div>
   </div>

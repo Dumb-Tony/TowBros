@@ -41,6 +41,11 @@ export const ACTIONS = Object.freeze([
   'moveUp', 'moveDown', 'moveLeft', 'moveRight',
   'context', 'inspect', 'detach', 'enterExit', 'brake',
   'winchIn', 'winchOut',
+  /* Milestone 6, appended: the heavy wrecker's own machinery. Two slew keys and a leg toggle,
+   * on the same tier as winchIn/winchOut — machine controls rather than the one contextual
+   * verb, which is what those two have always been. Appended, never inserted: the index IS
+   * the bit and a joining peer from an older build must not read a different action. */
+  'slewLeft', 'slewRight', 'outriggers',
 ]);
 
 const BIT = Object.freeze(ACTIONS.reduce((m, a, i) => (m[a] = 1 << i, m), {}));
@@ -106,6 +111,11 @@ export class CommandInput {
     let y = (this.isDown('moveDown') ? 1 : 0) - (this.isDown('moveUp') ? 1 : 0);
     if (x && y) { const inv = Math.SQRT1_2; x *= inv; y *= inv; }
     return { x, y };
+  }
+
+  /** The boom, over the wire like everything else. Milestone 6. */
+  slewAxis() {
+    return (this.isDown('slewRight') ? 1 : 0) - (this.isDown('slewLeft') ? 1 : 0);
   }
 
   /** And the same refusal to normalise driving: W+D is full throttle AND full lock. */

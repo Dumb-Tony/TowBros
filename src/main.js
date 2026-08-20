@@ -17,7 +17,7 @@ import { Renderer } from './render/renderer.js';
 import { Audio } from './render/audio.js';
 import { Hud } from './ui/hud.js';
 import { DebugOverlay } from './dev/debugOverlay.js';
-import { WINCH } from './recovery/cable.js';
+import { WINCH, drumsOf } from './recovery/cable.js';
 import { seatOf } from './player/player.js';
 import { CommandLink, LoopbackTransport } from './net/commands.js';
 import { NetSession, NET } from './net/session.js';
@@ -148,7 +148,8 @@ game.bus.on(EVENTS.JOB_DELIVERED, () => {
   const st = game.state;
   const result = settleJob(company, recap, {
     impactsNs: st.fx.peakImpulse || 0,
-    peakTensionN: st.winch.peakTensionN || 0,
+    // The hardest-worked drum decides the service interval — Milestone 6 put two on the heavy.
+    peakTensionN: Math.max(...drumsOf(st).map((w) => w.peakTensionN || 0), 0),
     cableSnaps: game.bus.count(EVENTS.CABLE_SNAPPED),
     // Gear destroyed rather than merely left lying about: what was strapped to a load that came off.
     gearLost: [],
@@ -293,16 +294,18 @@ function frame(now) {
     mx /= st.crew.length; my /= st.crew.length;
     cx += (mx - cx) * 0.35; cy += (my - cy) * 0.35;
   }
-  if (st.winch.state === WINCH.ATTACHED && st.winch.tensionFrac > 0.04) {
+  // The busiest line pulls the camera toward the casualty. Any drum, whichever is loaded hardest.
+  const busiest = drumsOf(st).reduce((a, b) => (b.tensionFrac > a.tensionFrac ? b : a), st.winch);
+  if (busiest.state === WINCH.ATTACHED && busiest.tensionFrac > 0.04) {
     const s = st.vehicles.sedan.body;
-    const k = Math.min(0.42, st.winch.tensionFrac * 0.9);
+    const k = Math.min(0.42, busiest.tensionFrac * 0.9);
     cx += (s.x - cx) * k; cy += (s.y - cy) * k;
   }
   camera.follow(cx, cy, dtSec);
 
   // Showing where the attachment zones are only while the hook is in hand keeps the car clean
   // to look at the rest of the time. Anybody's hand, not just the local player's.
-  renderer.showZones = st.winch.heldBy !== null || st.winch.state === WINCH.LOOSE;
+  renderer.showZones = drumsOf(st).some((w) => w.heldBy !== null || w.state === WINCH.LOOSE);
 
   renderer.render(st, dtSec);
   hud.update();

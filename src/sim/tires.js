@@ -153,9 +153,11 @@ export function applyWheelForces(veh, terrain, dtSec) {
     if (w.drive && veh.throttle !== 0) {
       const thr = veh.throttle * (veh.throttle > 0 ? govMul : 1);
       // driveMul is the company's truck condition (meta/company.js), 1 for a game without one.
+      // From the DEFINITION, not from CONFIG keyed by "is it a truck": Milestone 6 has two
+      // wreckers and the heavy one pulls 27 kN where the light one pulls 16.
       long += thr > 0
-        ? thr * (CONFIG.truck.driveForceN * veh.driveMul / nDriven)
-        : thr * (CONFIG.truck.reverseForceN * veh.driveMul / nDriven);
+        ? thr * ((veh.def.driveForceN || CONFIG.truck.driveForceN) * veh.driveMul / nDriven)
+        : thr * ((veh.def.reverseForceN || CONFIG.truck.reverseForceN) * veh.driveMul / nDriven);
     }
 
     // How much this wheel is willing to resist rolling. A missing wheel is not a wheel: the
@@ -166,9 +168,11 @@ export function applyWheelForces(veh, terrain, dtSec) {
     } else {
       const rolling = surf.crr * N * ws.dragMul * veh.dragMul;
       const locked = ws.locked || (w.park && veh.parkBrake) || veh.brakeInput > 0;
+      const brakeN = veh.def.brakeForceN || (veh.def.driven ? CONFIG.truck.brakeForceN : CONFIG.sedan.brakeForceN);
+      const parkN = veh.def.parkBrakeForceN || (veh.def.driven ? CONFIG.truck.parkBrakeForceN : CONFIG.sedan.brakeForceN);
       const brake = veh.brakeInput > 0
-        ? veh.brakeInput * (veh.def.driven ? CONFIG.truck.brakeForceN * veh.brakeMul : CONFIG.sedan.brakeForceN) / n
-        : (veh.def.driven ? CONFIG.truck.parkBrakeForceN : CONFIG.sedan.brakeForceN) / n;
+        ? veh.brakeInput * (veh.def.driven ? brakeN * veh.brakeMul : brakeN) / n
+        : parkN / n;
       resistAvail = locked ? Math.max(rolling, brake) : rolling;
     }
 

@@ -22,7 +22,7 @@
  */
 
 import { CONFIG } from '../config.js';
-import { WINCH, cablePath, fairleadPos, hookPos } from '../recovery/cable.js';
+import { WINCH, cablePath, fairleadPos, hookPos, drumsOf } from '../recovery/cable.js';
 import { clamp, clamp01, lerp, unit, norm } from '../core/vec.js';
 import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
@@ -413,12 +413,14 @@ export class Renderer {
     // The sedan first: when the truck slides into it, the truck should be on top.
     this._drawVehicle(ctx, st, st.vehicles.sedan);
     this._drawLift(ctx, st);              // under the truck: the yoke goes below the tail
+    this._drawOutriggers(ctx, st);        // legs go down onto the ground, so under the truck too
     this._drawVehicle(ctx, st, st.vehicles.truck);
+    this._drawBoom(ctx, st);              // and the boom is on top of it
 
     this._drawTraffic(ctx, st);             // on the road, under the recovery vehicles
     this._drawBoulders(ctx, st.terrain);    // on the ground, so vehicles sit in front of them
     this._drawTrees(ctx, st.terrain);       // canopies overhang everything on the ground
-    this._drawCable(ctx, st);
+    this._drawCables(ctx, st);
     this._drawCrew(ctx, st);
     this._spawnTireFx(st, dtSec);
     this._drawParticles(ctx, dtSec);
@@ -618,6 +620,28 @@ export class Renderer {
 
   _drawTrees(ctx, terrain) {
     for (const t of terrain.trees) {
+      /* Uprooted (Milestone 6). It is lying across the slope with its rootplate in the air, and it
+       * has to LOOK different, because the player needs to know at a glance that the anchor they
+       * were rigged to is gone — the cable snapping back is the other half of that message. */
+      if (t.fallen) {
+        const R = t.canopy;
+        const a = ((t.x * 37 + t.y * 11) % 6.283);
+        ctx.save();
+        ctx.translate(t.x, t.y);
+        ctx.rotate(a);
+        ctx.fillStyle = 'rgba(4,6,10,0.26)';
+        ctx.beginPath();
+        ctx.ellipse(0.18, 0.18, R * 1.05, t.r * 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = shadeHex('#6b5636', 0.95);      // the trunk, on its side
+        rect(ctx, -t.r, -t.r * 0.9, R * 1.7, t.r * 1.8, true);
+        ctx.fillStyle = shadeHex('#2f4a26', 0.9);       // what is left of the canopy
+        ctx.beginPath(); ctx.ellipse(R * 1.5, 0, R * 0.62, R * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = shadeHex('#5a4a30', 1.02);      // the rootplate, standing up out of the hole
+        ctx.beginPath(); ctx.arc(-t.r * 0.6, 0, t.r * 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        continue;
+      }
       const R = t.canopy;
       // Cast shadow, thrown away from the light.
       ctx.fillStyle = 'rgba(4,6,10,0.30)';
@@ -677,6 +701,20 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(0, 0, R * 0.66, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = def.tint;
         ctx.beginPath(); ctx.arc(0, 0, R * 0.38, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        continue;
+      }
+
+      if (item.kind === 'groundAnchor') {
+        // A plate with a shackle eye. Driven in, it gets the same mounted ring the block gets,
+        // so "this is an anchor point" is one visual language wherever it comes from.
+        rect(ctx, -def.sizeM.x / 2, -def.sizeM.y / 2, def.sizeM.x, def.sizeM.y, true);
+        ctx.fillStyle = '#3a4250';
+        ctx.beginPath(); ctx.arc(def.sizeM.x / 2 - 0.07, 0, 0.075, 0, Math.PI * 2); ctx.fill();
+        if (item.placed) {
+          ctx.strokeStyle = '#cfd6de'; ctx.lineWidth = 0.05;
+          ctx.beginPath(); ctx.arc(0, 0, def.sizeM.x / 2 + 0.10, 0, Math.PI * 2); ctx.stroke();
+        }
         ctx.restore();
         continue;
       }
@@ -965,11 +1003,65 @@ export class Renderer {
     }
   }
 
-  _drawCable(ctx, st) {
-    const w = st.winch;
+  /**
+   * The heavy wrecker's legs (Milestone 6).
+   *
+   * Drawn part-way out while they are deploying, because the two and a half seconds they take is
+   * a real cost the player is paying and it should be visible rather than instantaneous.
+   */
+  _drawOutriggers(ctx, st) {
+    const truck = st.vehicles.truck;
+    if (!truck.outriggers || !truck.def.outriggers) return;
+    const f = truck.outriggers.frac;
+    if (f <= 0.001) return;
+
+    for (const o of truck.def.outriggers) {
+      const inner = truck.body.toWorld(o.local.x, o.local.y * 0.55);
+      const outer = truck.body.toWorld(o.local.x, o.local.y * (1 + 0.55 * f));
+      // The beam.
+      ctx.strokeStyle = shadeHex('#6a6f7a', 1.0);
+      ctx.lineWidth = 0.26;
+      ctx.lineCap = 'butt';
+      line(ctx, inner.x, inner.y, outer.x, outer.y);
+      // The pad, and its shadow, which is what says it is ON the ground.
+      ctx.fillStyle = 'rgba(4,6,10,0.32)';
+      ctx.beginPath(); ctx.arc(outer.x + 0.08, outer.y + 0.10, 0.34, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = shadeHex(f >= 1 ? '#d8b13c' : '#8a8f99', 1.0);
+      ctx.beginPath(); ctx.arc(outer.x, outer.y, 0.30, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  /** The boom the drums sit on, drawn where it is actually pointing. */
+  _drawBoom(ctx, st) {
+    const truck = st.vehicles.truck;
+    if (!truck.def.boom) return;
+    const px = CONFIG.heavy.boomPivotX;
+    const pivot = truck.body.toWorld(px, 0);
+    const a = truck.body.angle + (truck.boomRad || 0);
+    const len = CONFIG.heavy.boomLengthM;
+    const tip = { x: pivot.x + Math.cos(a) * -len, y: pivot.y + Math.sin(a) * -len };
+
+    ctx.strokeStyle = 'rgba(4,6,10,0.30)';
+    ctx.lineWidth = 0.52;
+    ctx.lineCap = 'round';
+    line(ctx, pivot.x + 0.09, pivot.y + 0.11, tip.x + 0.09, tip.y + 0.11);
+    ctx.strokeStyle = shadeHex('#c8a13a', 1.0);
+    ctx.lineWidth = 0.44;
+    line(ctx, pivot.x, pivot.y, tip.x, tip.y);
+    ctx.fillStyle = shadeHex('#4a4f59', 1.0);
+    ctx.beginPath(); ctx.arc(pivot.x, pivot.y, 0.30, 0, Math.PI * 2); ctx.fill();
+  }
+
+  /** Every drum on the truck. One on a light wrecker, two on the heavy — Milestone 6. */
+  _drawCables(ctx, st) {
+    for (const w of drumsOf(st)) this._drawCable(ctx, st, w);
+  }
+
+  _drawCable(ctx, st, winch = null) {
+    const w = winch || st.winch;
     const truck = st.vehicles.truck;
     if (w.state === WINCH.STOWED) {
-      const fl = fairleadPos(truck);
+      const fl = fairleadPos(truck, w);
       this._lastHook = fl;
       this._drawHook(ctx, fl.x, fl.y, truck.body.angle);
       return;

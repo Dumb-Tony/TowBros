@@ -25,7 +25,7 @@ import { clamp, unit } from '../core/vec.js';
 import { closestOnBox } from '../sim/collision.js';
 import { nearestZone } from '../data/vehicles.js';
 import { applyDriverInput, releaseDriverInput, describeVehicle } from '../sim/vehicle.js';
-import { WINCH, fairleadPos, hookPos, cablePath, pathLength } from '../recovery/cable.js';
+import { WINCH, fairleadPos, hookPos, cablePath, pathLength, drumsOf } from '../recovery/cable.js';
 import { attachHook, detachHook, rigZone, zoneCapacityN } from '../recovery/attach.js';
 import {
   LIFT, yokePos, liftTarget, extendLift, stowLift, engageLift, releaseLift, strapLoad,
@@ -37,6 +37,7 @@ import { gearDef, USE } from '../data/equipment.js';
 import {
   claimHook, releaseHook, claimGear, releaseGear, claimSeat, releaseSeat, seatFree,
 } from '../crew/authority.js';
+import { toggleOutriggers } from '../recovery/rig.js';
 
 /** Crew colours, so four people on one screen are four people and not four identical dots. */
 const CREW_TINT = ['#e0a33c', '#4fb0d8', '#9ad14a', '#d87ac0'];
@@ -68,8 +69,57 @@ export function createCrewMember(id, seat, spawn, name = null) {
 
 /* ── who owns what, asked rather than stored ───────────────────────────────── */
 
-/** Is this member carrying the winch hook? */
-export const holdsHook = (st, p) => st.winch.heldBy === p.id;
+/** Is this member carrying a winch hook? */
+export const holdsHook = (st, p) => !!heldDrum(st, p);
+
+/** WHICH drum's hook they are carrying, or null. One drum on a light wrecker; the heavy has two. */
+export function heldDrum(st, p) {
+  for (const w of drumsOf(st)) if (w.heldBy === p.id) return w;
+  return null;
+}
+
+/**
+ * The drum this crew member is working.
+ *
+ * The hook in their hands if they have one; otherwise the drum they last had hold of; otherwise
+ * the primary. It is a PREFERENCE and not ownership — ownership stays on the object, in
+ * `winch.heldBy`, the way it has since Milestone 2 — and it exists because two drums means the
+ * winch keys have to mean one of them. "The drum you were last working" is what an operator would
+ * say and it is one field.
+ */
+export function drumFor(st, p) {
+  const held = heldDrum(st, p);
+  if (held) return held;
+  const drums = drumsOf(st);
+  if (p.drumId) {
+    const w = drums.find((d) => d.drumId === p.drumId);
+    if (w) return w;
+  }
+  return drums[0];
+}
+
+/** The nearest drum whose hook is still on it, for the context prompt at the back of the truck. */
+export function nearestStowedDrum(st, p) {
+  let best = null, bestD = Infinity;
+  for (const w of drumsOf(st)) {
+    if (w.state !== WINCH.STOWED) continue;
+    const fl = fairleadPos(st.vehicles.truck, w);
+    const d = Math.hypot(p.x - fl.x, p.y - fl.y);
+    if (d < bestD) { bestD = d; best = w; }
+  }
+  return best ? { winch: best, dist: bestD } : null;
+}
+
+/** The nearest loose hook lying on the ground, for the same prompt. */
+export function nearestLooseDrum(st, p) {
+  let best = null, bestD = Infinity;
+  for (const w of drumsOf(st)) {
+    if (w.state !== WINCH.LOOSE) continue;
+    const d = Math.hypot(p.x - w.hook.x, p.y - w.hook.y);
+    if (d < bestD) { bestD = d; best = w; }
+  }
+  return best ? { winch: best, dist: bestD } : null;
+}
 
 /** The vehicle this member is sitting in, or null. */
 export function seatOf(st, p) {
@@ -252,8 +302,8 @@ function brakeReachable(st, p) {
  * travelled. Without it, `lineM` while carrying is fiction, and the moment the hook goes on the
  * cable spring sees metres of stretch it did not earn and parts a 42 kN line on the first step.
  */
-function carryHook(st, p, terrain, dtSec) {
-  const w = st.winch;
+function carryHook(st, p, terrain, dtSec, winch = null) {
+  const w = winch || st.winch;
   const off = CONFIG.player.hookCarryOffsetM;
   w.hook.x = p.x + Math.cos(p.facing) * off;
   w.hook.y = p.y + Math.sin(p.facing) * off;
@@ -372,11 +422,12 @@ function bearing(dx, dy) {
  * pressing E on the same jack in the same step cannot both end up carrying it.
  */
 export function doContext(st, p, terrain, bus, simTimeMs) {
-  const w = st.winch;
   if (seatOf(st, p)) return null;
   if (p.stumbleMs > 0) return null;      // you cannot pick things up off your back
 
-  /* 1 & 2 — the hook */
+  /* 1 & 2 — the hook. THEIR hook: on the heavy wrecker there are two, and which one this means
+   * is whichever they are carrying (Milestone 6, see drumFor). */
+  const w = drumFor(st, p);
   if (holdsHook(st, p)) {
     let best = null;
     for (const id of Object.keys(st.vehicles)) {
@@ -391,11 +442,11 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
         };
         return null;
       }
-      releaseHook(st, p.id, bus, simTimeMs, 'attached');
-      attachHook(st, best.veh, best.zone, bus, simTimeMs);
+      releaseHook(st, p.id, bus, simTimeMs, 'attached', w);
+      attachHook(st, best.veh, best.zone, bus, simTimeMs, w);
       return 'attach';
     }
-    releaseHook(st, p.id, bus, simTimeMs, 'ground');
+    releaseHook(st, p.id, bus, simTimeMs, 'ground', w);
     w.state = WINCH.LOOSE;
     return 'drop-hook';
   }
@@ -456,7 +507,7 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
   if (g) {
     const it = g.item;
     if (it.kind === 'snatchBlock' && it.attachedTo && w.blockId !== it.id) {
-      routeThroughBlock(st, it, bus, simTimeMs);
+      routeThroughBlock(st, it, bus, simTimeMs, w);
       return 'route';
     }
     if (it.kind === 'jack' && it.liftStep < CONFIG.gear.jack.liftSteps) {
@@ -486,8 +537,11 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
     if (t) {
       // A car cannot be picked up with the line still on it: the yoke and the cable would fight
       // over the same body all the way to the yard.
-      if (st.winch.state === WINCH.ATTACHED && st.winch.targetId === t.veh.id) {
-        detachHook(st, bus, simTimeMs, 'player');
+      // Every drum, because on the heavy wrecker two lines can be on the same car.
+      for (const dw of drumsOf(st)) {
+        if (dw.state === WINCH.ATTACHED && dw.targetId === t.veh.id) {
+          detachHook(st, bus, simTimeMs, 'player', dw);
+        }
       }
       engageLift(st, bus, simTimeMs);
       return 'lift-up';
@@ -508,20 +562,23 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
     return brakeTarget.parkBrake ? 'brake-on' : 'brake-off';
   }
 
-  /* 9 — the drum */
-  const truck = st.vehicles.truck;
-  const fl = fairleadPos(truck);
-  const hp = hookPos(w, st.vehicles);
-  const nearDrum = Math.hypot(p.x - fl.x, p.y - fl.y) <= CONFIG.player.reachM + 0.6;
-  const nearHook = Math.hypot(p.x - hp.x, p.y - hp.y) <= CONFIG.player.reachM;
-
-  if (w.state === WINCH.STOWED && nearDrum && claimHook(st, p.id, bus, simTimeMs, 'drum')) {
-    w.state = WINCH.HELD;
+  /* 9 — the drum. The NEAREST one whose hook is available, which on a one-drum truck is the only
+   * one there is and on the heavy is whichever fairlead they happen to be standing at. A loose
+   * hook on the ground beats a stowed one, because walking back to the drum to take the OTHER
+   * line while one is lying at your feet is not what anybody meant to do. */
+  const loose = nearestLooseDrum(st, p);
+  if (loose && loose.dist <= CONFIG.player.reachM
+      && claimHook(st, p.id, bus, simTimeMs, 'ground', loose.winch)) {
+    loose.winch.state = WINCH.HELD;
+    loose.winch.broken = false;
+    p.drumId = loose.winch.drumId;
     return 'take-hook';
   }
-  if (w.state === WINCH.LOOSE && nearHook && claimHook(st, p.id, bus, simTimeMs, 'ground')) {
-    w.state = WINCH.HELD;
-    w.broken = false;
+  const stowed = nearestStowedDrum(st, p);
+  if (stowed && stowed.dist <= CONFIG.player.reachM + 0.6
+      && claimHook(st, p.id, bus, simTimeMs, 'drum', stowed.winch)) {
+    stowed.winch.state = WINCH.HELD;
+    p.drumId = stowed.winch.drumId;
     return 'take-hook';
   }
   return null;
@@ -529,14 +586,18 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
 
 /** The detach key: give back whatever is in hand, in the order it would actually matter. */
 export function doDetach(st, p, bus, simTimeMs) {
-  if (holdsHook(st, p)) {
-    releaseHook(st, p.id, bus, simTimeMs, 'ground');
-    st.winch.state = WINCH.LOOSE;
+  const held = heldDrum(st, p);
+  if (held) {
+    releaseHook(st, p.id, bus, simTimeMs, 'ground', held);
+    held.state = WINCH.LOOSE;
     return 'drop-hook';
   }
-  // Anybody may unhook a rigged line. That is a crew decision, and arguing about it is the game.
-  if (st.winch.state === WINCH.ATTACHED) {
-    detachHook(st, bus, simTimeMs, 'player');
+  /* Anybody may unhook a rigged line. That is a crew decision, and arguing about it is the game.
+   * With two drums it is THEIR drum — the one they were last working — so one person cannot
+   * accidentally unhook the line somebody else is pulling on. */
+  const mine = drumFor(st, p);
+  if (mine.state === WINCH.ATTACHED) {
+    detachHook(st, bus, simTimeMs, 'player', mine);
     return 'detach';
   }
   const item = carriedItem(st, p);
@@ -587,9 +648,10 @@ export function doEnterExit(st, p, bus, simTimeMs) {
   }
 
   // Climbing in with the hook in your hand is not a thing. Put it down first, and say so.
-  if (holdsHook(st, p)) {
-    releaseHook(st, p.id, bus, simTimeMs, 'boarding');
-    st.winch.state = WINCH.LOOSE;
+  const boarding = heldDrum(st, p);
+  if (boarding) {
+    releaseHook(st, p.id, bus, simTimeMs, 'boarding', boarding);
+    boarding.state = WINCH.LOOSE;
   }
   claimSeat(st, target, p.id, bus, simTimeMs);
   return 'enter';
@@ -610,7 +672,9 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
     if (!st.vehicles[id].occupiedBy) releaseDriverInput(st.vehicles[id]);
   }
 
-  let reelIn = false, reelOut = false, sawInput = false;
+  // Per DRUM: the heavy wrecker has two, and two people can work them independently.
+  const reelIn = new Set(), reelOut = new Set();
+  let sawInput = false;
 
   for (const p of st.crew) {
     const input = inputs ? inputs[p.seat] : null;
@@ -619,7 +683,8 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
       p.stumbleMs = Math.max(0, p.stumbleMs - CONFIG.sim.stepMs);
       // Whatever was in their hands is on the ground now. Doing this on the way DOWN rather than
       // on the way up matters: a stumbling crew member must not keep a claim on the hook.
-      if (holdsHook(st, p)) { releaseHook(st, p.id, bus, simTimeMs, 'dropped'); st.winch.state = WINCH.LOOSE; }
+      const dropped = heldDrum(st, p);
+      if (dropped) { releaseHook(st, p.id, bus, simTimeMs, 'dropped', dropped); dropped.state = WINCH.LOOSE; }
       const held = carriedItem(st, p);
       if (held) {
         releaseGear(held, p.id);
@@ -647,7 +712,8 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
       rideAlong(st, p, seated);
     } else {
       walk(st, p, terrain, dtSec, input, bus, simTimeMs);
-      if (holdsHook(st, p)) carryHook(st, p, terrain, dtSec);
+      const carryingHook = heldDrum(st, p);
+      if (carryingHook) carryHook(st, p, terrain, dtSec, carryingHook);
 
       if (p._pumpingGearId) {
         const it = st.gear.find((q) => q.id === p._pumpingGearId);
@@ -661,12 +727,17 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
       }
     }
 
-    // The winch is reachable by ANYONE, at any time — GDD §5. Collected across the crew and
-    // resolved once below.
+    /* The winch is reachable by ANYONE, at any time — GDD §5. Collected PER DRUM across the crew
+     * and resolved once below: with two drums, two people can work two lines at once, and two
+     * people on the SAME drum still fight over it exactly as they always have. */
     if (input) {
       sawInput = true;
-      if (input.isDown('winchIn')) reelIn = true;
-      if (input.isDown('winchOut')) reelOut = true;
+      const mine = drumFor(st, p);
+      if (input.isDown('winchIn')) reelIn.add(mine);
+      if (input.isDown('winchOut')) reelOut.add(mine);
+      // The heavy wrecker's legs. Anyone can put them down; it is a fact about the machine and
+      // not about who is holding what.
+      if (input.wasPressed('outriggers')) toggleOutriggers(st.vehicles.truck, bus, simTimeMs);
     }
 
     const carried = carriedItem(st, p);
@@ -688,13 +759,16 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
    * `winch.motor` itself and steps the world with no inputs — and it is also what a lobby of
    * purely remote members looks like before the first packet arrives. Silently zeroing the drum
    * in either case would be a system asserting a decision nobody made. */
-  if (sawInput) {
-    st.winch.contested = reelIn && reelOut;
-    st.winch.motor = st.winch.contested ? 0 : reelIn ? 1 : reelOut ? -1 : 0;
+  for (const w of drumsOf(st)) {
+    if (sawInput) {
+      const inn = reelIn.has(w), out = reelOut.has(w);
+      w.contested = inn && out;
+      w.motor = w.contested ? 0 : inn ? 1 : out ? -1 : 0;
+    }
+    // The interlock is not an input, so it applies either way: you cannot spin the drum while the
+    // hook is in somebody's hand.
+    if (w.motor !== 0 && w.state === WINCH.HELD) w.motor = 0;
   }
-  // The interlock is not an input, so it applies either way: you cannot spin the drum while the
-  // hook is in somebody's hand.
-  if (st.winch.motor !== 0 && st.winch.state === WINCH.HELD) st.winch.motor = 0;
 }
 
 /** Is this member close enough to a vehicle's body to climb in? Same test doContext/doEnterExit
@@ -709,10 +783,11 @@ function withinDoorReach(veh, p) {
 function hintFor(st, p, terrain, carried) {
   if (p.stumbleMs > 0) return { key: '', label: 'getting up' };
 
-  if (holdsHook(st, p)) {
+  const heldW = heldDrum(st, p);
+  if (heldW) {
     for (const id of Object.keys(st.vehicles)) {
       const v = st.vehicles[id];
-      const nz = nearestZone(v.def, v.body, st.winch.hook.x, st.winch.hook.y, 1.7);
+      const nz = nearestZone(v.def, v.body, heldW.hook.x, heldW.hook.y, 1.7);
       if (nz) return { key: 'E', label: `hook onto the ${nz.zone.label}` };
     }
     return { key: 'E', label: 'set the hook down' };
@@ -741,7 +816,7 @@ function hintFor(st, p, terrain, carried) {
     }
   }
 
-  const ctx = contextFor(st, terrain, p.x, p.y, carried);
+  const ctx = contextFor(st, terrain, p.x, p.y, carried, drumFor(st, p));
   if (ctx) return { key: 'E', label: ctx.label };
 
   /* The casualty's handbrake and the casualty's SEAT are both here now, and they are different
@@ -760,14 +835,18 @@ function hintFor(st, p, terrain, carried) {
     return hint;
   }
 
-  const truck = st.vehicles.truck;
-  const fl = fairleadPos(truck);
-  if (st.winch.state === WINCH.STOWED && Math.hypot(p.x - fl.x, p.y - fl.y) <= CONFIG.player.reachM + 0.6) {
-    return { key: 'E', label: 'take the winch hook' };
-  }
-  const hp = hookPos(st.winch, st.vehicles);
-  if (st.winch.state === WINCH.LOOSE && Math.hypot(p.x - hp.x, p.y - hp.y) <= CONFIG.player.reachM) {
+  /* The drum, mirroring doContext's branch 9 exactly — including that a loose hook at your feet
+   * beats a stowed one at the drum, and that on the heavy wrecker the one you get is the nearest.
+   * The label names WHICH drum when there is more than one, because "take the winch hook" in
+   * front of two of them is not a prompt, it is a guess. */
+  const looseHint = nearestLooseDrum(st, p);
+  if (looseHint && looseHint.dist <= CONFIG.player.reachM) {
     return { key: 'E', label: 'pick the hook back up' };
+  }
+  const stowedHint = nearestStowedDrum(st, p);
+  if (stowedHint && stowedHint.dist <= CONFIG.player.reachM + 0.6) {
+    const many = drumsOf(st).length > 1;
+    return { key: 'E', label: many ? `take ${stowedHint.winch.drumLabel}` : 'take the winch hook' };
   }
   for (const id of ['truck', 'sedan']) {
     const v = st.vehicles[id];

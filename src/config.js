@@ -174,6 +174,7 @@ export const CONFIG = {
 
     gearPrices: {
       strap: 70, chain: 120, chock: 45, cribbing: 30, jack: 260, snatchBlock: 340,
+      cone: 18, groundAnchor: 210,
       default: 90,
     },
   },
@@ -321,6 +322,54 @@ export const CONFIG = {
     steerReturnRad: 3.4,    // self-centring when the wheel is released
   },
 
+  /* ── the heavy wrecker ──────────────────────────────────────────────────────
+   * GDD §7 Milestone 6: "heavy wreckers/rotators, multiple winches and outriggers".
+   *
+   * Not a better tow truck. A DIFFERENT machine, and every number here is chosen so the trade is
+   * visible from the cab:
+   *
+   *   15 t instead of 6.8  it holds against loads the light truck slides under, and it is a barge
+   *                        to place — 9.2 m long, and it will not thread the gap in the rail
+   *   two drums            two people can pull two lines at once, from two fairleads a metre and a
+   *                        half apart, which is a different geometry and not just more force
+   *   outriggers           legs down and it is anchored to the planet; legs down and it cannot
+   *                        move. That is the whole decision
+   *   a slewing boom       the fairleads move, so the pull direction stops being a fact about
+   *                        where you parked
+   *
+   * The light truck is still the right answer for a car in a ditch, because it can get near one.
+   */
+  heavy: {
+    massKg: 15000,
+    lengthM: 9.20, widthM: 2.55,
+    driveForceN: 27000,     // ~0.18 g. Slower than the light truck, and it feels it.
+    reverseForceN: 18000,
+    brakeForceN: 52000,
+    parkBrakeForceN: 60000,
+    maxSteerRad: 0.42,      // a long wheelbase turns like a long wheelbase
+    steerRateRad: 1.7,
+    steerReturnRad: 2.6,
+    /** Per drum. Two of these is 84 kN of line pull, which is what a box truck needs. */
+    motorMaxN: 42000,
+    cableBreakN: 68000,
+    /* Outriggers. Legs on the ground spread the load over four pads instead of four tyres, so the
+     * truck stops caring what its own grip budget is — and it cannot drive a centimetre. */
+    outriggerHoldN: 260000,
+    outriggerSpinResistN: 190000,
+    outriggerDeployMs: 2600,
+    /* The boom. Slew is in the truck's own frame: 0 is straight back over the tail.
+     *
+     * `boomPivotX` is where it turns, and it matters more than it looks: the fairleads swing on an
+     * arc of `fairlead.x - boomPivotX`, so a pivot close to them barely moves them. Measured with
+     * the pivot 0.6 m ahead of the drums, a full 60° slew moved a fairlead 0.94 m and almost all of
+     * it ALONG the truck — which changes the pull direction by nothing worth having. At 2.3 m the
+     * fairleads sweep a real arc and the pull direction genuinely becomes something you steer. */
+    boomPivotX: -2.30,
+    boomLengthM: 2.30,      // how far the fairleads sit behind the pivot
+    boomSlewMaxRad: 1.05,   // ~60° either side
+    boomSlewRateRad: 0.45,  // and it takes about two and a half seconds to reach full lock
+  },
+
   sedan: {
     massKg: 1400,
     lengthM: 4.55, widthM: 1.80,
@@ -336,6 +385,44 @@ export const CONFIG = {
     boggedBaseN: 5200,
     boggedRangeN: 1300,     // ± seeded spread, so no two attempts share the same hump
     boggedFreeM: 0.62,      // e-folding distance: halves every ~0.43 m of travel
+  },
+
+  /* ── the bigger casualties ──────────────────────────────────────────────────
+   * GDD §7 Milestone 6: "large vehicles".
+   *
+   * The point of a heavier casualty is NOT that its numbers are bigger. It is that the numbers the
+   * player already knows stop being enough, all at once and for reasons they can name:
+   *
+   *   downslope pull   scales with mass, so the 6.2 kN the sedan pulls becomes 11.5 for the van
+   *                    and 31.9 for the box truck, against a 26 kN winch stall
+   *   bogged           scales with mass too — the first metre of a 7.2 t truck is a different
+   *                    proposition from the first metre of a hatchback
+   *   the wheel lift   is rated in newtons and always was. A box truck's axle is past it, which is
+   *                    what the heavy wrecker's lift exists for
+   *
+   * So the light wrecker can still recover a van, on a good day and with the block out — and it
+   * cannot get a box truck up the bank at all. That is a fact the player discovers by trying it,
+   * not a lock on a menu.
+   *
+   * `boggedBaseN` is per-tonne here rather than absolute, because "how deep is it in" is a fact
+   * about the ground and the weight, not about the model of vehicle. */
+  bigCasualty: {
+    boggedPerTonneN: 3700,
+    boggedRangePerTonneN: 900,
+  },
+  van: {
+    massKg: 2600,
+    lengthM: 5.40, widthM: 2.00,
+    brakeForceN: 15000,
+    maxSteerRad: 0.54,
+    boggedFreeM: 0.70,
+  },
+  boxTruck: {
+    massKg: 7200,
+    lengthM: 7.40, widthM: 2.42,
+    brakeForceN: 34000,
+    maxSteerRad: 0.44,
+    boggedFreeM: 0.86,      // more of it to drag out, so it frees more slowly
   },
 
   /* ── the winch and its line ─────────────────────────────────────────────── */
@@ -439,6 +526,33 @@ export const CONFIG = {
       anchorReachM: 1.9,    // how close to a tree it must be mounted
       minAngleRad: 0.22,    // a block in a straight line does nothing
     },
+    /* A driven ground anchor. Milestone 6's "richer anchors": a portable anchor point for the
+     * places with no tree worth rigging to. It is not a better tree — a tree holds 52-60 kN and
+     * this holds 22 on the best ground it will bite into — it is an anchor you can carry to where
+     * you need one, which is a different thing. */
+    groundAnchor: {
+      holdN: 22000,         // on ground with an anchorHoldMul of 1 (wet grass)
+      reachM: 1.6,          // how close the block has to be mounted to it
+    },
+  },
+
+  /* ── anchors ────────────────────────────────────────────────────────────────
+   * GDD §4 listed "small/weak anchors can fail" and Milestone 1 deferred it, authoring
+   * `anchorStrengthN` on the trees and reading it nowhere. Milestone 6 turns it on.
+   *
+   * Judged in NEWTON-SECONDS, like the guardrail and the wheel lift before it, for the same
+   * reason: a redirect through a block puts up to 2x the line tension on the anchor and the peak
+   * arrives in single steps. "How hard, and for how long" is the only question that produces a
+   * tree that leans, holds, and then goes over rather than one that snaps at a threshold. */
+  anchors: {
+    /** Accumulated overload before it lets go. A tree at 10 kN over its rating has ~2.4 s. */
+    failNs: 24000,
+    /** How fast the accumulated overload bleeds off once the pull comes back under the rating. */
+    recoverPerSec: 9000,
+    /** Below this fraction of its rating nothing accumulates at all — a loaded anchor is normal. */
+    creepFrac: 1.0,
+    /** What an uprooted tree leaves behind: it stops being an anchor and it stops being solid. */
+    fallenDragMul: 1.0,
   },
 
   /* ── damage ─────────────────────────────────────────────────────────────── */
