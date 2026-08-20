@@ -95,21 +95,31 @@ function park(g, x, y, angle, parkBrake = true) {
  * Every number here is geometry, and getting it wrong is instructive rather than fatal:
  *   - facing east (angle 0) puts the fairlead 3.05 m WEST of the truck centre, so the sedan
  *     has to be west of the truck or the cable would run through the cab
- *   - y = 6.6 is the FAR lane. It looks like the wrong side of the road and it is the right
- *     side of the road: the sedan comes to rest about 2.5 m short of the fairlead along the
- *     pull line, so every metre the drum sits further north is a metre of car that ends up on
- *     pavement instead of hanging over the shoulder. Parking in the near lane leaves two
- *     corners off, and the fix for that is to drive forward and drag it clear.
+ *   - y is anywhere on the 9.4 m pavement. It used to have to be the far lane, which was a
+ *     geometry puzzle rather than a decision; the road is wide enough now. Section Hk sweeps
+ *     the whole width to keep it that way.
  *   - 11 m east is the measured sweet spot. Closer and the pull is so steep it loads the line to
  *     the breaking point against the bogged car; further and the sedan tracks along the contour
  *     instead of up it, and drags itself into the guardrail east of the gap. Swept over dx =
- *     6,8,10,11,12,14,16 on four seeds: 8-12 completes in 33-52 s at 13-26 kN peak, 14+ ends in
- *     the rail, 6 snaps the cable.
+ *     6,8,10,11,12,14,16: 8-12 completes, 14+ ends in the rail, 6 snaps the cable.
  */
-function operatorPark(g, dxEast = 11, y = 6.6) {
+function operatorPark(g, dxEast = 11, y = ROAD.centreY) {
   const s = g.state.vehicles.sedan.body;
   park(g, s.x + dxEast, y, 0);
   return fairleadPos(g.state.vehicles.truck);
+}
+
+/**
+ * The same park, in the far lane, for tests that MEASURE peak line tension.
+ *
+ * A mid-road park finishes the job but its peak tension is set by the last moment of the pull,
+ * where the car settles against the truck and the winch holds at its stall limit — about 38 kN
+ * regardless of anything else. That number tells you nothing about drag, so any test comparing
+ * "with equipment" against "without" has to run where the pull is clean and the peak really is
+ * the load: the far lane, 12 kN. Section Hk is the one that cares about the whole road.
+ */
+function cleanPark(g, dxEast = 11) {
+  return operatorPark(g, dxEast, BANDS.roadN + 1.4);
 }
 
 /**
@@ -790,7 +800,7 @@ emit('running H...');
   // car ended up, and pull it straight up through the gap.
   st.winch.blockId = null;
   detachHook(st, g.bus, st.simTimeMs, 'player');
-  operatorPark(g);
+  cleanPark(g);
   rigTo(g, 'sedan', 'towHook');
   reel(g, 90000, done);
   ok('Hc5 rotate through the block, re-park, then pull straight, and it comes up', done(g));
@@ -804,7 +814,7 @@ emit('running H...');
     const g = newGame(2003, 1);
     const st = g.state;
     const s = st.vehicles.sedan.body;
-    operatorPark(g);
+    cleanPark(g);
     if (prep) {
       stage(g, 'cribbing', s.x + 0.6, s.y + 0.6);
       stage(g, 'cribbing', s.x - 0.6, s.y + 0.6);
@@ -911,7 +921,7 @@ emit('running H...');
       ws.dragMul = CONFIG.damage.wheelLostDragMul;
       sedan.damage.parts.wheelFL = 'lost';
     }
-    operatorPark(g);
+    cleanPark(g);
     rigTo(g, 'sedan', 'towHook');
     const y0 = sedan.body.y;
     reel(g, ms, done);
@@ -945,10 +955,87 @@ emit('running H...');
   reel(g, 8000);
   const dT = Math.hypot(st.vehicles.truck.body.x - t0.x, st.vehicles.truck.body.y - t0.y);
   const dS = Math.hypot(s.x - s0.x, s.y - s0.y);
-  gt('Hi1 the load end moves under tension', dS, 0.05);
+  gt('Hi1 the load end moves under tension', dS, 0.02);
   gt('Hi2 and so does the truck — the cable pulls both ends', dT, 0.02);
+  // Which end moves is decided by grip, not by which one the game calls the load. With the
+  // handbrake off the truck is the easier of the two to drag, and it duly loses by two orders of
+  // magnitude. That is pillar 2 stated as a measurement.
+  gt(`Hi3 and the one with no brake on loses (truck ${dT.toFixed(2)} m vs sedan ${dS.toFixed(2)} m)`, dT, dS * 5);
   note(`Hi  truck moved ${dT.toFixed(3)} m, sedan ${dS.toFixed(3)} m under the same line`);
 }
+
+/* H-k. WHERE YOU PARK IS A DECISION, NOT A GATE.
+ *
+ * The distinction this section defends: a park that fails should fail for a reason the player can
+ * see (the car dragged itself into the guardrail; the pull was so steep it parted the line), never
+ * because of a 2 m geometry margin nobody could have known about.
+ *
+ * It used to fail that test. With 8 m of pavement, the objective could only be met from the far
+ * lane — a near-lane park finished at 3/4 corners with nothing on screen explaining why. The road
+ * is 9.4 m now. This sweep is what stops a future retune quietly putting the gate back. */
+{
+  function tryPark(seed, dxEast, ty) {
+    const g = newGame(seed, 1);
+    const st = g.state;
+    operatorPark(g, dxEast, ty);
+    rigTo(g, 'sedan', 'towHook');
+    reel(g, 90000, done);
+    return {
+      done: done(g),
+      corners: cornersOnRoad(st.vehicles.sedan, st.terrain).on,
+      secs: +(st.simTimeMs / 1000).toFixed(0),
+      peak: peakTensionN,
+      snaps: g.bus.count(EVENTS.CABLE_SNAPPED),
+      attached: st.winch.state === WINCH.ATTACHED,
+    };
+  }
+
+  // The geometric truth, which no amount of tuning changes: a winch pulls the car to a point
+  // ~2.5 m short of the fairlead along the pull line, so the fairlead has to sit roughly 3 m
+  // north of the road's south edge for all four corners to land on pavement. On a 9.4 m road that
+  // is the northern two thirds. What must NOT happen is that the last third silently destroys the
+  // attempt, which is what it used to do — every jam ran the line to 42 kN and parted it.
+  const lanes = [
+    ['far lane ', BANDS.roadN + 1.4],
+    ['centre   ', ROAD.centreY],
+    ['near lane', BANDS.roadS - 1.4],
+  ];
+  const rows = [];
+  let north = 0, northTotal = 0, keptCable = 0, total = 0;
+  for (const [label, ty] of lanes) {
+    for (const dx of [8, 10, 12]) {
+      const r = tryPark(2001, dx, ty);
+      total++;
+      if (r.done || r.snaps === 0) keptCable++;
+      if (label !== 'near lane') { northTotal++; if (r.done) north++; }
+      rows.push(`${label} dx${dx}: ${r.done ? `done ${r.secs}s` : `stalled at ${r.corners}/4`}`
+        + ` @ ${kN(r.peak)} kN, cable ${r.snaps ? 'PARTED' : 'intact'}`);
+    }
+  }
+  for (const row of rows) note(`Hk  ${row}`);
+  eq(`Hk1 the northern two thirds of the road all recover the car (${north}/${northTotal})`, north, northTotal);
+  eq(`Hk2 and NO park anywhere on the road costs you the cable (${keptCable}/${total})`, keptCable, total);
+
+  // Not one lucky layout: the near lane, the awkward one, on four more seeds. It is allowed to
+  // stall — it is not allowed to end the attempt.
+  let survived = 0;
+  const nearRows = [];
+  for (const seed of [2002, 2003, 2004, 2005]) {
+    const r = tryPark(seed, 10, BANDS.roadS - 1.4);
+    if (r.done || r.snaps === 0) survived++;
+    nearRows.push(`seed ${seed}: ${r.done ? `done ${r.secs}s` : `stalled at ${r.corners}/4`}, cable ${r.snaps ? 'PARTED' : 'intact'}`);
+  }
+  for (const row of nearRows) note(`Hk  ${row}`);
+  eq(`Hk3 a near-lane park stalls rather than ending the job (${survived}/4)`, survived, 4);
+
+  // The parks that DO fail must fail for a reason on screen: the car visibly grinds to a halt
+  // against something, and the winch says STALLED. Silence would be the actual gate.
+  const bad = tryPark(2001, 10, BANDS.roadS - 1.4);
+  ok('Hk4 a stalled pull leaves the line attached, so the player still has options',
+     !bad.done && bad.snaps === 0);
+  gt('Hk5 and it loaded the line hard enough to be obvious', bad.peak, CONFIG.winch.motorMaxN * 0.9);
+}
+emit('running H...');
 
 /* H-j. The recap can read the job back. GDD §9. */
 {

@@ -33,13 +33,26 @@ import { clamp, clamp01, smoothstep } from '../core/vec.js';
 export const WORLD = { widthM: 92, heightM: 48 };
 
 /* Band edges in y. These are the scene's skeleton: the surface table, the height field
- * and the renderer all key off the same six numbers. */
+ * and the renderer all key off the same six numbers.
+ *
+ * ── WHY THE PAVEMENT IS 9.4 m WIDE ────────────────────────────────────────────────────
+ * It was 8.0 m, and that turned out to be the difference between a recovery and a puzzle.
+ * A winched car settles about 2.5 m short of the fairlead along the pull line — 0.45 m of
+ * minimum line plus the 2.1 m from its tow eye back to its own centre — so with only 8 m
+ * of pavement the objective (all four corners on the road) could only be met with the
+ * wrecker parked as far north as it would go. Measured: a near-lane park finished at 3/4
+ * corners every time, and the fix was a geometry insight the player had no way to see.
+ *
+ * 9.4 m is also just a more honest rural two-lane: two 3.5 m lanes and a metre of paved
+ * edge either side. The shoulder and the embankment shift south with it, so the slope
+ * profile, its steepness and every force in config.js are unchanged.
+ */
 export const BANDS = Object.freeze({
   bankTop:      3.0,    // north of this, the ground rises into the treed cut bank
   roadN:        5.2,    // north edge of pavement
-  roadS:       13.2,    // south edge of pavement
-  shoulderS:   15.8,    // south edge of the gravel shoulder; the embankment starts here
-  embankmentS: 27.2,    // bottom of the embankment
+  roadS:       14.6,    // south edge of pavement
+  shoulderS:   17.0,    // south edge of the gravel shoulder; the embankment starts here
+  embankmentS: 28.4,    // bottom of the embankment — 11.4 m of bank, as before
 });
 
 /** The road, as one rectangle. Success detection asks whether the sedan's four corners
@@ -91,7 +104,7 @@ const TREE_PLAN = [
  * with a GAP: the gap is the story of how the sedan got down there, and it is also the
  * clear lane a recovery can be pulled back through. Pull the sedan up anywhere else and
  * the rail is in the way — bendable, at a price. */
-const RAIL_Y = 14.45;
+const RAIL_Y = 15.85;   // 1.25 m south of the pavement edge, on the shoulder
 const RAIL = Object.freeze({
   y: RAIL_Y,
   x0: 18.0, x1: 74.0,
@@ -108,9 +121,9 @@ const RAIL = Object.freeze({
 /** Where things start. Jittered per attempt by createTerrain(). */
 const ANCHOR_PLAN = Object.freeze({
   truck:    { x: 57.0, y: 9.4, angle: Math.PI },   // on the pavement, facing west
-  sedan:    { x: 42.0, y: 21.2, angle: 1.35 },     // mid-embankment, nose down the slope
+  sedan:    { x: 42.0, y: 22.4, angle: 1.35 },     // mid-embankment, nose down the slope
   player:   { x: 55.0, y: 12.4 },                  // stepping out of the cab
-  gearPile: { x: 61.5, y: 13.9 },                  // staged on the shoulder behind the truck
+  gearPile: { x: 61.5, y: 15.3 },                  // staged on the shoulder behind the truck
 });
 
 /* ── the height field ─────────────────────────────────────────────────────── */
@@ -164,7 +177,7 @@ export function createTerrain(rng) {
   // and a gradient that points inward from every side.
   const mud = {
     x: 38.0 + rng.spread(6.0),
-    y: 28.6 + rng.spread(1.6),
+    y: 29.8 + rng.spread(1.6),
     rx: 6.6 + rng.range(0, 2.2),
     ry: 3.3 + rng.range(0, 1.1),
     depth: 0.42 + rng.range(0, 0.22),

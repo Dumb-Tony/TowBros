@@ -106,6 +106,11 @@ export const CONFIG = {
     // and the wrecker's tail wanders. 0.45 holds a truck on pavement and still lets one on wet
     // grass be pulled around, which is the distinction that matters.
     yawFrictionShare: 0.45,
+    // ...and it fades out above these, because it is a STATIC effect. Past them the per-wheel
+    // lateral forces are already resisting the same scrub, and doubling up stops a dragged load
+    // from swinging its nose toward the pull. See the note on applyYawResistance.
+    yawStaticMps: 0.40,
+    yawStaticRadps: 0.50,
     rollThresholdG: 1.9,    // lateral g at which a vehicle starts going over
     rollSustainMs: 220,     // ...and how long it has to stay there. A rollover is a rotation,
                             // not an instant: see the note in sim/vehicle.js.
@@ -151,6 +156,11 @@ export const CONFIG = {
     freeSpoolMps: 4.6,
     minLineM: 0.45,         // cannot reel the hook into the drum
     stallMarginN: 2000,     // the motor eases off this far below the stall force
+    // How fast the drum gives line back when the load is over the motor's limit. This is what
+    // stops a slow jam from destroying the cable — see the overload relief note in
+    // recovery/cable.js. Keep it MODEST: it has to be slower than a real snatch load, or nothing
+    // could ever part the line and the most dramatic failure in the game would be unreachable.
+    reliefMps: 0.55,
     cableBreakN: 42000,
     // The cable is a damped spring, NOT a rope simulation (GDD §4 simplification
     // contract). Stiffness comes from the rigging below; this is the shared safety cap.

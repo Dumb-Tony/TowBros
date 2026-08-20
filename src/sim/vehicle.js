@@ -152,16 +152,33 @@ export function applyBoggedResistance(veh, dtSec) {
  * still. Splitting one friction budget across two axes with a constant is a simplification, and
  * it is the kind the GDD's §4 contract allows: the player can still say exactly why the truck
  * did or did not swing.
+ *
+ * ── IT IS A STATIC EFFECT ONLY, AND THAT MATTERS ──────────────────────────────────────
+ * Once a body is actually moving, the per-wheel lateral forces in tires.js ALREADY oppose each
+ * contact patch's scrub, and that is the same friction. Applying a yaw torque on top of it
+ * double-counts, and the thing it breaks is not subtle: a dragged car stops swinging its nose
+ * toward the pull and gets hauled broadside instead. Measured — with this applied at full
+ * strength while moving, a recovery that needed 12 kN from one parking spot needed 42 kN from
+ * another and parted the cable, because the sedan was being dragged sideways across the slope
+ * rather than rolling up it. That read to a player as "the wrong parking spot is impossible",
+ * which is exactly the kind of invisible gate the design cannot have.
+ *
+ * So it fades out as the body starts to move. A parked truck creeping in yaw at 0.02 rad/s still
+ * gets ~95% of it; a load being dragged at 0.4 m/s gets none.
  */
 export function applyYawResistance(veh, dtSec) {
   const b = veh.body;
+  const V = CONFIG.vehicle;
+  const restFrac = 1 - clamp(Math.max(b.speed / V.yawStaticMps, Math.abs(b.omega) / V.yawStaticRadps), 0, 1);
+  if (restFrac <= 0) return 0;
+
   let avail = 0;
   for (let i = 0; i < veh.def.wheels.length; i++) {
     const ws = veh.wheelState[i];
     if (!ws.attached || !ws.fMax) continue;
     avail += ws.fMax * Math.hypot(ws.x - b.x, ws.y - b.y);
   }
-  avail *= CONFIG.vehicle.yawFrictionShare;
+  avail *= V.yawFrictionShare * restFrac;
   if (avail <= 0) return 0;
 
   const dir = Math.abs(b.omega) > 1e-4 ? Math.sign(b.omega) : Math.sign(b.torque) || 1;

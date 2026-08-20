@@ -21,6 +21,11 @@ import { cross, clamp } from '../core/vec.js';
 /** Half-thickness used to turn a guardrail segment into a thin box. */
 const RAIL_HALF_W = 0.09;
 
+/** Per-step decay of a rail segment's accumulated load, for a ~0.5 s time constant at 60 Hz.
+ *  A steady push of p N·s per step settles at p/(1-decay) ≈ 30p, so a sustained 3.6 kN bends the
+ *  rail within half a second and a sustained 10 kN takes the section out. */
+const RAIL_LOAD_DECAY = Math.exp(-(CONFIG.sim.stepMs / 1000) / 0.5);
+
 /**
  * Separating-axis overlap test between two oriented boxes.
  * @returns {{nx:number, ny:number, depth:number, cx:number, cy:number}|null}
@@ -119,9 +124,20 @@ export function resolveContact(a, b, hit, restitution = 0.12, friction = 0.45) {
     b.applyImpulseAt(jt * tx, jt * ty, cx, cy);
   }
 
-  // Positional correction. 80% of the overlap, leaving a little so resting bodies do not
-  // buzz between overlapping and separated every step.
-  const corr = depth * 0.8;
+  // Positional correction, with SLOP and a gentle coefficient (Baumgarte). Both matter here for
+  // a reason that has nothing to do with contacts looking right:
+  //
+  // A positional correction is not physics. It teleports a body. Anything reading POSITIONS with
+  // a stiff constraint sees that teleport as instantaneous deformation — and this game has a
+  // 520 kN/m cable doing exactly that. At 80% correction, a 2 cm overlap resolved in one step
+  // handed the cable 2 cm of stretch it had not earned, which is 10 kN in a single step. That
+  // outran the winch's overload relief and parted the line at 42 kN every time a car was winched
+  // into something solid. Measured across a 15-park grid: fifteen jams, fifteen snapped cables.
+  //
+  // So: leave 1 cm of overlap alone entirely (invisible on a 4.5 m car) and resolve the rest at
+  // 25% per step. Contacts settle over a handful of steps instead of one, and the cable only ever
+  // sees speeds a body actually had.
+  const corr = Math.max(0, depth - 0.01) * 0.25;
   a.x -= nx * corr * (a.invMass / invSum);
   a.y -= ny * corr * (a.invMass / invSum);
   b.x += nx * corr * (b.invMass / invSum);
@@ -199,7 +215,7 @@ export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
 
   for (const A of dynamics) {
     for (const S of scenery) {
-      if (S.kind === 'rail' && S.ref.broken) continue;
+      if (S.kind === 'rail' && (S.ref.broken || S.ref.flat)) continue;   // a folded rail is not a wall
       const hit = obbOverlap(A.body, S.box);
       if (!hit) continue;
       // A tree does not move and does not care. The rail is the opposite of that.
@@ -208,22 +224,45 @@ export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
       if (jn > peak) peak = jn;
 
       if (S.kind === 'rail') {
-        // The rail is weak on purpose — GDD §4 lists it among the things that "create
-        // options". It yields first, sagging out of the way and getting easier to push, and
-        // only then lets go. Judged on impulse, for the reason in CONFIG.damage.
-        const imp = Math.abs(jn);
-        if (imp > CONFIG.damage.guardrailBreakNs && !S.ref.broken) {
+        // The rail is weak on purpose — GDD §4 lists it among the things that "create options".
+        // It yields first, sagging out of the way and getting easier to push, and only then lets
+        // go. Judged on impulse, for the reason in CONFIG.damage.
+        //
+        // TWO SEPARATE TESTS, because there are two ways to defeat a guardrail and they are not
+        // the same event.
+        //
+        //  - A SHUNT breaks it: one big impulse, judged on its own. Hitting a rail at 4 m/s takes
+        //    the section out.
+        //  - A LEAN bends it: many small impulses, judged on an accumulator with a 0.5 s time
+        //    constant, and it can only ever BEND — steel folds under sustained load, it does not
+        //    shatter. Once it is folded flat it stops being a wall and the car goes over it.
+        //
+        // Both halves were wrong in turn. Per-step only made the rail immovable against a slow
+        // push, so a winch dragging a car into it at 0.4 m/s went to 34 kN and parted the line
+        // against something the design calls weak. Accumulating for BOTH then let a slow push
+        // break the rail outright, and the car ploughed through and kept going. A lean flattens
+        // it; only a hit removes it.
+        const single = Math.abs(jn);
+        S.ref.load = (S.ref.load || 0) * RAIL_LOAD_DECAY + single;
+
+        if (single > CONFIG.damage.guardrailBreakNs && !S.ref.broken) {
           S.ref.broken = true;
-          bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: true, impulseNs: Math.round(imp) }, simTimeMs);
-        } else if (imp > CONFIG.damage.guardrailYieldNs) {
-          const add = Math.min(0.28, (imp - CONFIG.damage.guardrailYieldNs) / CONFIG.damage.guardrailYieldNs * 0.20);
-          if (add > 0.004) {
-            S.ref.bend = Math.min(1.1, S.ref.bend + add);
-            S.box.y += add * 0.5;              // it sags south, out of the recovery lane
-            S.ref.ay += add * 0.5; S.ref.by += add * 0.5;
+          bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: true, impulseNs: Math.round(single) }, simTimeMs);
+        } else if (S.ref.load > CONFIG.damage.guardrailYieldNs && !S.ref.flat) {
+          const over = (S.ref.load - CONFIG.damage.guardrailYieldNs) / CONFIG.damage.guardrailYieldNs;
+          const add = Math.min(0.05, over * 0.010);
+          if (add > 0.0004) {
+            S.ref.bend = Math.min(1, S.ref.bend + add);
+            S.box.y += add * 0.35;             // it sags south, out of the recovery lane
+            S.ref.ay += add * 0.35; S.ref.by += add * 0.35;
             if (S.ref.bend > 0.12 && !S.ref._reported) {
               S.ref._reported = true;
-              bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: false, impulseNs: Math.round(imp) }, simTimeMs);
+              bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: false, impulseNs: Math.round(S.ref.load) }, simTimeMs);
+            }
+            // Folded flat. Still there, still visible, no longer an obstacle.
+            if (S.ref.bend >= 1) {
+              S.ref.flat = true;
+              bus.emit('GUARDRAIL_BENT', { id: S.ref.id, broken: false, flattened: true }, simTimeMs);
             }
           }
         }

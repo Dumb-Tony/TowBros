@@ -110,8 +110,29 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
   const W = CONFIG.winch;
 
   const block = w.blockId ? st.blocksById[w.blockId] : null;
+  const rigNow = CONFIG.rigging[w.rig] || CONFIG.rigging.bare;
   const path = cablePath(w, truck, st.vehicles, st.blocksById);
   const dist = pathLength(path);
+
+  /* ── overload relief ──────────────────────────────────────────────────────
+   * A stalled drum stops pulling, but the geometry does not stop moving: the load settles, or
+   * rotates, or grinds into something, and the stretch keeps growing. Without relief that walks
+   * the tension straight past the 34 kN stall and into the 42 kN break, so ANY slow jam ends with
+   * a parted cable — measured against the truck's own flank and against an unyielding guardrail,
+   * both at 41.9 kN.
+   *
+   * So the drum gives line back: exactly enough stretch to hold at the motor's limit, capped at
+   * reliefMps. A real winch does this — hydraulics bypass, brakes creep, and an operator eases
+   * off. The important part is what it does NOT protect against: the cap means a genuine snatch
+   * load still outruns the relief and still parts the line. Slow jams stall; shocks break. */
+  if (w.state === WINCH.ATTACHED && w.tensionN > CONFIG.winch.motorMaxN) {
+    const over = w.tensionN - CONFIG.winch.motorMaxN;
+    const give = Math.min(CONFIG.winch.reliefMps * dtSec, over / rigNow.springK);
+    w.lineM = Math.min(CONFIG.winch.spoolLengthM, w.lineM + give);
+    w.relieving = true;
+  } else {
+    w.relieving = false;
+  }
 
   /* ── the drum ─────────────────────────────────────────────────────────── */
   if (w.state === WINCH.HELD) {
@@ -186,7 +207,13 @@ export function stepCable(st, dtSec, bus, simTimeMs) {
   // strap and a chain of very different stiffness both behave, and neither rings.
   const mEff = (truck.body.massKg * target.body.massKg) / (truck.body.massKg + target.body.massKg);
   const c = rig.damp * 2 * Math.sqrt(rig.springK * mEff);
-  let T = rig.springK * stretch + c * rate;
+  // Damping is capped at a fraction of the spring term. It is a stabiliser, not a force the
+  // player is meant to fight: unclamped it can exceed the spring entirely on a velocity spike and
+  // part a line that is barely stretched, which reads as the cable breaking for no visible reason.
+  // Clamped, the line breaks because it is stretched too far — which is both true and legible.
+  const springT = rig.springK * stretch;
+  const dampT = clamp(c * rate, -springT * 0.6, springT * 0.6);
+  let T = springT + dampT;
   if (T < 0) T = 0;
   if (T > W.maxForceN) T = W.maxForceN;
 
