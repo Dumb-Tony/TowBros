@@ -30,6 +30,7 @@ import { mulberry32 } from '../core/rng.js';
 import { seatOf, carriedItem } from '../player/player.js';
 import { LIFT, yokePos, axleMid, liftSpec } from '../recovery/lift.js';
 import { outriggerPads } from '../recovery/rig.js';
+import { casualties } from '../sim/vehicle.js';
 
 /* Resolution of the painted terrain, in pixels per metre.
  *
@@ -413,7 +414,9 @@ export class Renderer {
     this._drawDebris(ctx, st);
 
     // The sedan first: when the truck slides into it, the truck should be on top.
-    this._drawVehicle(ctx, st, st.vehicles.sedan);
+    // Every casualty (Milestone 9), deepest first, so the one nearer the road draws over it — which
+    // is what "the one behind is in the way" looks like from above.
+    for (const veh of casualties(st)) this._drawVehicle(ctx, st, veh);
     this._drawLift(ctx, st);              // under the truck: the yoke goes below the tail
     this._drawOutriggers(ctx, st);        // legs go down onto the ground, so under the truck too
     this._drawVehicle(ctx, st, st.vehicles.truck);

@@ -391,6 +391,23 @@ export const CONFIG = {
      * 17.3 kN upright and 28.1 kN on its roof. */
     rolledGripMul: 0.55,
     rolledDragMul: 1.6,
+    /* ── AND BACK AGAIN (Milestone 9) ───────────────────────────────────────────────
+     * A rollover has been a one-way door since Milestone 1: `rolled` is set and nothing anywhere
+     * has ever cleared it. So a side pull can now roll a vehicle BACK ONTO ITS WHEELS, judged the
+     * way every other threshold in this game is judged — an accumulated impulse about the
+     * vehicle's own long axis, in newton-seconds, decaying while the pull is not on it. A force
+     * threshold would flip a car on one step of a snatch load, which is exactly the bug the
+     * sustained-load check in sim/vehicle.js was written to fix.
+     *
+     * It is symmetrical on purpose, because that is what rolling is: keep pulling past the
+     * threshold and it goes straight over onto its roof again. See sim/righting.js.
+     *
+     * Sized against a measured number rather than a chosen one: the Milestone 1 side pull through
+     * a snatch block ROTATES a car without rolling it, and four suites depend on that still being
+     * true — so the threshold has to sit above what that pull delivers and below what a sustained,
+     * deliberate one does. */
+    rightNs: 9000,
+    rightDecayNsPerSec: 5200,
   },
 
   truck: {

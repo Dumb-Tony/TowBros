@@ -23,7 +23,7 @@ import { Rng, hashStr } from './core/rng.js';
 import { buildScene, stepGoal, stepEscalation, stepJob, recapFrom, JOB } from './world/scene.js';
 import { stepCrew, describeVehicle, seatOf, holdsHook, carriedItem } from './player/player.js';
 import { validateAuthority } from './crew/authority.js';
-import { stepVehicle } from './sim/vehicle.js';
+import { stepVehicle, casualties } from './sim/vehicle.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
 import { stepLift, describeLift } from './recovery/lift.js';
@@ -275,8 +275,15 @@ export class Game {
      *     which is the one stream no rule reads, so adding a car cannot shift the world layout. */
     stepTraffic(st, dt, this.rng.fx, this.bus, simTimeMs);
 
-    // 5. Contacts, as impulses. Before integration so the tires react to the new velocities.
-    const dynamics = [st.vehicles.truck, st.vehicles.sedan, ...trafficBodies(st), ...st.debris];
+    /* 5. Contacts, as impulses. Before integration so the tires react to the new velocities.
+     *
+     *    EVERY casualty is in here (Milestone 9), and that is not bookkeeping — it is the entire
+     *    mechanism by which a shunt has an order. Nothing anywhere says "recover the one nearest
+     *    the road first"; the second casualty is simply in the way of the first, and the contact
+     *    pass is what makes that true. Leave one of them out and the two cars slide through each
+     *    other and the clause evaporates. */
+    const cas = casualties(st);
+    const dynamics = [st.vehicles.truck, ...cas, ...trafficBodies(st), ...st.debris];
     st.fx.peakImpulse = stepCollisions(
       dynamics, st.scenery, this.bus, simTimeMs,
       (A, B, jn, hit) => applyImpactDamage(st, A, B, jn, hit, this.bus, simTimeMs),
@@ -285,7 +292,7 @@ export class Game {
     // 6. Ground. Slope, bogged, chocks, tires, then integrate. The tires size their grip
     //    against everything accumulated above.
     stepVehicle(st.vehicles.truck, st.terrain, dt, this.bus, simTimeMs);
-    stepVehicle(st.vehicles.sedan, st.terrain, dt, this.bus, simTimeMs);
+    for (const veh of cas) stepVehicle(veh, st.terrain, dt, this.bus, simTimeMs);
     stepDebris(st, st.terrain, dt);
 
     // 7. Outcome. Reports; never intervenes.

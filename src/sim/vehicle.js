@@ -455,6 +455,25 @@ export function releaseDriverInput(veh) {
 }
 
 /** Are all four chassis corners over pavement? The success test, and nothing else. */
+/* THE CASUALTY SLOTS, in the order they went off the road (Milestone 9).
+ *
+ * `sedan` has been the casualty slot since Milestone 1 and keeps its name — a slot is not a type,
+ * and there has been a van and a box truck in that one since Milestone 6. `second` is the one
+ * behind it in a shunt.
+ *
+ * This lives HERE, in the module that owns what a vehicle is, and not in world/scene.js where the
+ * scene is assembled — because world/customer.js needs it and scene.js imports customer.js, so
+ * putting it there makes a cycle. ES modules survive one; the tidiness does not.
+ */
+export const CASUALTY_SLOTS = Object.freeze(['sedan', 'second']);
+
+/** Every casualty at this scene, first off the road first. Never includes the recovery vehicle. */
+export function casualties(st) {
+  const out = [];
+  for (const id of CASUALTY_SLOTS) if (st.vehicles[id]) out.push(st.vehicles[id]);
+  return out;
+}
+
 export function cornersOnRoad(veh, terrain) {
   const cs = veh.body.corners();
   let on = 0;

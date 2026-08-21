@@ -26,6 +26,7 @@
 import { CONFIG } from '../config.js';
 import { clamp01, lerp } from '../core/vec.js';
 import { drumsOf } from '../recovery/cable.js';
+import { casualties } from '../sim/vehicle.js';
 
 export class Audio {
   constructor() {
@@ -209,8 +210,11 @@ export class Audio {
     // The harmonic only appears near the limit, so "close to parting" has its own timbre.
     glide(v.cableHarm.g, running ? Math.max(0, f - 0.55) * 0.36 : 0, 0.06);
 
-    // Tire slip, from whichever wheel is losing worst.
-    const slip = Math.max(truck.maxSlipMps || 0, st.vehicles.sedan.maxSlipMps || 0);
+    // Tire slip, from whichever wheel on the site is losing worst — the truck's or ANY casualty's.
+    // It read `vehicles.sedan` alone, which was the same thing until a shunt put a second car on
+    // the bank (Milestone 9) and the one being dragged sideways made no noise at all.
+    let slip = truck.maxSlipMps || 0;
+    for (const v of casualties(st)) slip = Math.max(slip, v.maxSlipMps || 0);
     v.slip.f.frequency.setTargetAtTime(520 + Math.min(1600, slip * 420), now, 0.08);
     glide(v.slip.g, running ? clamp01(slip / 3.2) * 0.20 : 0, 0.07);
   }

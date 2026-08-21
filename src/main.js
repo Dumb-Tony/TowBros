@@ -308,7 +308,11 @@ function frame(now) {
   // The busiest line pulls the camera toward the casualty. Any drum, whichever is loaded hardest.
   const busiest = drumsOf(st).reduce((a, b) => (b.tensionFrac > a.tensionFrac ? b : a), st.winch);
   if (busiest.state === WINCH.ATTACHED && busiest.tensionFrac > 0.04) {
-    const s = st.vehicles.sedan.body;
+    // Toward whatever that line is actually ON. It leaned toward `vehicles.sedan` regardless,
+    // which was the same thing right up until a shunt put a second casualty on the bank
+    // (Milestone 9) and the camera started drifting toward the car nobody was pulling.
+    const target = st.vehicles[busiest.targetId] || st.vehicles.sedan;
+    const s = target.body;
     const k = Math.min(0.42, busiest.tensionFrac * 0.9);
     cx += (s.x - cx) * k; cy += (s.y - cy) * k;
   }

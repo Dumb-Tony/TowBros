@@ -27,6 +27,7 @@ import { loadedAnchor, describeAnchor } from '../recovery/anchors.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
 import { seatOf, holdsHook, carriedItem } from '../player/player.js';
+import { casualties, cornersOnRoad } from '../sim/vehicle.js';
 import { JOB } from '../world/scene.js';
 import { describePolice } from '../world/police.js';
 
@@ -88,12 +89,21 @@ function phrase(e) {
 /**
  * The one objective line, per job phase — a statement of fact in every case, never an instruction.
  */
-function objectiveFor(st, cornersOnRoad, lift) {
+function objectiveFor(st, cornersOn, lift) {
   const j = st.job;
   /* WHAT is in the ditch, by name. From Milestone 6 it is not always a sedan, and a line that
    * says "get the sedan onto the road" while a seven-tonne box truck is lying on the bank is the
    * interface disagreeing with the game. Still one line, still a statement of fact. */
   const what = st.vehicles.sedan ? st.vehicles.sedan.def.label : 'the sedan';
+  /* TWO OF THEM (Milestone 9). One line still, and still a statement of fact — but it has to count
+   * both, or a player who has one car up and one still in the ditch reads "2/4 corners up" and has
+   * no idea which car that is about. Deliberately does NOT say which to do first: the one nearer
+   * the road is in the other one's way, and reading that off the ground is the clause. */
+  const all = casualties(st);
+  if (all.length > 1 && st.job.phase === JOB.RECOVER) {
+    const up = all.filter((v) => !v.suspended && cornersOnRoad(v, st.terrain).all).length;
+    return `two of them in the ditch — ${up} of ${all.length} on the road`;
+  }
   /* OFF THE GROUND BEATS EVERY OTHER PHASE (Milestone 8). The job phases are about where the
    * casualty has got to; a casualty hanging off a boom has not got anywhere yet, and a line
    * reading "on the road, on its own wheels" under a van in the air is the interface disagreeing
@@ -120,7 +130,7 @@ function objectiveFor(st, cornersOnRoad, lift) {
         ? `the ${what} is in the yard — ${j.bayCorners}/4 corners in the bay`
         : `the ${what} is on the road, on its own wheels`;
     default:
-      return `get the ${what} onto the road — ${cornersOnRoad}/4 corners up`;
+      return `get the ${what} onto the road — ${cornersOn}/4 corners up`;
   }
 }
 

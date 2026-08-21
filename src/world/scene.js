@@ -20,7 +20,7 @@ import { createCustomer, settleCustomer, describeCustomer } from './customer.js'
 import { createPolice } from './police.js';
 import { SEDAN_DEF, TRUCK_DEF, casualtyDefById, truckDefById } from '../data/vehicles.js';
 import { createGearPile } from '../data/equipment.js';
-import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
+import { createVehicle, cornersOnRoad, casualties } from '../sim/vehicle.js';
 import { buildScenery } from '../sim/collision.js';
 import { createWinch, drumsOf } from '../recovery/cable.js';
 import { createLift, LIFT } from '../recovery/lift.js';
@@ -130,9 +130,53 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   truck.parkBrake = true;
   truck.lift = createLift();
 
+  /* THE ONE BEHIND (Milestone 9). A shunt is two casualties, and the second one is placed in
+   * terms of the FIRST rather than in world coordinates — a job that says "and another one behind
+   * it" means behind the car, and a scene that read an absolute x would put it in a different
+   * relationship every time the first one's lie was rolled.
+   *
+   * It sits between the first casualty and the road, which is where a car that ran into a car that
+   * had already gone off would end up. Nothing declares that this makes an order: the order is
+   * that the second one is physically in the way, and the contact pass is the only thing enforcing
+   * it. A player who rigs the deep one first will find out by watching the gauge.
+   *
+   * MEASURED, same seed, same pull, same tow eye: the deep casualty comes up on 10.8 kN on its own
+   * and on 21.5 kN with a car in front of it — and the drum STALLS at 25.9 kN with a van in front,
+   * so bulldozing something big is not slower, it is impossible. Nothing is dented by the shove
+   * (worst contact impulse zero): pushing a car slowly up a bank does not damage it, and the cost
+   * of the wrong order is the line, not the paint.
+   *
+   * It is also less dug in. It arrived later and at less of an angle, and `boggedMul` on the
+   * second is the one number that says so. */
+  const secondDef = (job && job.secondCasualtyId) ? casualtyDefById(job.secondCasualtyId) : null;
+  let second = null;
+  if (secondDef) {
+    const lie = (job && job.secondLie) || {};
+    const upSlopeM = (casualtyDef.lengthM + secondDef.lengthM) / 2
+      + (lie.gapM === undefined ? 1.3 : lie.gapM);
+    const secondBogged = CONFIG.bigCasualty.boggedPerTonneN * (secondDef.massKg / 1000)
+      * (lie.boggedMul === undefined ? 0.45 : lie.boggedMul);
+    second = createVehicle(secondDef, {
+      x: sedan.body.x + (lie.acrossM || 0),
+      y: sedan.body.y - upSlopeM,
+      angle: sedan.body.angle + (lie.angleRad || 0),
+    }, { boggedN: secondBogged, id: 'second' });
+    /* AND IT MUST NOT SPAWN WITH A CORNER ALREADY ON THE TARMAC. Measured on the first seed tried:
+     * the casualty lie is rolled at about 71 degrees to the road, so a 4.4 m car placed a car's
+     * length up the bank reached to y=14.7 against a road edge at 14.6, and started the job one
+     * corner recovered. Backing it off is a property rather than a number — a fixed gap that works
+     * for a sedan on this seed is wrong for a van on the next one. */
+    for (let i = 0; i < 24 && cornersOnRoad(second, terrain).on > 0; i++) second.body.y += 0.25;
+    if (secondDef.arrivesRolled || lie.rolled) {
+      second.rolled = true;
+      second.gripMul = CONFIG.vehicle.rolledGripMul;
+      second.dragMul = CONFIG.vehicle.rolledDragMul;
+    }
+  }
+
   // Zone modifiers and rigging live on the vehicle, not on the definition: the definition is
   // shared, frozen data and one attempt's torn bumper must not follow the player into the next.
-  for (const v of [sedan, truck]) { v.zoneMod = {}; v.rigging = {}; }
+  for (const v of [sedan, truck, second]) { if (v) { v.zoneMod = {}; v.rigging = {}; } }
 
   // A little pre-existing damage, sometimes. GDD §4: the sedan arrives with "a damage state",
   // and a job that starts with a dented car is a job with a history.
@@ -141,6 +185,13 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   }
   // Baseline it, so the payout charges for what the RECOVERY did and not for the crash.
   sedan.damage.arrived = { dents: sedan.damage.dents, parts: { ...sedan.damage.parts } };
+  /* And the same for the one behind. A car that has just run into another car arrives with more
+   * than a car that slid off on its own, so it gets a dent it did not have to be lucky to get —
+   * and the baseline means the operator is not charged for it. */
+  if (second) {
+    second.damage.dents = 1 + rng.int(0, 2);
+    second.damage.arrived = { dents: second.damage.dents, parts: { ...second.damage.parts } };
+  }
 
   /* One winch object per drum the truck has. The heavy wrecker's drums are rated on the machine
    * rather than in CONFIG.winch, which is where a light wrecker's numbers live and stay. */
@@ -170,12 +221,18 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   const st = {
     terrain,
     scenery: buildScenery(terrain),
-    vehicles: { truck, sedan },
+    // `second` is only a key when there IS one. Everything that has to handle both asks
+    // casualties() below rather than testing for the key, so nothing downstream carries a
+    // null-check for a vehicle that does not exist.
+    vehicles: second ? { truck, sedan, second } : { truck, sedan },
     /** What the casualty is, when it is not a sedan. `vehicles.sedan` is the CASUALTY SLOT and
      *  has been since Milestone 1; from Milestone 6 the thing in it may be a van or a box truck.
      *  Renaming the key would rewrite four suites and every id on the wire for no gain, so the
      *  slot keeps its name and this says what is actually in it. */
     casualtyId: casualtyDef.id,
+    /** And what the one behind it is, if there is one (Milestone 9). Null on a single-vehicle job,
+     *  which is still the great majority of them. */
+    secondCasualtyId: secondDef ? secondDef.id : null,
     gear,
     crew,
     /* The drums. One on a light wrecker, two on the heavy — and `winch` is a plain reference to
@@ -204,6 +261,9 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
       settledMs: 0,
       complete: false,
       completedAtMs: null,
+      /** How many there are to get up. 1 on every job before Milestone 9, and set here rather than
+       *  on the first step so a test or the HUD can read it before anything has run. */
+      casualties: second ? 2 : 1,
     },
     /* The JOB, which is bigger than the recovery. GDD §7 Milestone 3 turns "get the car out of the
      * ditch" into "get the car to the yard", and the recovery becomes its first phase rather than
@@ -247,31 +307,44 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
 }
 
 /**
- * The single objective: get the sedan onto the road, and let go of it.
+ * The single objective: get the casualties onto the road, and let go of them.
  *
  * "Settled" matters. Without it, a sedan launched across the pavement by a parting cable
  * would count as recovered while it was still airborne over the far shoulder — which is
  * funny exactly once.
+ *
+ * With two of them (Milestone 9) the objective is ALL of them, judged as one condition rather
+ * than as two flags. The settle timer is shared on purpose: winching the second one out drags the
+ * first back off the tarmac often enough that a per-vehicle timer would let a job complete on a
+ * state that had already stopped being true.
  */
 export function stepGoal(st, bus, simTimeMs) {
   const goal = st.goal;
   if (goal.complete) return true;
 
-  const sedan = st.vehicles.sedan;
-  const on = cornersOnRoad(sedan, st.terrain);
-  goal.cornersOnRoad = on.on;
-
-  const settled = sedan.body.speed <= CONFIG.success.maxSpeedMps;
-  const met = CONFIG.success.requireAllCorners ? on.all : on.on >= 2;
+  const all = casualties(st);
+  let cornersOn = 0, met = true, settled = true;
+  for (const veh of all) {
+    const on = cornersOnRoad(veh, st.terrain);
+    cornersOn += on.on;
+    if (!(CONFIG.success.requireAllCorners ? on.all : on.on >= 2)) met = false;
+    if (veh.body.speed > CONFIG.success.maxSpeedMps) settled = false;
+    // Off the ground is not on the road, whatever its corners are over (Milestone 8).
+    if (veh.suspended) met = false;
+  }
+  goal.cornersOnRoad = cornersOn;
+  goal.casualties = all.length;
 
   if (met && settled) {
     goal.settledMs += CONFIG.sim.stepMs;
     if (goal.settledMs >= CONFIG.success.settleMs) {
+      const sedan = st.vehicles.sedan;
       goal.complete = true;
       goal.completedAtMs = simTimeMs;
       bus.emit(EVENTS.RECOVERY_COMPLETE, {
         atMs: simTimeMs,
-        cornersOnRoad: on.on,
+        cornersOnRoad: cornersOn,
+        vehicles: all.length,
         sedanDents: sedan.damage.dents,
         partsLost: Object.entries(sedan.damage.parts).filter(([, s]) => s === 'lost').map(([p]) => p),
       }, simTimeMs);
@@ -322,23 +395,33 @@ export function cornersInBay(veh, terrain) {
 export function computePayout(st, bus) {
   const P = CONFIG.job;
   const baseFee = Math.round(P.baseFee * (st.job.feeMul || 1));
-  const sedan = st.vehicles.sedan;
-  /* Only what THIS job did to it. The car arrives with a damage state (GDD §4), and charging the
+  /* Only what THIS job did to it. A car arrives with a damage state (GDD §4), and charging the
    * operator for the crash they were called out to is not a consequence of any decision they made.
    * MEASURED: a "dug in overnight" job advertised at £1890 paid £1810, because the two dents it
-   * turned up with came off the fee. */
-  const arrived = sedan.damage.arrived || { dents: 0, parts: {} };
-  const causedDents = Math.max(0, sedan.damage.dents - (arrived.dents || 0));
-  const parts = Object.entries(sedan.damage.parts).filter(([p, s]) => arrived.parts[p] !== s);
-  const lost = parts.filter(([, s]) => s === 'lost');
-  const bent = parts.filter(([, s]) => s === 'bent');
+   * turned up with came off the fee.
+   *
+   * Summed over EVERY casualty (Milestone 9), not just the first: a shunt has two owners' cars in
+   * it and the second one's bumper is worth exactly what the first one's is. The deduction lines
+   * stay per-vehicle rather than pooled, because "you lost a bumper" and "you lost two bumpers off
+   * two different cars" are different sentences and the recap reads these back verbatim. */
+  const all = casualties(st);
+  let causedDents = 0;
+  const lost = [], bent = [];
+  for (const veh of all) {
+    const arrived = veh.damage.arrived || { dents: 0, parts: {} };
+    causedDents += Math.max(0, veh.damage.dents - (arrived.dents || 0));
+    for (const [p, s] of Object.entries(veh.damage.parts)) {
+      if (arrived.parts[p] === s) continue;
+      (s === 'lost' ? lost : bent).push(all.length > 1 ? `${veh.def.label}'s ${p}` : p);
+    }
+  }
 
   const deductions = [];
   const take = (label, amount) => { if (amount > 0) deductions.push({ label, amount: Math.round(amount) }); };
 
   take(`${causedDents} dent${causedDents === 1 ? '' : 's'}`, causedDents * P.dentCost);
-  for (const [p] of lost) take(`lost the ${p}`, P.partLostCost);
-  for (const [p] of bent) take(`bent the ${p}`, P.partBentCost);
+  for (const p of lost) take(`lost the ${p}`, P.partLostCost);
+  for (const p of bent) take(`bent the ${p}`, P.partBentCost);
   const snaps = bus.count(EVENTS.CABLE_SNAPPED);
   take(snaps === 1 ? 'parted the cable' : `parted the cable ${snaps}x`, snaps * P.cableCost);
   const rails = bus.count(EVENTS.GUARDRAIL_BENT);
@@ -513,11 +596,16 @@ export function recapFrom(bus, st) {
       case EVENTS.ROLLED_OVER:
         lines.push([t, `rolled the ${e.vehicle}`]);
         break;
+      // And back again (Milestone 9). Two lines rather than one, because "rolled it" and "rolled it
+      // back" are different decisions and a player who did both should see both.
+      case EVENTS.RIGHTED:
+        lines.push([t, `rolled the ${e.vehicle} back onto its wheels`]);
+        break;
       case EVENTS.GEAR_SCATTERED:
         lines.push([t, `the ${e.kind} was knocked out of place`]);
         break;
       case EVENTS.RECOVERY_COMPLETE:
-        lines.push([t, 'the sedan was on the road']);
+        lines.push([t, e.vehicles > 1 ? `both of them were on the road` : 'the sedan was on the road']);
         break;
       case EVENTS.LIFT_ENGAGED:
         lines.push([t, `picked the ${e.vehicle} up by its ${e.end} axle`]);
@@ -549,16 +637,25 @@ export function recapFrom(bus, st) {
     }
   }
 
-  const sedan = st.vehicles.sedan;
-  const lost = Object.entries(sedan.damage.parts).filter(([, s]) => s === 'lost').map(([p]) => p);
-  const bent = Object.entries(sedan.damage.parts).filter(([, s]) => s === 'bent').map(([p]) => p);
+  /* Summed over every casualty (Milestone 9). The company reads these to work out reputation, and
+   * a shunt where the second car lost a wheel is not a clean job because the first one was fine. */
+  const all = casualties(st);
+  let lost = 0, bent = 0, dents = 0;
+  for (const veh of all) {
+    for (const s of Object.values(veh.damage.parts)) {
+      if (s === 'lost') lost++; else if (s === 'bent') bent++;
+    }
+    dents += veh.damage.dents;
+  }
 
   return {
     lines,
     summary: {
-      partsLost: lost.length,
-      partsBent: bent.length,
-      dents: sedan.damage.dents,
+      partsLost: lost,
+      partsBent: bent,
+      dents,
+      /** How many were in the ditch. 1 on every job before Milestone 9. */
+      casualties: all.length,
       cableSnaps: bus.count(EVENTS.CABLE_SNAPPED),
       zoneFailures: bus.count(EVENTS.ZONE_FAILED),
       truckSlipped: bus.count(EVENTS.TRUCK_SLIPPING) > 0,

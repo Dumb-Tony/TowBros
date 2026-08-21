@@ -2,7 +2,7 @@
 ## Game Design Document & Development Plan
 
 **Document status:** Living design contract  
-**Current target:** Milestone 8 — What the machine can actually lift  
+**Current target:** Milestone 9 — Righting it, and the one behind  
 **Primary implementation:** Standalone HTML5 Canvas browser game  
 
 > The game does not care how you got the car out of the ditch. It only cares that the car is no longer in the ditch.
@@ -231,6 +231,37 @@ Add:
 than dragged and one that is not; if a player can overload the boom and say afterwards which number
 they exceeded; if a box truck goes home on the machine rather than behind it; and if a tailback is
 something the player can see forming and do something about.
+
+### Milestone 9 — Righting it, and the one behind
+
+*Two things this game has been describing rather than simulating. A car "on its roof" has been a
+grip multiplier since Milestone 7 and a rollover has been a one-way door since Milestone 1 — you can
+put a vehicle on its roof and you can never put it back. And every job to date has had exactly one
+thing in the ditch, which is not what a bad afternoon looks like.*
+
+Add:
+
+- **A vehicle on its roof can be put back on its wheels, and there are two ways.** Pick it up on the
+  rotator's boom and set it down — which the Milestone 8 chart already decides for you, so a car can
+  be righted that way and a seven-tonner cannot. Or roll it with a side pull, which is the answer
+  when there is no rotator and the answer when the chart says no: enough sideways impulse about its
+  long axis and it comes over. Symmetrically, because that is what rolling is — keep pulling and it
+  goes straight over onto its roof again. Neither is a button; both are the equipment that already
+  exists, judged in newton-seconds like everything else.
+- **Two vehicles, and an order the scene decides rather than a script.** A shunt: two casualties, one
+  behind the other, both to be got onto the road. Nothing declares an order — the one nearer the road
+  is physically in the way of the one below it, and the player reads that off the ground. It has to
+  be possible to start with the wrong one and discover it, and *discovering it* has to be a number
+  the player can see rather than a refusal: the cost of bulldozing one car up the bank with another
+  is the line tension, and the cost of bulldozing something big is that the drum cannot do it.
+- **Everything at the scene has to stop assuming there is exactly one.** The objective, the closure
+  standard, the payout, the owner, the recap. A milestone that adds a second casualty and leaves nine
+  systems quietly reading `st.vehicles.sedan` has not added a second casualty.
+
+**Completion criteria.** Milestone 9 succeeds only if righting a car is a decision with two real
+answers and a way to get it wrong; if over-rolling one is reachable and legible; if a two-vehicle job
+can be started in the wrong order and recovered from; and if no system at the scene still behaves as
+though there is one casualty.
 
 ## 8. Explicitly deferred
 

@@ -32,6 +32,7 @@
 
 import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
+import { casualties } from '../sim/vehicle.js';
 
 /** How they are feeling about it, worst to best. The label is what the HUD shows. */
 export const MOOD = Object.freeze([
@@ -84,13 +85,20 @@ export function stepCustomer(st, dtSec, bus, simTimeMs) {
   const c = st.customer;
   if (!c) return;
   const C = CONFIG.customer;
-  const veh = st.vehicles.sedan;
-  if (!veh) return;
+  /* Everything in the ditch, not just the first thing (Milestone 9). On a shunt there are two
+   * owners' cars and one person standing on the verge, and they can see both — a person who
+   * watched the crew put a wheel through the other car's door is not having a good afternoon
+   * because their own came back clean. */
+  const all = casualties(st);
+  if (!all.length) return;
 
-  const arrived = veh.damage.arrived || { dents: 0, parts: {} };
-  const dents = Math.max(0, (veh.damage.dents || 0) - (arrived.dents || 0));
-  const partsLost = Object.keys(veh.damage.parts || {})
-    .filter((k) => veh.damage.parts[k] === 'lost' && (arrived.parts || {})[k] !== 'lost').length;
+  let dents = 0, partsLost = 0;
+  for (const veh of all) {
+    const arrived = veh.damage.arrived || { dents: 0, parts: {} };
+    dents += Math.max(0, (veh.damage.dents || 0) - (arrived.dents || 0));
+    partsLost += Object.keys(veh.damage.parts || {})
+      .filter((k) => veh.damage.parts[k] === 'lost' && (arrived.parts || {})[k] !== 'lost').length;
+  }
   const drops = (st.job && st.job.droppedInTransit) || 0;
   const snaps = c.saw.snaps;
 
