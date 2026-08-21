@@ -22,6 +22,7 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { describeWinch, WINCH, drumsOf } from '../recovery/cable.js';
 import { describeRig } from '../recovery/rig.js';
+import { describeCoupling } from '../recovery/coupling.js';
 import { liftGearNoun, liftGearVerb } from '../recovery/lift.js';
 import { loadedAnchor, describeAnchor } from '../recovery/anchors.js';
 import { GameClock } from '../core/clock.js';
@@ -359,6 +360,9 @@ export class Hud {
         bits.push(`anchor ${(d.loadN / 1000).toFixed(1)}/${(d.ratedN / 1000).toFixed(0)} kN`
           + (d.strainFrac > 0.2 ? ' — GOING' : ''));
       }
+      // The fifth wheel (Milestone 10). Only when there is one — see describeCoupling.
+      const cpl = describeCoupling(st);
+      if (cpl && cpl.line) bits.push(cpl.line);
       this._set(this.el.rig, bits.join('  ·  '));
       this.el.rig.classList.toggle('on', bits.length > 0);
     }

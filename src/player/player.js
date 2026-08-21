@@ -40,6 +40,10 @@ import {
   claimHook, releaseHook, claimGear, releaseGear, claimSeat, releaseSeat, seatFree,
 } from '../crew/authority.js';
 import { toggleOutriggers } from '../recovery/rig.js';
+import {
+  COUPLING, couplingOf, halvesOf, pinPos, uncouple, canUncouple, uncoupleRefusal,
+  describeCoupling,
+} from '../recovery/coupling.js';
 import { anchorPoints, describeAnchor } from '../recovery/anchors.js';
 import { describeCustomer } from '../world/customer.js';
 
@@ -68,6 +72,8 @@ export function createCrewMember(id, seat, spawn, name = null) {
     /** Knocked off their feet. GDD §7 "player stumble/ragdoll punctuation". */
     stumbleMs: 0,
     _pumpingGearId: null,
+    /** Holding the fifth-wheel release handle down. Milestone 10, same shape as the jack. */
+    _releasingCoupling: false,
   };
 }
 
@@ -626,6 +632,29 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
     return 'lift-in';
   }
 
+  /* 7c — the fifth wheel (Milestone 10). HELD, not tapped: pulling the pin is eight seconds of
+   *      standing there winding legs down and cranking a handle, which is the same shape the jack
+   *      already has. `p._releasingCoupling` is cleared in stepCrew the moment the key comes up or
+   *      the crew member walks away, so it can never be a thing that finishes by itself. */
+  {
+    const c = couplingOf(st);
+    if (c && c.state !== COUPLING.FREE) {
+      const { trailer } = halvesOf(st, c);
+      const pin = trailer ? pinPos(trailer) : null;
+      if (pin && Math.hypot(p.x - pin.x, p.y - pin.y) <= CONFIG.player.reachM) {
+        /* And it is REFUSABLE, in physical terms and with the number said out loud. You cannot
+         * pull the pin with the trailer's weight hanging on it — the refusal is a fact and the
+         * subtraction is the player's, exactly as the anchors' card does it. */
+        if (!canUncouple(st)) {
+          p.inspect = { title: 'the fifth wheel', lines: [uncoupleRefusal(st)], ttlMs: 3200 };
+          return null;
+        }
+        p._releasingCoupling = true;
+        return 'uncouple';
+      }
+    }
+  }
+
   /* 8 — the casualty's own parking brake. AFTER gear on purpose: if you are standing over a jack
    *     you just placed, pumping it is what you meant. Walk round to the door side instead. */
   const brakeTarget = brakeReachable(st, p);
@@ -803,6 +832,23 @@ export function stepCrew(st, terrain, dtSec, inputs, bus, simTimeMs) {
           pumpJack(st, it, dtSec, bus, simTimeMs);
         }
       }
+
+      /* And the pin, on the same terms as the jack (Milestone 10). `uncouple()` stamps the step it
+       * was touched on, and `stepCoupling` — which runs LATER in the same step — resets the attempt
+       * when that stamp is not this step's. So "somebody let go" is exact rather than a timeout,
+       * and this ordering is load-bearing: stepCrew must stay before stepCoupling. */
+      if (p._releasingCoupling) {
+        const c = couplingOf(st);
+        const holding = input && input.isDown('context');
+        const { trailer } = c ? halvesOf(st, c) : { trailer: null };
+        const pin = trailer ? pinPos(trailer) : null;
+        if (!c || c.state === COUPLING.FREE || !holding || !pin
+            || Math.hypot(p.x - pin.x, p.y - pin.y) > CONFIG.player.reachM) {
+          p._releasingCoupling = false;
+        } else {
+          uncouple(st, bus, simTimeMs, dtSec);
+        }
+      }
     }
 
     /* The winch is reachable by ANYONE, at any time — GDD §5. Collected PER DRUM across the crew
@@ -908,6 +954,27 @@ function hintFor(st, p, terrain, carried) {
       const t = liftTarget(st);
       if (t) return { key: 'E', label: `lift the ${t.veh.def.label}'s ${t.end} axle` };
       return { key: 'E', label: 'swing the wheel lift back in' };
+    }
+  }
+
+  /* The fifth wheel, mirroring doContext's 7c. Held rather than tapped, so the prompt counts —
+   * a key you have to hold for eight seconds with no progress shown is a key that looks broken. */
+  {
+    const c = couplingOf(st);
+    if (c && c.state !== COUPLING.FREE && !carried) {
+      const { trailer } = halvesOf(st, c);
+      const pin = trailer ? pinPos(trailer) : null;
+      if (pin && Math.hypot(p.x - pin.x, p.y - pin.y) <= CONFIG.player.reachM) {
+        const d = describeCoupling(st);
+        return {
+          key: 'E',
+          label: c.state === COUPLING.RELEASING && !d.refusal
+            ? `pulling the pin (${(c.releaseMs / 1000).toFixed(1)} of `
+              + `${(CONFIG.coupling.uncoupleMs / 1000).toFixed(0)} s)`
+            : 'pull the pin',
+          alt: d.refusal ? { key: '', label: d.refusal } : null,
+        };
+      }
     }
   }
 

@@ -998,6 +998,47 @@ export class Renderer {
       for (const s of [1, -1]) rect(ctx, L * 0.28 * s - 0.07, -W * 0.82, 0.14, W * 1.64, true);
       ctx.fillStyle = 'rgba(36,32,28,0.5)';                                    // the roof, crushed under it
       roundRect(ctx, -L * 0.34, -W * 0.48, L * 0.68, W * 0.96, 0.16, true);
+    } else if (veh.def.id === 'tractorUnit' || veh.def.id === 'semitrailer') {
+      /* TWO SHAPES, NOT ONE LONG ONE (Milestone 10). The unit is nearly all cab with a plate
+       * behind it; the trailer is a long box with every wheel bunched at one end and nothing at
+       * all under the other. That difference IS the decision — which half you rig, and in which
+       * order — so a player has to be able to see it from across the map. Both would otherwise
+       * fall through to the sedan branch and draw as six- and eight-metre cars with greenhouses. */
+      const unit = veh.def.id === 'tractorUnit';
+      const shell = veh.rolled ? '#4a5f75' : (unit ? '#7b5f52' : '#9aa2a8');
+      if (unit) {
+        ctx.fillStyle = shadeHex('#33373d', 1.0);                        // chassis rails
+        roundRect(ctx, -L, -W * 0.62, L * 2, W * 1.24, 0.10, true);
+        roundRect(ctx, L * 0.10, -W * 0.94, L * 0.90, W * 1.88, 0.24, false);
+        fillLit(ctx, b.x, b.y, W, shell, A);                             // the cab
+        ctx.fillStyle = COL.glass;
+        roundRect(ctx, L * 0.72, -W * 0.72, L * 0.18, W * 1.44, 0.09, true);
+        ctx.fillStyle = shadeHex('#5a5f66', 1.06);                       // fifth wheel plate
+        roundRect(ctx, -L * 0.62, -W * 0.52, L * 0.44, W * 1.04, 0.10, true);
+        ctx.fillStyle = shadeHex('#2b2e33', 1.0);
+        rect(ctx, -L * 0.58, -0.09, L * 0.34, 0.18, true);               // the throat
+        ctx.fillStyle = '#f6f0d8';
+        rect(ctx, L * 0.95, -W * 0.78, 0.14, 0.28, true);
+        rect(ctx, L * 0.95, W * 0.5, 0.14, 0.28, true);
+      } else {
+        roundRect(ctx, -L, -W, L * 2, W * 2, 0.10, false);
+        fillLit(ctx, b.x, b.y, W * 1.2, shell, A, 0.72, 1.14);
+        ctx.strokeStyle = 'rgba(10,12,16,0.30)';                         // curtain ribs
+        ctx.lineWidth = 0.05;
+        for (let i = 1; i < 7; i++) {
+          const rx = -L + (L * 2) * (i / 7);
+          line(ctx, rx, -W * 0.96, rx, W * 0.96);
+        }
+        ctx.fillStyle = shadeHex('#2f3338', 1.0);                        // the bogie, at the back
+        roundRect(ctx, -L * 0.95, -W * 0.98, L * 0.47, W * 1.96, 0.06, true);
+        ctx.fillStyle = shadeHex('#6a7076', 1.05);                       // landing legs
+        rect(ctx, L * 0.33 - 0.08, -W * 0.42, 0.16, W * 0.84, true);
+        ctx.fillStyle = shadeHex('#8e959f', 1.08);                       // the kingpin
+        ctx.beginPath(); ctx.arc(L * 0.63, 0, 0.13, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#c2483c';
+        rect(ctx, -L * 0.99, -W * 0.8, 0.11, 0.24, true);
+        rect(ctx, -L * 0.99, W * 0.56, 0.11, 0.24, true);
+      }
     } else if (veh.def.id === 'boxTruck' || veh.def.id === 'van') {
       /* A cab and a body, not a very long car (Milestone 6). The silhouette is the whole point:
        * the player has to be able to tell at a glance that the thing on the bank is a seven-tonner

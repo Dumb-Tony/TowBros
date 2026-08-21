@@ -8,6 +8,10 @@
  * Six axes, rolled independently from one seeded stream, and combined into a job. That is the
  * whole idea and it is worth being careful about, because the obvious version of it is bad.
  *
+ * Milestone 10 adds an ARTIC and deliberately does not add a seventh axis for it — see the ARTIC
+ * block below for why a coupled pair belongs on the vehicle axis while a shunt belongs on the
+ * sixth, and for what that costs the stream (nothing).
+ *
  * ── WHY THIS IS NOT A DIFFICULTY DIAL ────────────────────────────────────────────────
  * The tempting design is one number — "difficulty 0..1" — smeared across every axis, so a hard job
  * is a heavy vehicle, on the steepest site, in the dark, badly damaged, dug in. That produces a
@@ -55,6 +59,15 @@ export const VEHICLES = Object.freeze([
   { id: 'sedanRoof', weight: 2, minRep: 15, feeMul: 1.5 },
   { id: 'van', weight: 3, minRep: 25, feeMul: 1.9 },
   { id: 'boxTruck', weight: 2, minRep: 50, feeMul: 3.2 },
+  /* Milestone 10's artic, and it is ONE entry on THIS axis rather than a second kind of pair on
+   * the sixth, because "what is off the road" is what this axis answers and what is off the road
+   * is an artic. `couplesTo` is what makes it a pair, and it is read below in exactly one place.
+   *
+   * Weight 1 — the rarest thing on the board. Not because it is the hardest: because there are
+   * far more cars in a county than lorries, which is the same reason the box truck is a 2 and the
+   * sedan a 5. Gated at 60 for the same reason the box truck is gated at 50: an outfit gets sent
+   * the work the county has seen it do. */
+  { id: 'tractorUnit', weight: 1, minRep: 60, feeMul: 2.6, couplesTo: 'semitrailer' },
 ]);
 
 /**
@@ -135,6 +148,48 @@ export const SHUNTS = Object.freeze([
   },
 ]);
 
+/**
+ * AN ARTIC — the seventh thing that can be true of a job, and it is deliberately NOT a seventh
+ * axis (GDD §7 Milestone 10).
+ *
+ * A shunt is two unrelated vehicles that collided. An artic is ONE vehicle that happens to be two
+ * bodies, and the difference decides where it lives: the vehicle axis says what is off the road,
+ * so `tractorUnit` is a row in VEHICLES like everything else, and this block is what that row
+ * drags in behind it. Nothing here is rolled against the other axes and nothing here is a
+ * difficulty setting — an artic turns up in the dry, on a clean lie, in the middle of the
+ * afternoon, exactly as often as it turns up at the end of a bad one.
+ *
+ * The sixth axis has nothing to say about it, and that is a fact about the SCENE rather than a
+ * rule: sim/vehicle.js has two casualty slots, the artic fills both, so there is no third slot
+ * for a car in the back of it. The shunt is still drawn — the stream position is unchanged, so a
+ * seed that produced a particular vehicle, incident, site, damage and forecast still produces
+ * exactly those — and then the artic replaces what it said.
+ *
+ * `jackKnifeRad` is a LIE, in the sense SHUNTS uses the word: how far round the trailer folded
+ * when the pair went off, magnitude and side out of the same draw. It carries no fee multiplier,
+ * for the reason the shunt arrangements carry none — what an artic is worth is that there are two
+ * of it, not the angle it stopped at, and pricing the awkward ones higher is the difficulty dial
+ * coming in through the side door.
+ *
+ * 0.12 to 1.05 rad is 7° to 60°, from very nearly in line to properly folded, and the top of it
+ * is bounded by something rather than chosen: CONFIG.coupling.freeRad is 1.15 rad, the angle a
+ * fifth wheel is free to before the fold stop starts resisting. Staying inside it means a pair
+ * never ARRIVES with the stop already loaded and a spring's worth of stored energy waiting for
+ * step one. If freeRad moves, this moves with it — the m10 probe asserts the relationship rather
+ * than leaving it as a remembered fact.
+ */
+export const ARTIC = Object.freeze({
+  id: 'artic',
+  /** The second casualty, shaped like a VEHICLES row because that is what `second` is downstream.
+   *  It is NOT in VEHICLES: a semitrailer is never what a job is about on its own, and leaving it
+   *  out of that table is also what stops `shuntPartnersFor` parking a loose one behind a box
+   *  truck. `minRep` is inert here — the tractor's 60 gates the pair — and is carried so the row
+   *  reads the same as its neighbours. */
+  trailer: Object.freeze({ id: 'semitrailer', weight: 0, minRep: 60, feeMul: 2.2 }),
+  jackKnifeRad: [0.12, 1.05],
+  line: 'is still coupled to it at the fifth wheel, folded round. Both of them are yours.',
+});
+
 /** The county's gap in the rail — `RAIL.gapX0..gapX1` in data/terrain.js — before the site
  *  multiplier and before the ±1.4 m an attempt jitters it by. The NOMINAL number, because the
  *  generator cannot see the jitter: the offer is written before the terrain is built. */
@@ -143,6 +198,27 @@ const COUNTY_GAP_M = 15.0;
 /** Bumper to bumper as the pair went through that gap. Not the resting clearance — that is drawn
  *  per job from the arrangement's `sepM`, and by then one of them may be sideways. */
 const SHUNT_ARRIVAL_CLEAR_M = 0.6;
+
+/**
+ * Did these two get through the gap in the rail at this site, one behind the other?
+ *
+ * ONE rule, and both kinds of pair go through it — including an artic, which is measured here as
+ * though the two halves were nose to tail when in fact they overlap. 6.00 m of tractor and 8.20 m
+ * of trailer share 3.30 m at the coupling, so a coupled outfit is 10.90 m long and this reads it
+ * as 14.80. That is a deliberate over-estimate and it costs exactly one thing: the quarry, whose
+ * 11.25 m gap the true length clears by 350 mm and the conservative one does not. Kept anyway,
+ * for two reasons and neither is laziness. The m9 suite asserts the sum form over every generated
+ * pair, so a second, truer rule would have to be kept in step with a test that cannot see it. And
+ * an artic threading the narrowest gap in the county with 350 mm either side, onto the steepest
+ * bank in it, is a job a player would not believe even though the arithmetic allows it.
+ *
+ * The county's own gap caps the site's, because the ford being a wide shallow crossing is not a
+ * licence for fourteen tonnes of lorry in a brook.
+ */
+function pairFitsGap(frontDef, rearDef, site) {
+  const gapM = Math.min(COUNTY_GAP_M, COUNTY_GAP_M * (site.gapMul || 1));
+  return frontDef.lengthM + SHUNT_ARRIVAL_CLEAR_M + rearDef.lengthM <= gapM;
+}
 
 /**
  * WHAT THE SECOND VEHICLE IS WORTH, as a fraction of what it would have been worth on its own.
@@ -207,12 +283,10 @@ function pickWeighted(list, rnd) {
  * there was a plain one parked in front of it.
  */
 function shuntPartnersFor(frontDef, site, reputation) {
-  const gapM = Math.min(COUNTY_GAP_M, COUNTY_GAP_M * (site.gapMul || 1));
   const pool = VEHICLES.filter((v) => {
     if (reputation < v.minRep) return false;
     const d = casualtyDefById(v.id);
-    return d.massKg <= frontDef.massKg
-        && frontDef.lengthM + SHUNT_ARRIVAL_CLEAR_M + d.lengthM <= gapM;
+    return d.massKg <= frontDef.massKg && pairFitsGap(frontDef, d, site);
   });
   // Only reachable from a nonsensical reputation, and a job with nothing behind it would be worse
   // than a job with a bike behind it. Same shape as the vehicle pool's own fallback above.
@@ -243,6 +317,56 @@ function shuntLie(shunt, frontDef, rearDef, rnd) {
 }
 
 /**
+ * Where the TRAILER is, in the tractor unit's own frame, when the two are still coupled.
+ *
+ * Same frame and the same three numbers a shunt lie carries, because a coupled pair has to be
+ * the same kind of object as an uncoupled one all the way down to the scene — but the three
+ * numbers are not drawn, they are SOLVED. A shunt lie is "somewhere behind, roughly"; an artic
+ * lie has exactly one degree of freedom, the fold angle, and the other two fall out of the
+ * requirement that the kingpin be in the fifth wheel:
+ *
+ *     trailerCentre = fifthWheel − rot(kingpin, jackKnife)
+ *
+ * Get that wrong by a centimetre and the constraint the other half of this milestone builds
+ * starts the job already stretched, so it is written as the one line of algebra it is.
+ *
+ * `coupled: true` rides on the lie rather than on a new offer key, because that is what a lie is
+ * FOR: it is the whole of what an offer is allowed to say about how the second vehicle relates to
+ * the first, and "joined to it" is exactly that kind of fact. It also means the offer's key set is
+ * the same list it has been since Milestone 9, which is the property the board, the save file and
+ * two suites depend on.
+ *
+ * `boggedMul: 1` and it is the one number here that says something. The scene digs the second
+ * casualty in at 0.45 of the first because in a shunt it arrived later and at less of an angle.
+ * The two halves of an artic went off the road in the same second at the same speed, so the
+ * trailer is exactly as buried as the unit dragging it, and 1 is what that means.
+ */
+function articLie(frontDef, rearDef, rnd) {
+  const [lo, hi] = ARTIC.jackKnifeRad;
+  const span = (u) => lo + u * (hi - lo);
+  const t = rnd() * 2 - 1;
+  // Magnitude and side out of one draw, the way shuntLie does it — and never Math.sign(0).
+  const jack = t < 0 ? -span(-t) : span(t);
+  const F = frontDef.fifthWheelLocal, K = rearDef.kingPinLocal;
+  const c = Math.cos(jack), s = Math.sin(jack);
+  const r4 = (n) => Math.round(n * 10000) / 10000;
+  const angle = r4(jack);
+  return {
+    x: r4(F.x - (K.x * c - K.y * s)),
+    y: r4(F.y - (K.x * s + K.y * c)),
+    angle,
+    coupled: true,
+    /* THE SAME NUMBER AS `angle`, under the name world/scene.js reads it by when it seats the pin.
+     * Two names for one fact is what this project keeps paying for, so they are assigned from one
+     * variable and the m10 probe asserts they are identical — the alternative is a scene that
+     * seats the coupling at 0 rad while the two bodies are lying at 40 degrees to each other,
+     * which is a constraint that starts the job already stretched and no error anywhere. */
+    jackKnifeRad: angle,
+    boggedMul: 1,
+  };
+}
+
+/**
  * Roll one situation.
  *
  * @param {number} seed          the whole situation comes from this and nothing else
@@ -266,18 +390,31 @@ export function rollSituation(seed, reputation = 0) {
    * box truck does not end up through the parapet of a narrow bridge, and a job that says it did
    * is a job the player will not believe. Re-rolled to the same site's easiest neighbour rather
    * than to "somewhere random", so the fix is legible in the offer. */
+  const frontDef = casualtyDefById(vehicle.id);
+  const trailerDef = vehicle.couplesTo ? casualtyDefById(vehicle.couplesTo) : null;
   let placed = site;
   if (vehicle.id === 'boxTruck' && site.id === 'bridge') placed = siteById('bend');
+  /* And an artic does not go through every gap in the rail either — same rule, same repair, and
+   * the bend for the same reason the box truck gets the bend. It costs the stream nothing: the
+   * site was already drawn and this only decides where the drawn one is overruled. */
+  if (trailerDef && !pairFitsGap(frontDef, trailerDef, placed)) placed = siteById('bend');
 
   /* THE SIXTH AXIS (Milestone 9), drawn LAST and from the same stream. Last on purpose: every
    * draw above it is untouched, so a seed that produced a one-vehicle job before this existed
    * produces exactly the same vehicle, incident, site, damage and forecast now, and the only
    * thing a shunt costs the five older axes is nothing. */
-  const shunt = pickWeighted(SHUNTS, rnd);
-  const frontDef = casualtyDefById(vehicle.id);
+  let shunt = pickWeighted(SHUNTS, rnd);
   let second = null;
   let secondLie = null;
-  if (shunt.id !== 'none') {
+  if (trailerDef) {
+    /* AN ARTIC FILLS BOTH CASUALTY SLOTS, so whatever the sixth axis just said about a third
+     * vehicle has nowhere to go. Overruled rather than skipped: the draw still happens and still
+     * costs the stream the same one number, which is what keeps every seed's first five axes
+     * identical to what they were before this existed. See ARTIC above. */
+    shunt = ARTIC;
+    second = ARTIC.trailer;
+    secondLie = articLie(frontDef, trailerDef, rnd);
+  } else if (shunt.id !== 'none') {
     second = pickWeighted(shuntPartnersFor(frontDef, placed, reputation), rnd);
     secondLie = shuntLie(shunt, frontDef, casualtyDefById(second.id), rnd);
   }
@@ -350,7 +487,9 @@ export function situationToOffer(situation, id) {
   };
 }
 
-/** For the tests and the debug overlay: the six axes as six words. */
+/** For the tests and the debug overlay: the six axes as six words, and whether the pair is one
+ *  vehicle or two. `coupled` is read off the lie rather than off the arrangement id, because the
+ *  lie is the thing the scene is actually going to be built from. */
 export const describeSituation = (s) => ({
   vehicle: s.vehicle.id,
   incident: s.incident.id,
@@ -359,5 +498,6 @@ export const describeSituation = (s) => ({
   weather: s.weather.id,
   shunt: s.shunt ? s.shunt.id : 'none',
   second: s.second ? s.second.id : null,
+  coupled: !!(s.secondLie && s.secondLie.coupled),
   fee: s.fee,
 });

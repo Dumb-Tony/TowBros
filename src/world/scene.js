@@ -26,6 +26,7 @@ import { buildScenery } from '../sim/collision.js';
 import { createWinch, drumsOf } from '../recovery/cable.js';
 import { createLift, LIFT } from '../recovery/lift.js';
 import { createHoist } from '../recovery/rig.js';
+import { createCoupling, seatCoupling } from '../recovery/coupling.js';
 import { createCrewMember } from '../player/player.js';
 
 /**
@@ -175,8 +176,26 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
      * the terrain exists, so it cannot know that seven metres up-slope of a box truck at the bend
      * is the guardrail. Backing it down the bank is a PROPERTY rather than a number: a fixed gap
      * that works for a sedan on this seed is wrong for a van on the next one. */
-    for (let i = 0; i < 24 && cornersOnRoad(second, terrain).on > 0; i++) second.body.y += 0.25;
+    /* AND FOR A COUPLED PAIR, BOTH BODIES MOVE. The nudge exists to keep a spawned casualty off
+     * the tarmac; applied to one half of an artic it pulls the kingpin up to 6 m out of the plate
+     * before `createCoupling` below ever sees them. Measured: it fires on 0 of 12 generated artics
+     * today, which is exactly the kind of latent bug the next site or lie turns live. */
+    const nudgeBoth = !!lie.coupled;
+    for (let i = 0; i < 24 && cornersOnRoad(second, terrain).on > 0; i++) {
+      second.body.y += 0.25;
+      if (nudgeBoth) sedan.body.y += 0.25;
+    }
     if (secondDef.arrivesRolled || lie.rolled) setRolled(second, true);
+
+    /* AN ARTIC IS THE SAME PAIR WITH A PIN IN IT (Milestone 10). Not a third slot and not a longer
+     * vehicle: the two casualty slots Milestone 9 built, joined at a fifth wheel. `secondLie.coupled`
+     * is what a situation says to make one, and `jackKnifeRad` is how it came to rest — which is the
+     * number the whole clause is about, because a folded pair costs 7.5x the line a straight one
+     * does. See recovery/coupling.js. */
+    if (lie.coupled) {
+      sedan.coupling = createCoupling({ tractorId: sedan.id, trailerId: second.id });
+      sedan.coupling._seatRad = lie.jackKnifeRad || 0;
+    }
   }
 
   // Zone modifiers and rigging live on the vehicle, not on the definition: the definition is
@@ -308,6 +327,12 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
    * reference cannot fall out of sync the way a duplicate would. Anything that genuinely has to
    * handle several people — drawing them, the authority checks — reads `st.crew`. */
   st.player = crew[0];
+
+  /* SEAT THE PIN, once, kinematically — and this has to happen after `st` exists because it moves
+   * the trailer to where the plate is rather than the other way round. The lift's `engageLift` had
+   * to learn the same thing: any gap left for a stiff constraint to close is meganewtons on step
+   * one, and 1.4 MN/m of pin over a metre of slack is worse than the yoke ever was. */
+  if (sedan.coupling) seatCoupling(st, sedan.coupling._seatRad || 0);
   return st;
 }
 

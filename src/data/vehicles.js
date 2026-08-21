@@ -460,6 +460,281 @@ export const SEDAN_ROOF_DEF = Object.freeze({
           'wheelFL', 'wheelFR', 'wheelRL', 'wheelRR', 'axleFront', 'axleRear', 'roofPanel'],
 });
 
+/* ── the artic: a tractor unit and a semitrailer (Milestone 10) ─────────────────
+ * GDD §7 Milestone 10: "A tractor unit and a semitrailer on a fifth wheel, jack-knifed off the
+ * road. It is not one long vehicle with more mass — it is the pair the game already builds
+ * (Milestone 9's two casualty slots), with a constraint between them."
+ *
+ * Two definitions and ONE design. Neither mass means anything except read beside the other one
+ * and beside the drum that has to move both, so they are authored here next to the geometry they
+ * were chosen with rather than split across two CONFIG blocks — config.js's own header allows
+ * src/data/ for authored content, and the argument below only reads as an argument in one piece.
+ *
+ * ── THE PAIR AGAINST THE FORCE BUDGET ──────────────────────────────────────────
+ * The heavy wrecker has two drums at 42 kN each. Everything below was chosen against that and
+ * then measured on the bend, where the casualty lies on a 28.6° bank — 4.701 N of downslope pull
+ * per kg, against the 27° / 4.45 nominal config.js's budget block quotes. Measured, seed 4242,
+ * heavy wrecker parked on the shoulder 11 m along the road, rigged to the front-most strong zone,
+ * reeling until the thing is on the road:
+ *
+ *                    mass    downslope   bogged   resistance   ONE drum
+ *   tractor unit   3 500 kg    16.5 kN   10.1 kN     26.6 kN   30.5 kN peak, 16.9 held, 41 s, 1 park
+ *   semitrailer    3 200 kg    15.0 kN    9.3 kN     24.3 kN   32.5 kN peak, 12.4 held, 75 s, 2 parks
+ *   THE PAIR       6 700 kg    31.5 kN   19.4 kN     50.9 kN   63.1 kN COMPUTED, both drums
+ *   (box truck)    7 200 kg    33.8 kN   20.8 kN     54.7 kN   pinned at 41.9, 21 stalls, 0/4
+ *
+ * That contrast is the milestone, and the last row is what it is measured against. Split, each
+ * half asks 73% and 77% of ONE drum at its worst instant and about 40% and 30% of it sustained,
+ * stalls the motor zero times, and comes up on one line — while the box truck, on the same drum,
+ * sits pinned at the motor limit, stalls twenty-one times and does not move at all. Coupled, the
+ * pair is 63.1 kN: half again what one drum can do, so one line used twice is not a plan, and 75%
+ * of what the whole machine has BEFORE the jack-knife takes its cut. That leaves 20.9 kN of the
+ * machine for the fold to spend, which is the budget the fifth-wheel constraint is written into.
+ *
+ * Checked across eight seeds, because the bogged-in force carries a ±900 N-per-tonne seeded
+ * spread and seed 4242 is a light one: the unit peaks 30.5-40.8 kN and holds 16.8-17.7, the
+ * trailer peaks 32.5-40.1 and holds 12.3-12.5, both come up every time, and between them they
+ * stall the motor zero times and part zero ropes. The peaks are the line snatching as the load
+ * breaks free; what a drum has to LIVE at is the held figure, and that never reaches half a drum.
+ *
+ * ── AND WHY THESE ARE NOT WHAT A REAL ARTIC WEIGHS ─────────────────────────────
+ * A 6x2 tractor unit is about 7 500 kg empty, a short two-axle trailer about 4 500, and a LOADED
+ * semitrailer is 25 t. None of those is recoverable by anything in this game: at 4.701 N/kg a
+ * 25 t trailer pulls 118 kN down this bank against 84 kN of drum, so an empty or part-loaded
+ * outfit is the only honest choice and this is where that is said out loud instead of being
+ * implied by a number nobody can check. Even empty the real pair is 12 t, which is 100 kN of
+ * standing resistance and past the machine before anything is asked of the fold.
+ *
+ * So these two are about 55% of a real empty outfit, and what they were sized against is the
+ * drum. 3 500 + 3 200 = 6 700 kg is 500 kg LIGHTER than the box truck and a harder recovery than
+ * it — which is the milestone's own claim ("it is not one long vehicle with more mass") stated as
+ * a pair of numbers rather than as an opinion. Each half lands between a panel van (2 600) and
+ * that box truck (7 200), and is a one-drum job by measurement.
+ *
+ * The trailer is the LIGHTER half and still the more expensive one to move, which is the whole
+ * point of it: 1.34 kN of peak line per kN of standing resistance against the unit's 1.15, and
+ * two parks against the unit's one. All of its mass is behind its axle line and all of its wheels
+ * are at the very back, so at 8.20 m it carries 19 665 kg·m² of yaw inertia against the tractor's
+ * 12 323 — 1.60x the inertia on 91% of the mass. Pulled from the kingpin it is a 4.90 m lever
+ * with nothing under the end you are pulling.
+ *
+ * ── AND WHY IT IS 6.00 m AND 8.20 m AND NOT 6.5 AND 13.6 ───────────────────────
+ * meta/situations.js will not put a pair through a gap in the rail it does not fit, and it counts
+ * a pair nose to tail: 6.00 + 0.60 of clearance + 8.20 = 14.80 m against the county's 15.0 m gap.
+ * A 13.6 m curtainsider makes that 20.2 m and is refused at every site in the county, which is a
+ * correct answer to the wrong question — so the trailer is a short two-axle city van-trailer,
+ * which is a real thing you see on real roads. The pair fits the bend and the ford (15.00 m) and
+ * not the quarry (11.25) or the bridge (8.25): measured over 400 rolls, an artic turns up at two
+ * of the four sites and never at the other two.
+ */
+
+/* Three axles: a steer axle, a drive axle on twins and a tag axle on singles. The fifth wheel
+ * sits 0.10 m behind the drive axle, which is where the trailer's nose weight wants to go. */
+const TRACTOR_WHEELS = [
+  { id: 'wheelFL', local: { x: 1.70, y: -1.06 }, steer: true, drive: false, park: false, radiusM: 0.52 },
+  { id: 'wheelFR', local: { x: 1.70, y: 1.06 }, steer: true, drive: false, park: false, radiusM: 0.52 },
+  { id: 'wheelDLi', local: { x: -1.10, y: -0.80 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+  { id: 'wheelDLo', local: { x: -1.10, y: -1.12 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+  { id: 'wheelDRi', local: { x: -1.10, y: 0.80 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+  { id: 'wheelDRo', local: { x: -1.10, y: 1.12 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+  { id: 'wheelTL', local: { x: -2.40, y: -1.06 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+  { id: 'wheelTR', local: { x: -2.40, y: 1.06 }, steer: false, drive: false, park: true, radiusM: 0.52 },
+];
+
+/* The strongest point on this vehicle is the fifth wheel, and that is not a flourish: the plate
+ * is the one fitting on a tractor unit designed to drag forty tonnes through, so it outrates the
+ * front towing jaw and everything else in the county. A crew that works that out has found the
+ * best rigging point in the game — on the half of the artic that is easiest to move anyway. */
+const TRACTOR_ZONES = [
+  { id: 'towHook', label: 'front towing jaw', local: { x: 2.80, y: 0.00 }, strengthN: 150000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'A cast jaw through the chassis rails, rated to tow another one of these.' },
+  { id: 'fifthWheel', label: 'fifth wheel plate', local: { x: -1.20, y: 0.00 }, strengthN: 185000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'The coupling plate and its two mounting brackets. Everything this unit ever towed went through here.' },
+  { id: 'frameFront', label: 'front chassis rail', local: { x: 2.20, y: -0.44 }, strengthN: 135000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'Channel-section steel with the front spring hanger bolted through it.' },
+  { id: 'frameRear', label: 'rear crossmember', local: { x: -2.85, y: 0.00 }, strengthN: 118000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'Structural, and behind the coupling — a pull from here drags the trailer as well.' },
+
+  { id: 'axleFront', label: 'steer beam axle', local: { x: 1.70, y: 0.00 }, strengthN: 76000,
+    fail: FAIL.BEND, part: 'axleFront',
+    inspect: 'Forged beam under the cab. It bends before the chassis does, and then it steers crooked.' },
+  { id: 'axleDrive', label: 'drive axle', local: { x: -1.10, y: 0.00 }, strengthN: 98000,
+    fail: FAIL.BEND, part: 'axleDrive',
+    inspect: 'The heavy end. A hypoid casing on twin wheels, directly under the coupling.' },
+  { id: 'axleTag', label: 'tag axle', local: { x: -2.40, y: 0.00 }, strengthN: 52000,
+    fail: FAIL.BEND, part: 'axleTag',
+    inspect: 'A liftable trailing axle. It carries load and drives nothing, and it is the lightest of the three.' },
+
+  { id: 'wheelFL', label: 'front left wheel', local: { x: 1.70, y: -1.14 }, strengthN: 30000,
+    fail: FAIL.DETACH, part: 'wheelFL',
+    inspect: 'Ten studs on a steer hub. It is still a lever on a bearing.' },
+  { id: 'wheelFR', label: 'front right wheel', local: { x: 1.70, y: 1.14 }, strengthN: 30000,
+    fail: FAIL.DETACH, part: 'wheelFR',
+    inspect: 'Ten studs on a steer hub. It is still a lever on a bearing.' },
+  /* `part` names the OUTER twin on both drive corners, for the reason spelled out on BOX_ZONES:
+   * a zone whose `part` is not the id of a wheel this vehicle has detaches nothing and says
+   * nothing about it. These resolve to wheelDLo / wheelDRo in TRACTOR_WHEELS above. */
+  { id: 'wheelDL', label: 'left drive twins', local: { x: -1.10, y: -1.18 }, strengthN: 36000,
+    fail: FAIL.DETACH, part: 'wheelDLo',
+    inspect: 'Twin wheels on one hub, brake on. A hook goes round the outer one.' },
+  { id: 'wheelDR', label: 'right drive twins', local: { x: -1.10, y: 1.18 }, strengthN: 36000,
+    fail: FAIL.DETACH, part: 'wheelDRo',
+    inspect: 'Twin wheels on one hub, brake on. A hook goes round the outer one.' },
+  { id: 'wheelTL', label: 'left tag wheel', local: { x: -2.40, y: -1.14 }, strengthN: 24000,
+    fail: FAIL.DETACH, part: 'wheelTL',
+    inspect: 'A single on a trailing axle — the lightest hub on the unit, and it is braked.' },
+  { id: 'wheelTR', label: 'right tag wheel', local: { x: -2.40, y: 1.14 }, strengthN: 24000,
+    fail: FAIL.DETACH, part: 'wheelTR',
+    inspect: 'A single on a trailing axle — the lightest hub on the unit, and it is braked.' },
+
+  { id: 'bumperFront', label: 'front bumper', local: { x: 3.05, y: 0.00 }, strengthN: 11000,
+    fail: FAIL.DETACH, part: 'bumperFront',
+    inspect: 'A moulded three-piece bumper with a step in the middle of it. Weak — it is a step.' },
+  { id: 'catwalk', label: 'catwalk behind the cab', local: { x: 0.15, y: 0.00 }, strengthN: 6000,
+    fail: FAIL.DETACH, part: 'catwalk',
+    inspect: 'A chequer plate on two brackets, carrying the air lines. Rated for a driver standing on it.' },
+];
+
+export const TRACTOR_UNIT_DEF = Object.freeze({
+  id: 'tractorUnit',
+  label: 'tractor unit',
+  /* See the block above for how these two masses were chosen, and what they cost in realism.
+   * Measured on one drum: 30.5 kN peak, 16.9 kN held, up in 41 s from one park, no stalls. */
+  massKg: 3500,
+  lengthM: 6.00, widthM: 2.50,
+  wheels: TRACTOR_WHEELS,
+  zones: TRACTOR_ZONES,
+  driven: false,
+  brakeForceN: 18000,
+  parkBrakeForceN: 18000,
+  /* Between the van's 0.54 and the box truck's 0.44: a short wheelbase turns tightly for its
+   * size, which is the one thing a tractor unit is good at and the reason it is short. */
+  maxSteerRad: 0.50,
+  boggedFreeM: 0.78,
+  winchLocal: null,
+  casualty: true,
+  /** Where the trailer's kingpin sits when the pair is coupled. 0.10 m behind the drive axle. */
+  fifthWheelLocal: { x: -1.20, y: 0.00 },
+  /** Which trailer this unit couples to. An id in CASUALTY_DEFS, checked by the m10 probe,
+   *  because an id in one data table naming a row in another is the thing nothing else checks. */
+  couplesTo: 'semitrailer',
+  parts: ['bumperFront', 'catwalk', 'axleFront', 'axleDrive', 'axleTag',
+          'wheelFL', 'wheelFR', 'wheelDLo', 'wheelDRo', 'wheelTL', 'wheelTR'],
+});
+
+/* Two axles, both at the very back, and eight tyres in 1.25 m of the vehicle's 8.20. THIS is the
+ * geometry the milestone is about: the kingpin is 1.50 m from the nose and the rear axle is 5.65 m
+ * behind that, so a line on the front of a semitrailer is pulling a six-metre lever with every
+ * wheel and almost all of the mass out at the far end of it. Nothing about that is expressed as a
+ * number anywhere — it falls out of these offsets and the box inertia they produce. */
+const SEMITRAILER_WHEELS = [
+  { id: 'wheelALi', local: { x: -2.30, y: -0.80 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelALo', local: { x: -2.30, y: -1.14 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelARi', local: { x: -2.30, y: 0.80 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelARo', local: { x: -2.30, y: 1.14 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelBLi', local: { x: -3.55, y: -0.80 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelBLo', local: { x: -3.55, y: -1.14 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelBRi', local: { x: -3.55, y: 0.80 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+  { id: 'wheelBRo', local: { x: -3.55, y: 1.14 }, steer: false, drive: false, park: true, radiusM: 0.50 },
+];
+
+/* The kingpin and the landing legs are 1.25 m apart and they are not the same kind of thing at
+ * all, which is the whole reason both are here. The pin is the strongest point on either half of
+ * the artic — it is a solid 50 mm shank in a 12 mm bolster plate, and the entire trailer hangs
+ * off it every day. The legs are two screw jacks whose job is to hold a parked nose up in still
+ * air; they are the second weakest zone in the county and a crew that reaches for them because
+ * they are the obvious handle under the front of the trailer will find out by number. */
+const SEMITRAILER_ZONES = [
+  { id: 'kingpin', label: 'kingpin', local: { x: 2.60, y: 0.00 }, strengthN: 175000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'A 50 mm pin in a bolted bolster plate. The whole trailer hangs off it whenever it is coupled.' },
+  { id: 'frameFront', label: 'front bolster', local: { x: 3.30, y: 0.00 }, strengthN: 122000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'The plate the pin is bolted through, spread across both main beams.' },
+  { id: 'chassisMid', label: 'left main beam', local: { x: 0.00, y: -0.55 }, strengthN: 108000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'A welded I-beam running the length of the trailer. Structural, and halfway to nowhere.' },
+  { id: 'frameRear', label: 'rear crossmember', local: { x: -3.95, y: 0.00 }, strengthN: 96000,
+    fail: FAIL.HOLD, part: null,
+    inspect: 'Solid, over the back axle, and at the wrong end to drag it up a bank by.' },
+
+  { id: 'axleFront', label: 'front bogie axle', local: { x: -2.30, y: 0.00 }, strengthN: 70000,
+    fail: FAIL.BEND, part: 'axleFront',
+    inspect: 'A straight beam on air bags. Nothing drives it and nothing steers it.' },
+  { id: 'axleRear', label: 'rear bogie axle', local: { x: -3.55, y: 0.00 }, strengthN: 70000,
+    fail: FAIL.BEND, part: 'axleRear',
+    inspect: 'The same axle again, 1.25 m further back, and the last thing on the trailer.' },
+
+  { id: 'wheelAL', label: 'left front twins', local: { x: -2.30, y: -1.22 }, strengthN: 32000,
+    fail: FAIL.DETACH, part: 'wheelALo',
+    inspect: 'Twins on one hub with the spring brake wound on. A hook goes round the outer one.' },
+  { id: 'wheelAR', label: 'right front twins', local: { x: -2.30, y: 1.22 }, strengthN: 32000,
+    fail: FAIL.DETACH, part: 'wheelARo',
+    inspect: 'Twins on one hub with the spring brake wound on. A hook goes round the outer one.' },
+  { id: 'wheelBL', label: 'left rear twins', local: { x: -3.55, y: -1.22 }, strengthN: 32000,
+    fail: FAIL.DETACH, part: 'wheelBLo',
+    inspect: 'The back corner of the trailer, and the last wheel to leave the bank.' },
+  { id: 'wheelBR', label: 'right rear twins', local: { x: -3.55, y: 1.22 }, strengthN: 32000,
+    fail: FAIL.DETACH, part: 'wheelBRo',
+    inspect: 'The back corner of the trailer, and the last wheel to leave the bank.' },
+
+  { id: 'rearUnderrun', label: 'rear underrun bar', local: { x: -4.30, y: 0.00 }, strengthN: 22000,
+    fail: FAIL.BEND, part: 'rearUnderrun',
+    inspect: 'A square bar on two drop brackets, built to stop a car going under. It bends downward.' },
+  { id: 'landingLegs', label: 'landing legs', local: { x: 1.35, y: 0.00 }, strengthN: 11000,
+    fail: FAIL.DETACH, part: 'landingLegs',
+    inspect: 'Two screw jacks and a crank handle, rated to hold the nose up while it is parked.' },
+  { id: 'curtainRail', label: 'curtain top rail', local: { x: 0.60, y: 1.24 }, strengthN: 4200,
+    fail: FAIL.DETACH, part: 'curtainRail',
+    inspect: 'An aluminium rail with the curtain buckles hanging off it. The weakest thing on either half.' },
+];
+
+export const SEMITRAILER_DEF = Object.freeze({
+  id: 'semitrailer',
+  label: 'semitrailer',
+  /* Measured on one drum: 32.5 kN peak, 12.4 kN held, up in 75 s — and it takes TWO parks, for
+   * the reason a box truck takes two. A winch pulls its load to the drum, and 8.20 m of trailer
+   * does not arrive lying along the road. */
+  massKg: 3200,
+  lengthM: 8.20, widthM: 2.55,
+  wheels: SEMITRAILER_WHEELS,
+  zones: SEMITRAILER_ZONES,
+  driven: false,
+  brakeForceN: 16500,
+  parkBrakeForceN: 16500,
+  /* NO `maxSteerRad`, and no `drive` on any wheel above. A semitrailer has no engine and no
+   * steering box: a driver sitting in it — there is no seat, but the tire model does not know
+   * that — turns nothing, because sim/vehicle.js applies the steer angle per wheel and every
+   * wheel here is `steer: false`. Authoring a 0 would read as a value; the absence is the fact. */
+  boggedFreeM: 0.80,
+  winchLocal: null,
+  casualty: true,
+  /** Where this trailer's pin sits, in its own body frame. 1.50 m back from the nose.
+   *  SPELT `kingPinLocal`, with the capital P, because that is the name recovery/coupling.js
+   *  reads — and its fallback when the name does not match is `axleLocal(def, 'front')`, which
+   *  for a trailer with no front axle at all is the nose. A quiet 1.50 m error in the one piece
+   *  of geometry the whole constraint is built on. Same class of bug as the box truck's
+   *  `part: 'wheelRL'`, and caught the same way: by checking. */
+  kingPinLocal: { x: 2.60, y: 0.00 },
+  /** Which unit it came off. Checked against CASUALTY_DEFS by the m10 probe. */
+  couplesFrom: 'tractorUnit',
+  /* Where a short outfit folds SOLID — about 80°. AUTHORED rather than derived, and the reason is
+   * a measurement: a plan view cannot derive it. Coupled at these offsets the trailer's nose
+   * reaches 0.30 m PAST the tractor's own centre, so the two rectangles overlap the whole time.
+   * Measured with sim/collision.js's own obbOverlap, at folds of 0°, 7°, 17°, 32°, 46° and 60°:
+   * 2.53, 2.70, 2.91, 3.12, 3.21 and 3.19 m of penetration. In three dimensions the nose is
+   * simply above the chassis until its corner reaches the back of the cab; in two there is no
+   * "above", which is why a coupled pair has to be filtered out of the contact pass exactly the
+   * way `joinedByLift` already filters a wheel-lift pair — see the report. */
+  jackKnifeMaxRad: 1.40,
+  parts: ['landingLegs', 'curtainRail', 'rearUnderrun', 'axleFront', 'axleRear',
+          'wheelALo', 'wheelARo', 'wheelBLo', 'wheelBRo'],
+});
+
 export const TRUCK_DEF = Object.freeze({
   id: 'truck',
   label: 'tow truck',
@@ -554,6 +829,10 @@ export const truckDefById = (id) => TRUCK_DEFS[id] || TRUCK_DEF;
  * three entries that each ask a different question of the same winch. Milestone 7 (GDD §7,
  * "a wider casualty library") adds two more that ask questions mass alone cannot: a motorcycle
  * that the winch can only ever gently overpower, and a sedan that arrived already on its roof.
+ *
+ * Milestone 10 adds the two halves of an artic. They are ordinary entries here and each is a
+ * perfectly good casualty on its own — which is not a convenience, it is the milestone: once the
+ * pin is pulled, a tractor unit IS a casualty on its own, and so is the trailer it left behind.
  */
 export const CASUALTY_DEFS = Object.freeze({
   sedan: SEDAN_DEF,
@@ -561,6 +840,8 @@ export const CASUALTY_DEFS = Object.freeze({
   boxTruck: BOX_TRUCK_DEF,
   motorcycle: MOTORCYCLE_DEF,
   sedanRoof: SEDAN_ROOF_DEF,
+  tractorUnit: TRACTOR_UNIT_DEF,
+  semitrailer: SEMITRAILER_DEF,
 });
 
 /** The casualty a job asks for, or the sedan. Never throws — an unknown id is a bad save. */

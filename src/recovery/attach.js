@@ -48,6 +48,23 @@ const DEBRIS = Object.freeze({
   wheelR:      { label: 'wheel',        lengthM: 0.56, widthM: 0.22, massKg: 13 },
   towHook:     { label: 'tow eye',      lengthM: 0.22, widthM: 0.14, massKg: 3 },
   roofPanel:   { label: 'roof panel',   lengthM: 1.30, widthM: 1.40, massKg: 18 },
+  /* Milestone 10. A lorry's parts are bigger than a car's, and the landing legs are the one a
+   * player will actually knock off: they are the obvious handle under the front of a trailer and
+   * they are rated for a tenth of what the pin beside them is. A part with no row here still
+   * detaches correctly and simply leaves nothing on the ground — this is about what is worth
+   * drawing, not about whether the mechanic works. */
+  landingLegs:  { label: 'landing legs',  lengthM: 0.90, widthM: 0.70, massKg: 74 },
+  curtainRail:  { label: 'curtain rail',  lengthM: 2.40, widthM: 0.12, massKg: 16 },
+  rearUnderrun: { label: 'underrun bar',  lengthM: 2.30, widthM: 0.14, massKg: 48 },
+  catwalk:      { label: 'catwalk plate', lengthM: 1.10, widthM: 0.70, massKg: 21 },
+  wheelDLo:     { label: 'drive wheel',   lengthM: 1.04, widthM: 1.04, massKg: 78 },
+  wheelDRo:     { label: 'drive wheel',   lengthM: 1.04, widthM: 1.04, massKg: 78 },
+  wheelTL:      { label: 'tag wheel',     lengthM: 1.04, widthM: 1.04, massKg: 68 },
+  wheelTR:      { label: 'tag wheel',     lengthM: 1.04, widthM: 1.04, massKg: 68 },
+  wheelALo:     { label: 'trailer wheel', lengthM: 1.00, widthM: 1.00, massKg: 72 },
+  wheelARo:     { label: 'trailer wheel', lengthM: 1.00, widthM: 1.00, massKg: 72 },
+  wheelBLo:     { label: 'trailer wheel', lengthM: 1.00, widthM: 1.00, massKg: 72 },
+  wheelBRo:     { label: 'trailer wheel', lengthM: 1.00, widthM: 1.00, massKg: 72 },
 });
 
 /** What an attachment can actually take right now: its rating, times the rigging wrapped

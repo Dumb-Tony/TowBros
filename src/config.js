@@ -284,22 +284,45 @@ export const CONFIG = {
     damp: 0.90,              // near-critical: a hinge must not ring
     dampCapN: 60000,         // ABSOLUTE, not a fraction of the spring. See stepTowBar.
     maxForceN: 160000,       // solver safety cap
-    /* How far the pair may fold before anything resists. A real fifth wheel is free to about 90
-     * degrees and then the trailer is against the cab. */
+    /* How far the pair may fold before THE CAB resists. A real fifth wheel is free to about 90
+     * degrees and then the trailer is against the back of the cab. The damper acts inside the free
+     * range too, exactly as `stepTowBar`'s does — measured, that costs no articulation and settles
+     * a disturbed pair about 15% faster. */
     freeRad: 1.15,           // ~66 degrees
     foldK: 320000,           // N·m per radian past that
+    /* MEASURED, and kept as insurance rather than as load: a 12 kN·s shove at the trailer's tail
+     * peaks the fold at 5.5° with this and 6.4° with it set to zero, with no oscillation either
+     * way. The trailer's own tyres do nearly all the yaw damping (see applyYawResistance). It
+     * stays because it is stepTowBar's shape and because the yaw mode lift.js paid for is exactly
+     * the thing that would not show up until some later pose. */
     foldDamp: 46000,         // N·m per rad/s of RELATIVE yaw rate
     foldMaxNm: 140000,
     /* Pulling the pin. It is a physical act with a cost in time — the crew walk at 3.4 m/s and a
      * recovery runs 35-40 s, so eight seconds of winding legs down and cranking a release handle
-     * is a real fraction of the job without being a cutscene. */
+     * is a real fraction of the job without being a cutscene. MEASURED: 27 m of walking, 21% of a
+     * Milestone 1 recovery, and 51 minutes of the working day through meta/clock.js. */
     uncoupleMs: 8000,
-    /* And it is REFUSABLE. You cannot pull the pin with the trailer's weight hanging on it: past
-     * this much force through the coupling the handle will not move. Sized as a guess against the
-     * pin carrying roughly a third of a trailer's weight when it is lying still. */
-    uncoupleMaxN: 12000,
+    /* And it is REFUSABLE: past this much force through the pin the handle will not move.
+     *
+     * RETUNED from 12 000, which never fired for the case it was written for. The guess assumed
+     * the pin carries about a third of a trailer's weight; it does not, because two halves resting
+     * on the same slope carry only the DIFFERENCE between them. Measured on the 28-degree bank:
+     * flat road 0.0 kN, straight on the bank 1.7 kN, folded 57° on the bank 7.4 kN, and 21.9 kN
+     * with the heavy's line under load. At 3 000 all four land on the right side of the line — a
+     * flat road and a straight pair split, a jack-knifed one and a loaded one do not — which makes
+     * "straighten it out, or take the load off, before you can split it" a real decision instead of
+     * a number nothing reaches. */
+    uncoupleMaxN: 3000,
     /* What the pin itself will take before it lets go on its own. A fifth wheel is not the weak
-     * link in any recovery a player can set up — this is a solver backstop with a story. */
+     * link in any recovery a player can set up — this is a solver backstop with a story.
+     *
+     * JUDGED AS TRAVEL, not as force: `pinBreakN / springK` = 171 mm of separation. Two reasons,
+     * and they are the same two the wheel lift's `maxGapM` gives — `maxForceN` clamps the applied
+     * force below this rating so a force test is literally unreachable, and a position cannot
+     * spike the way a force can. Deriving the threshold from the rating is what stops the two
+     * drifting apart. For scale: the worst arrival Milestone 5 can produce, a car that never saw
+     * you, at night, is 14 989 N·s, and 15 000 N·s opens the pin to 54 mm. Nothing traffic can do
+     * takes a trailer off a tractor. */
     pinBreakN: 240000,
   },
 

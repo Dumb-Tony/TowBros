@@ -3,14 +3,15 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 9 — righting it, and the one behind — is playable.** Pick a job off the board — a
-place, a forecast, a fee, and what is off the road, which is sometimes *two* things off the road —
-winch it out of the ditch while its owner watches from the verge, or put the rotator on its legs and
-pick it up off the ground outright and set it back down on its wheels, then carry it home on the
-underlift through a tailback of live traffic, reverse it into the bay, and get paid what the damage
-left of the fee — less whatever you were cited for leaving the road open. Then fix the truck, save
-up for a bigger one, and watch the afternoon go: a careful morning means the second job is in
-falling light.
+**Milestone 10 — the one that comes in two halves — is playable.** Pick a job off the board — a
+place, a forecast, a fee, and what is off the road, which is sometimes *two* things off the road and
+is sometimes an articulated lorry folded round its own fifth wheel — winch it out of the ditch while
+its owner watches from the verge, or put the rotator on its legs and pick it up off the ground
+outright and set it back down on its wheels, or spend eight seconds on the release handle and turn
+one problem the machine cannot hold into two it can walk. Then carry it home on the underlift through
+a tailback of live traffic, reverse it into the bay, and get paid what the damage left of the fee —
+less whatever you were cited for leaving the road open. Then fix the truck, save up for a bigger one,
+and watch the afternoon go: a careful morning means the second job is in falling light.
 Two to four people, over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies,
 and still zero external requests — including the multiplayer and the save file.
 
@@ -30,6 +31,8 @@ it, not the other way round.
 ![a van in the air on the rotator's boom, legs down, against its load chart](docs/m8-boom.png)
 
 ![two cars on the bank, one behind the other, and the line running past the near one](docs/m9-shunt.png)
+
+![a tractor unit and its trailer, coupled and jack-knifed on the bank, with the drum stalled](docs/m10-artic.png)
 
 ## Play it
 
@@ -75,6 +78,114 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 10 is
+
+An articulated lorry, and it is not a bigger box truck. It is two bodies on a hinge, and the hinge
+is the whole problem and the whole answer.
+
+Start with the number that decided the design, because it is not the one this milestone was written
+expecting. A tractor unit and a semitrailer come to **6 700 kg between them** — *less* than the
+7 200 kg box truck the game has had since Milestone 6, and each half on its own is a little over half
+of that. So whatever makes an artic hard, it is not the weight.
+
+![a tractor unit and its trailer down the bank, still coupled and folded round, the drum stalled](docs/m10-artic.png)
+
+**The angle between the halves is the whole clause.** Same pose, same tow eye, the same held 12 kN,
+four seconds, and only the fold different:
+
+| a fixed 12 kN, four seconds | it moves | of the line, the pin takes |
+|---|---|---|
+| straight | **5.25 m** | 55% |
+| jack-knifed 30° | **4.14 m** | 74% |
+| jack-knifed 60° | **3.28 m** | **113%** |
+| jack-knifed 90° | **4.54 m** | — |
+
+Straight, about half your line reaches the ground as traction. Folded 60°, **more than the whole of
+it** stops in the pin: the trailer is being skidded sideways and swung at the same time, and its own
+inertia adds to what the wrecker is putting in. A number over 100% is not an error — it is what a
+jack-knife is.
+
+And it is **not monotone**, which is worth stating as the fact it is rather than tidying away. At 90°
+the pull has its longest moment arm about the trailer's own mass and swings it round instead of
+having to skid it, so the cost **peaks near 60° and comes back**. Measured at 12 kN, 20 kN and 30 kN;
+it holds at all three.
+
+**What the pin carries is the *difference* between the two halves**, which is the least obvious thing
+here and the reason a straight pair on a hill is not a problem. Two halves each holding themselves up
+put **nothing** through the pin, however steep the bank and however far round the fold — jack-knifed
+57° on a 28° slope with both sets of brakes on, the fifth wheel reads 0.0 kN. Take the brakes off and
+the difference appears:
+
+| four seconds of sliding down the 28° bank | it slides | through the pin |
+|---|---|---|
+| straight | 13.4 m | **0.6 kN** |
+| jack-knifed 57° | 11.6 m | **6.4 kN** |
+
+— and the fold closes from 57° to 31° as it goes, because a pair dragged downhill wants to line up.
+
+**You can take it apart, and it costs.** Eight seconds with the release handle: winding the landing
+legs down, pulling the airlines, cranking the handle over. Held, not tapped — let go and it is the
+whole eight seconds again, and "somebody let go" is exact rather than a timeout, because `uncouple`
+stamps the step it was touched on and `stepCoupling` throws the attempt away when that stamp is not
+this step's. Eight seconds is **27 m of walking**, a fifth of a clean recovery, and **51 minutes of
+the working day**.
+
+It is refusable, in physical terms, with the number said out loud and the subtraction left to the
+player — the same shape the anchors' card has had since Milestone 6:
+
+> 8.4 kN through the pin. The handle will not move past 3.0 kN.
+
+**The trailer has no tow eye.** Nothing on the back of an artic is designed to be pulled from the
+front by somebody else, because in its whole working life the only thing that ever pulls it is the
+pin. So you pick a structural member — and the obvious handle under its nose is the worst one on
+either half:
+
+| the trailer's handles | |
+|---|---|
+| landing legs | **11.0 kN** — two screw jacks, rated to hold a parked nose up in still air |
+| front bolster | 122.0 kN |
+| kingpin | 175.0 kN |
+| *the plate it sits in, on the tractor* | *185.0 kN* |
+
+Rig to the legs and they come off in your hand **67 ms into the pull**, at 14.6 kN against 11.0. The
+two strongest points in the whole outfit are the two halves of the coupling, and the cable parts at
+42 kN against a pin rated 240 — you cannot break a fifth wheel with a winch.
+
+**So: coupled, or split?** The light wrecker, one drum, 26 kN of motor, off the bend's bank:
+
+| the same artic, the same bank | |
+|---|---|
+| coupled, one line on the tractor's eye | **five parks, 103 s, 47 stalls — 0.7 m of travel.** It does not come. |
+| split: 8 s on the handle, then each half | tractor up in **3 parks**, trailer in **4**, 220 s all in |
+
+Neither half is heavy. Coupled, it will not move; apart, both halves are ordinary recoveries at
+26.0 kN and 27.7 kN against a 26 kN motor. Eight seconds with the handle buys that.
+
+**Two drums, and the one place the second line must not go.** The rotator has had a second drum since
+Milestone 6 and a motor half again as strong — 42 kN against 26 — and on an artic that stops being a
+convenience. It brings the coupled pair up on one line. Add the second, and *where you tie it* is
+worth more than the fact you tied it:
+
+| a coupled artic off the bank, on the rotator | | |
+|---|---|---|
+| one line, on the tractor's tow eye | **110 s** | 11 stalls |
+| two lines, second on the trailer's **back axle** | **61 s** | 15 stalls |
+| two lines, second on the trailer's **nose** | **157 s** | 22 stalls |
+
+Two lines beat one by **45%** — and tied to the trailer's nose, a metre and a half from the pin, they
+are *half as slow again as not bothering*. Both lines then pull from almost the same point toward
+almost the same point, and the pair concertinas against its own pin instead of coming up the hill.
+The second line has to be somewhere the first one is not.
+
+The fast way is not the tidy way either: one line straightens the outfit out as it comes (16° of fold
+left), and dragging the tail round leaves it at 74°. Faster, and more crooked.
+
+**An artic is a row in the vehicle table, not a difficulty setting.** It is gated on reputation like
+everything else — **none below 60, 26 of 400 seeds above it** — and it fills both of Milestone 9's
+casualty slots, so the sixth axis has nothing left to say about it: the shunt is still drawn, costing
+the stream the same one number, and then overruled. It pays for two recoveries because there are two
+of it, and not a penny for the angle it stopped at.
 
 ## What Milestone 9 is
 
@@ -615,9 +726,13 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m9-tests.js -Quiet
 ```
 
-**1448 assertions** across ten suites in headless Chrome — 265 for Milestone 1, 219 for
+```bash
+.\tools\smoketest.ps1 -Tests tools\m10-tests.js -Quiet
+```
+
+**1567 assertions** across ten suites in headless Chrome — 269 for Milestone 1, 219 for
 Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
-143 for Milestone 7, 121 for Milestone 8, 120 for Milestone 9, 7 so far for Milestone 10.
+143 for Milestone 7, 121 for Milestone 8, 125 for Milestone 9, 117 for Milestone 10.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
@@ -684,6 +799,25 @@ standing there is not enough to make anybody furious, and damage the car arrived
 against you. AR measures the two new casualties against a plain car, one fact at a time, including
 the pair of numbers that says a car on its roof is a different plan rather than a longer pull.
 
+[`tools/m8-tests.js`](tools/m8-tests.js) — AT is the load chart: what the machine will lift, where,
+and what happens at the moment it will not. AU is the hoist as an operation rather than a number.
+AV is the policing of it — a pick refused before it starts, rather than a machine tipped over and a
+lesson learned.
+
+[`tools/m9-tests.js`](tools/m9-tests.js) — AW is two casualties and the order nothing declares. AX
+is righting a rollover on the boom, including the trap where the obvious rigging point is rated at
+half the car. AZ is the other way round, by side pull, and it is where the roll threshold turned out
+to need scaling by mass — against one flat number the ordinary Milestone 1 recovery rolled the tow
+truck doing it. AY is the sixth axis, rolled two hundred times.
+
+[`tools/m10-tests.js`](tools/m10-tests.js) — BA is the pin, and the measurement it exists for: the
+same held 12 kN at four fold angles, and where the missing travel went. BB is pulling the pin — eight
+seconds, held not tapped, refusable with the number said out loud. BC is the choice between coupled
+and split, driven end to end as real recoveries with the wrecker re-parked between pulls, because one
+park is worth one drum's length of travel and no more. BD is two drums, and it is the section that
+overruled the design document: two lines beat one by 45% with the second on the trailer's back axle
+and *lose* to one line with the second on its nose.
+
 Every live test drives `game.step()` / `game.skipMs()` rather than waiting for frames. Headless
 Chrome in `--dump-dom` mode delivers one to three `requestAnimationFrame` callbacks in total —
 measured, and recorded in `Dev\INDEX.md`. A test that waits for a frame count waits forever.
@@ -725,9 +859,20 @@ where more than one person can grab the same thing.
   metres of it, now with traffic on it and a county map beside it — but no junctions, and the drive
   between sites is not simulated. The map says where a job is and what it pays; the distance is why
   the fee differs, not something you drive.
-- **Two wreckers and five casualties.** A library, not a catalogue: enough for the decisions to be
-  real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
-  rotator's actual crane are all still missing.
+- **Two wreckers and seven casualties.** A library, not a catalogue: enough for the decisions to be
+  real (which machine, which pull) and nowhere near a content set. The rotator's actual crane —
+  telescope, hoist height, a chart with both axes — is still missing.
+- **Nothing transfers weight through the fifth wheel.** A real coupled artic puts a third of the
+  trailer's weight on the tractor's drive axles, which is most of why a tractor unit has any traction
+  at all; here each half carries its own mass and the pin carries only the difference between them.
+  It is the single largest simplification in Milestone 10, and it makes a coupled tractor lighter on
+  its feet than it should be. Everything else in the section is measured around it rather than
+  through it.
+- **The gap rule measures a coupled artic nose to tail.** `pairFitsGap` adds the two lengths and a
+  0.6 m clearance — 14.80 m for an outfit that is really 10.90 m over the pin, because the trailer's
+  nose overhangs the cab by nearly four metres. The error is one-signed: it sends artics to the bend
+  that would have fitted through a narrower gap, and never the other way. Nothing is placed
+  impossibly; some jobs are placed more conservatively than they need to be.
 - **A heavy casualty does not stay where it was put.** Measured end to end on a real board job: a
   2.6 t van parked across the bend's 27-degree bank slides **8.3 m in six seconds**, on a bank the
   1.4 t car sits perfectly still on — 11.6 kN of downslope against what its tyres will hold. That is
@@ -737,7 +882,8 @@ where more than one person can grab the same thing.
 - **A scene holds two casualties and no more.** `CASUALTY_SLOTS` is a list of two, and three cars
   in a ditch is not expressible. The list is the only thing that would have to change, but every
   system that reads it would then need a real answer for "which of the three is in the way", which
-  is a different problem from "is there one behind it".
+  is a different problem from "is there one behind it". Milestone 10 spends both slots on the artic,
+  so nothing can be shunted into the back of one.
 - **The generator places the second casualty without ever seeing the terrain.** It writes the offer
   before `createTerrain` runs, so it knows the pair's lie and not what is at that spot — seven
   metres up-slope of a box truck is open grass at one site and the guardrail at another. The scene

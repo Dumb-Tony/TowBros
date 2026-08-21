@@ -2,7 +2,7 @@
 ## Game Design Document & Development Plan
 
 **Document status:** Living design contract  
-**Current target:** Milestone 10 — The one that comes in two halves  
+**Current target:** Milestone 11 — next. Milestone 10 (the one that comes in two halves) is delivered.  
 **Primary implementation:** Standalone HTML5 Canvas browser game  
 
 > The game does not care how you got the car out of the ditch. It only cares that the car is no longer in the ditch.
@@ -289,6 +289,24 @@ Add:
 recovered split, with measured numbers showing which is better and when; if the jack-knife angle
 visibly and measurably changes what a pull achieves; if uncoupling costs something real; and if two
 lines on two halves beats one line used twice by a margin a player can feel.
+
+**Delivered, and where the measurement overruled the paragraph above.** All four criteria are met and
+the numbers are in the README and in `tools/m10-tests.js` (117 assertions). Two corrections, recorded
+here rather than quietly fixed, because this document is the contract:
+
+1. **"Two lines beat one" is true of *where*, not of *how many*.** With the second line on the
+   trailer's back axle a coupled artic comes off the bank in **61 s** against **110 s** on one line.
+   With the second line on the trailer's *nose* — a metre and a half from the pin, which is the
+   strong end and the end a crew can reach — it takes **157 s**, half as long again as not bothering:
+   both lines pull from almost the same point toward almost the same point and the pair concertinas
+   against its own pin. The mechanic is real and it is sharper than "two is better than one".
+2. **"One problem the machine can barely hold" was the wrong machine.** The clause assumed one
+   wrecker. The light wrecker's 26 kN drum cannot move a coupled artic at all — five parks, 103 s,
+   47 stalls, 0.7 m of travel — and splitting it is not an optimisation but the only route. The
+   rotator's 42 kN drums recover it coupled without uncoupling anything. So "coupled has to be
+   possible and has to be the harder answer" is satisfied by the *machine* axis rather than by
+   effort, which is a better answer than the one asked for: it makes the artic a reason to own the
+   big truck rather than a reason to press the handle for longer.
 
 ## 8. Explicitly deferred
 

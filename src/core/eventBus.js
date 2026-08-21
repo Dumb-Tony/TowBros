@@ -39,12 +39,11 @@ export const EVENTS = Object.freeze({
   /* The heavy wrecker. GDD §7 Milestone 6. */
   OUTRIGGERS:         'OUTRIGGERS',      // { vehicle, down } legs going down, or coming up
 
-  /* The one that comes in two halves. GDD §7 Milestone 10. */
-  UNCOUPLING:         'UNCOUPLING',     // { crew } somebody is winding the legs down
-  UNCOUPLED:          'UNCOUPLED',      // { atRad } the pin is out and it is two vehicles now
-  UNCOUPLE_REFUSED:   'UNCOUPLE_REFUSED', // { loadN, maxN } the weight is on the pin
-  COUPLING_FAILED:    'COUPLING_FAILED', // { loadN } the fifth wheel let go on its own
-  JACKKNIFED:         'JACKKNIFED',     // { rad } folded past what the pair will take
+  /* The fifth wheel. GDD §7 Milestone 10. Two events and not five: "the pin went in" and "the pin
+   * came out, and here is why" cover the pulled handle, the shear and the recouple between them,
+   * and a reason field says which. Five names for one fact is five places for it to disagree. */
+  COUPLING_MADE:      'COUPLING_MADE',      // { tractor, trailer, foldDeg } the pin is in
+  COUPLING_RELEASED:  'COUPLING_RELEASED',  // { tractor, trailer, reason, foldDeg, forceN }
 
   /* The boom that lifts. GDD §7 Milestone 8. */
   LOAD_HOISTED:       'LOAD_HOISTED',    // { vehicle, weightN, capacityN, reachM } it is off the ground
@@ -114,7 +113,7 @@ const STORY = new Set([
   'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS', 'CUSTOMER_MOOD',
   'POLICE_DISPATCHED', 'POLICE_CITED',
   'LOAD_HOISTED', 'LOAD_LOWERED', 'BOOM_OVERLOAD',
-  'UNCOUPLED', 'COUPLING_FAILED', 'JACKKNIFED',
+  'COUPLING_MADE', 'COUPLING_RELEASED',
 ]);
 
 export class EventBus {

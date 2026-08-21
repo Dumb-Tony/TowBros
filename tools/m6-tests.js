@@ -135,7 +135,7 @@ const stepAnchorsFor = (g, dtSec) => stepAnchors(g.state, dtSec, g.bus, g.state.
 function sectionAG() {
   lines.push('--- AG. the casualty library, two wreckers, and what each of them asks for ---');
 
-  eq('AG1 there are five things that can be in the ditch', Object.keys(CASUALTY_DEFS).length, 5);
+  eq('AG1 there are seven things that can be in the ditch', Object.keys(CASUALTY_DEFS).length, 7);
   eq('AG2 and the first of them is the Milestone 1 sedan', CASUALTY_DEFS.sedan, SEDAN_DEF);
   eq('AG3 an unknown casualty falls back rather than throwing', casualtyDefById('spaceship').id, 'sedan');
   eq('AG4 and so does an unknown wrecker', truckDefById('crane').id, 'truck');

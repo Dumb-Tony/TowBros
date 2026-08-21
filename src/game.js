@@ -25,6 +25,7 @@ import { stepCrew, describeVehicle, seatOf, holdsHook, carriedItem } from './pla
 import { validateAuthority } from './crew/authority.js';
 import { stepVehicle, casualties } from './sim/vehicle.js';
 import { stepRighting } from './sim/righting.js';
+import { stepCoupling, describeCoupling } from './recovery/coupling.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
 import { stepLift, describeLift } from './recovery/lift.js';
@@ -290,6 +291,12 @@ export class Game {
       (A, B, jn, hit) => applyImpactDamage(st, A, B, jn, hit, this.bus, simTimeMs),
     );
 
+    /* 5a. The fifth wheel (Milestone 10). After the contact pass and before the ground, for the
+     *     reason the cable and the lift are before the ground — the tires size their static
+     *     resistance against what is already in the accumulator — and before stepRighting, because
+     *     the pin's force across a jack-knifed trailer is exactly the thing that rolls it. */
+    stepCoupling(st, dt, this.bus, simTimeMs);
+
     /* 5b. Which way up everything is (Milestone 9). BEFORE the ground, and that is the whole
      *     reason it is a separate call rather than a line inside stepVehicle: the accumulator
      *     still holds only what the LINE is doing, and the net force after the tires is the wrong
@@ -360,6 +367,7 @@ export class Game {
 
       winch: describeWinch(st.winch),
       lift: describeLift(st.vehicles.truck.lift),
+      coupling: describeCoupling(st),
       traffic: describeTraffic(st.traffic),
       police: describePolice(st),
       weather: st.terrain.weather ? st.terrain.weather.id : 'dry',

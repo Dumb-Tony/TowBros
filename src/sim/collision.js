@@ -17,6 +17,7 @@
 
 import { CONFIG } from '../config.js';
 import { cross, clamp } from '../core/vec.js';
+import { joinedByCoupling } from '../recovery/coupling.js';
 
 /** Half-thickness used to turn a guardrail segment into a thin box. */
 const RAIL_HALF_W = 0.09;
@@ -225,6 +226,13 @@ export function stepCollisions(dynamics, scenery, bus, simTimeMs, onImpact) {
        * for a hundred metres of straight towing and then jumped to 94 kN in a single step during a
        * swerve. Filtering constrained pairs is what every solver does, for this reason. */
       if (joinedByLift(A, B)) continue;
+      /* ...and the two halves of an artic (Milestone 10), for the same reason and worse. A
+       * semitrailer's nose overhangs the cab, so the pair's bounding boxes are NESTED by 3.19 m
+       * when it is straight — without this the solver resolves a two-metre penetration every step
+       * and feeds it into a 1.4 MN/m pin. `joinedByCoupling` stays true after uncoupling until the
+       * two are actually clear of one another, and then goes false permanently: an uncoupled artic
+       * is a Milestone 9 shunt and collides like one. */
+      if (joinedByCoupling(A, B)) continue;
       const hit = obbOverlap(A.body, B.body);
       if (!hit) continue;
       const jn = resolveContact(A.body, B.body, hit, 0.12, 0.45);
