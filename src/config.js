@@ -260,6 +260,49 @@ export const CONFIG = {
    * securement mechanic: it is a number the player raises, measured against a force the driving
    * produces.
    */
+  /* ── THE FIFTH WHEEL (Milestone 10) ──────────────────────────────────────────────────
+   * GDD §7 Milestone 10: "an articulated lorry is not a bigger box truck; it is two bodies on a
+   * hinge, and the hinge is the whole problem and the whole answer."
+   *
+   * Mechanically this is the wheel lift's constraint with a different pin: a point on the tractor
+   * and a point on the trailer are the same point, and the angle between the two bodies is free
+   * inside a range and resisted past it. Everything the lift's header says about why a hitch is a
+   * hinge, and why its damping must be clamped to an ABSOLUTE force rather than a fraction of the
+   * spring term, applies here unchanged — read it before touching any of these.
+   *
+   * Stiffer than the car yoke for the reason the heavy underlift is (see lift.heavy.springK): a
+   * constraint has to reach its rating INSIDE the travel it allows, or it can never be overloaded
+   * and securement buys nothing. A tractor and a trailer are eight or nine tonnes each.
+   *
+   * FIRST GUESSES, all of them. The agent building recovery/coupling.js measures these against
+   * what a pull actually achieves at 0, 30, 60 and 90 degrees of jack-knife, and the numbers here
+   * move to whatever that says. What is NOT a guess is the shape: the angle has to change what a
+   * line achieves, measurably, or the milestone is a longer vehicle rather than a different one.
+   */
+  coupling: {
+    springK: 1400000,        // N/m at the pin. See lift.heavy.springK for why it scales with hold.
+    damp: 0.90,              // near-critical: a hinge must not ring
+    dampCapN: 60000,         // ABSOLUTE, not a fraction of the spring. See stepTowBar.
+    maxForceN: 160000,       // solver safety cap
+    /* How far the pair may fold before anything resists. A real fifth wheel is free to about 90
+     * degrees and then the trailer is against the cab. */
+    freeRad: 1.15,           // ~66 degrees
+    foldK: 320000,           // N·m per radian past that
+    foldDamp: 46000,         // N·m per rad/s of RELATIVE yaw rate
+    foldMaxNm: 140000,
+    /* Pulling the pin. It is a physical act with a cost in time — the crew walk at 3.4 m/s and a
+     * recovery runs 35-40 s, so eight seconds of winding legs down and cranking a release handle
+     * is a real fraction of the job without being a cutscene. */
+    uncoupleMs: 8000,
+    /* And it is REFUSABLE. You cannot pull the pin with the trailer's weight hanging on it: past
+     * this much force through the coupling the handle will not move. Sized as a guess against the
+     * pin carrying roughly a third of a trailer's weight when it is lying still. */
+    uncoupleMaxN: 12000,
+    /* What the pin itself will take before it lets go on its own. A fifth wheel is not the weak
+     * link in any recovery a player can set up — this is a solver backstop with a story. */
+    pinBreakN: 240000,
+  },
+
   lift: {
     reachM: 1.05,           // how far the yoke swings out past the tail
     yokeOffsetM: 0.55,      // and how far past THAT the cradle sits

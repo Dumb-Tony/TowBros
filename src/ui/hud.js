@@ -552,12 +552,17 @@ export class Hud {
     const r = this.game.recap();
     const s = r.summary;
     const bits = [];
-    bits.push(`<p class="tag">${GameClock.formatMs(s.timeMs || 0)} on scene · ${s.attachments} attachment${s.attachments === 1 ? '' : 's'}</p>`);
+    // How many were in the ditch (Milestone 9). Only said when it is more than one, because a card
+    // that announces "1 vehicle" on every ordinary job is furniture.
+    const many = (s.casualties || 1) > 1;
+    bits.push(`<p class="tag">${GameClock.formatMs(s.timeMs || 0)} on scene · `
+      + `${s.attachments} attachment${s.attachments === 1 ? '' : 's'}`
+      + `${many ? ` · ${s.casualties} vehicles` : ''}</p>`);
     bits.push('<ul class="recap">');
     for (const [t, text] of r.lines) bits.push(`<li><span>${t}s</span> ${escapeHtml(text)}</li>`);
     bits.push('</ul>');
     const cost = [];
-    if (s.partsLost) cost.push(`${s.partsLost} part${s.partsLost === 1 ? '' : 's'} off the car`);
+    if (s.partsLost) cost.push(`${s.partsLost} part${s.partsLost === 1 ? '' : 's'} off ${many ? 'them' : 'the car'}`);
     if (s.partsBent) cost.push(`${s.partsBent} bent`);
     if (s.dents) cost.push(`${s.dents} dent${s.dents === 1 ? '' : 's'}`);
     if (s.cableSnaps) cost.push(`${s.cableSnaps} cable${s.cableSnaps === 1 ? '' : 's'} parted`);

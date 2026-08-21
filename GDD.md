@@ -2,7 +2,7 @@
 ## Game Design Document & Development Plan
 
 **Document status:** Living design contract  
-**Current target:** Milestone 9 — Righting it, and the one behind  
+**Current target:** Milestone 10 — The one that comes in two halves  
 **Primary implementation:** Standalone HTML5 Canvas browser game  
 
 > The game does not care how you got the car out of the ditch. It only cares that the car is no longer in the ditch.
@@ -262,6 +262,33 @@ Add:
 answers and a way to get it wrong; if over-rolling one is reachable and legible; if a two-vehicle job
 can be started in the wrong order and recovered from; and if no system at the scene still behaves as
 though there is one casualty.
+
+### Milestone 10 — The one that comes in two halves
+
+*Milestone 9 put two vehicles at a scene and gave them an order. This one joins them together. An
+articulated lorry is not a bigger box truck: it is two bodies on a hinge, and the hinge is the whole
+problem and the whole answer.*
+
+Add:
+
+- **An articulated casualty.** A tractor unit and a semitrailer on a fifth wheel, jack-knifed off the
+  road. It is not one long vehicle with more mass — it is the pair the game already builds (Milestone
+  9's two casualty slots), with a constraint between them. Pull one half and the other follows, badly:
+  the angle between them decides how much of your line reaches the ground and how much of it goes
+  into folding the pair up further.
+- **And you can take it apart.** Uncoupling is a physical act at the fifth wheel with a real cost in
+  time, and it turns one problem the machine can barely hold into two it can walk. Nothing forces
+  either choice: recovering it coupled has to be possible and has to be the harder answer in most
+  situations and the better one in some.
+- **Two drums, for the first time necessarily.** The rotator has had a second drum since Milestone 6
+  and it has been a convenience. An artic is the first casualty where one line on each half, pulled
+  together, is a plan that a single line used twice is not — and it is the first job that genuinely
+  wants two people.
+
+**Completion criteria.** Milestone 10 succeeds only if an artic can be recovered whole and can be
+recovered split, with measured numbers showing which is better and when; if the jack-knife angle
+visibly and measurably changes what a pull achieves; if uncoupling costs something real; and if two
+lines on two halves beats one line used twice by a margin a player can feel.
 
 ## 8. Explicitly deferred
 
