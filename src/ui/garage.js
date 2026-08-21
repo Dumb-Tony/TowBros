@@ -284,7 +284,10 @@ export class Garage {
       bits.push(`<div class="offer">
         <div class="offer-head"><b>${esc(o.title)}</b><span>&pound;${o.fee}</span></div>
         <p class="offer-where">${esc(o.siteName || '')}${wx}${
-          o.casualtyId && o.casualtyId !== 'sedan' ? ` &middot; <b>${esc(o.casualtyLabel)}</b>` : ''}</p>
+          o.casualtyId && o.casualtyId !== 'sedan' ? ` &middot; <b>${esc(o.casualtyLabel)}</b>` : ''}${
+          // Milestone 9: the count on the where-line, beside the site and the forecast, because
+          // "how many are in it" decides which machine goes out the same way "what is in it" does.
+          o.secondCasualtyId ? ' &middot; <b>two of them</b>' : ''}</p>
         <p>${esc(o.blurb)}</p>
         ${o.weatherBlurb ? `<p class="offer-weather">${esc(o.weatherBlurb)}</p>` : ''}
         <div class="offer-foot">

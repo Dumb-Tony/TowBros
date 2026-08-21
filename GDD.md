@@ -253,7 +253,7 @@ Add:
   is physically in the way of the one below it, and the player reads that off the ground. It has to
   be possible to start with the wrong one and discover it, and *discovering it* has to be a number
   the player can see rather than a refusal: the cost of bulldozing one car up the bank with another
-  is the line tension, and the cost of bulldozing something big is that the drum cannot do it.
+  is the LINE and not the clock, and it climbs straight at the drum's own limit.
 - **Everything at the scene has to stop assuming there is exactly one.** The objective, the closure
   standard, the payout, the owner, the recap. A milestone that adds a second casualty and leaves nine
   systems quietly reading `st.vehicles.sedan` has not added a second casualty.

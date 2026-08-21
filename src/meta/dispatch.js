@@ -156,6 +156,11 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
        * the player is allowed to make and then live with. */
       casualtyId: pick.casualtyId || 'sedan',
       casualtyLabel: casualtyDefById(pick.casualtyId).label,
+      /* Milestone 9: an authored job is one vehicle, and says so IN THE SAME TWO KEYS a generated
+       * one uses rather than by leaving them out. A board where an offer's key set tells you which
+       * kind of offer it is, is a board that will one day forget a two-vehicle job exists. */
+      secondCasualtyId: pick.secondCasualtyId || null,
+      secondLie: pick.secondLie || null,
       feeMul: pick.feeMul * weather.feeMul,
       /** Presentation only — the drive to site is not simulated. It is why the fee differs. */
       distanceKm,
@@ -188,6 +193,7 @@ export function offersFor(company, count = CONFIG.company.offerCount) {
       id: `locked-${t.id}`, type: t.id, title: t.title, blurb: t.blurb,
       seed: 0, feeMul: t.feeMul, distanceKm: 0,
       fee: Math.round(CONFIG.job.baseFee * t.feeMul),
+      secondCasualtyId: null, secondLie: null,
       mods: { ...t.mods }, locked: true, minRep: t.minRep,
     });
   }

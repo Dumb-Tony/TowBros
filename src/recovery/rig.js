@@ -377,8 +377,36 @@ export function lowerLoad(st, veh, bus, simTimeMs, reason = 'lowered') {
     truck.hoist.drumId = null;
     truck.hoist.loadFrac = 0;
   }
+
+  /* A CAR SET DOWN DELIBERATELY IS SET DOWN THE RIGHT WAY UP (Milestone 9).
+   *
+   * This is what the whole load chart was for. A rollover has been a one-way door since Milestone 1
+   * — `rolled` was set and nothing anywhere cleared it — so a casualty on its roof was a grip
+   * multiplier standing in for an operation. Picking it up and putting it back down IS that
+   * operation, and it needs no new key, no new state and no animation: the chart already decides
+   * whether this machine can lift this vehicle at this reach, so "can I right it with the boom"
+   * is answered by a number that was already being computed every step.
+   *
+   * Which is also why the seven-tonner cannot be righted this way and a car can. The other answer
+   * — rolling it with a side pull — is sim/righting.js, and it is the one that works when there is
+   * no rotator on the job.
+   *
+   * Only on a DELIBERATE set-down. A load lost off the boom, or one that came down with a machine
+   * that went over, lands however it lands: `reason` is the whole distinction, and a car that is
+   * dropped must not quietly do the player a favour. */
+  let righted = false;
+  if (reason === 'lowered' && veh.rolled) {
+    veh.rolled = false;
+    veh.gripMul = 1;
+    veh.dragMul = 1;
+    righted = true;
+    bus.emit(EVENTS.RIGHTED, {
+      vehicle: veh.id, label: veh.def.label, how: 'boom',
+    }, simTimeMs);
+  }
+
   bus.emit(EVENTS.LOAD_LOWERED, {
-    vehicle: veh.id, label: veh.def.label, reason,
+    vehicle: veh.id, label: veh.def.label, reason, righted,
     x: Math.round(veh.body.x * 10) / 10, y: Math.round(veh.body.y * 10) / 10,
   }, simTimeMs);
   return true;

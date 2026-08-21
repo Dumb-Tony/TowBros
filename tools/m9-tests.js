@@ -16,13 +16,16 @@ import { CONFIG } from '../src/config.js';
 import { EVENTS } from '../src/core/eventBus.js';
 import { Game } from '../src/game.js';
 import { BANDS } from '../src/data/terrain.js';
-import { findZone } from '../src/data/vehicles.js';
+import { findZone, casualtyDefById } from '../src/data/vehicles.js';
 import { attachHook } from '../src/recovery/attach.js';
 import { WINCH, cablePath, pathLength, drumsOf } from '../src/recovery/cable.js';
 import { casualties, cornersOnRoad, CASUALTY_SLOTS } from '../src/sim/vehicle.js';
 import { computePayout, recapFrom } from '../src/world/scene.js';
 import { describePolice, closureStandard } from '../src/world/police.js';
 import { describeCustomer } from '../src/world/customer.js';
+import { rollSituation, situationToOffer, SECOND_CASUALTY_SHARE } from '../src/meta/situations.js';
+import { newCompany } from '../src/meta/company.js';
+import { offersFor } from '../src/meta/dispatch.js';
 
 /* ── reporting ───────────────────────────────────────────────────────────── */
 
@@ -169,12 +172,20 @@ function sectionAW() {
       + `${kN(shunt.peak)} kN with a car in the way`);
 
     /* And the cost stops being tension and starts being impossible. */
-    const van = pull({ shunt: true, secondId: 'van', seconds: 70 });
+    /* AND WHAT IT COSTS IS THE LINE, NOT THE CLOCK. Measured: all three of these finish in about
+     * 35 s, because a drum that is turning pulls at the rate a drum turns and the geometry decides
+     * the rest. What changes is the tension, and it climbs straight at the motor's own limit —
+     * which is the sentence a player can read off the gauge while it is happening. */
+    const van = pull({ shunt: true, secondId: 'van', seconds: 90 });
     gt('AW23 with a van in front it costs more still', van.peak, shunt.peak);
-    gt('AW24 enough to stall the drum', van.stalls, 0);
-    ok('AW25 so bulldozing something big is not slow, it is not on', !van.up);
-    note(`AW  a van in the way: ${kN(van.peak)} kN, ${van.stalls} stall${van.stalls === 1 ? '' : 's'}, `
-      + `moved ${van.movedM.toFixed(1)} m and stopped`);
+    gt('AW24 taking the drum to within a whisker of the load it stalls at',
+       van.peak, CONFIG.winch.motorMaxN * 0.9);
+    lt('AW25 which is the whole margin the light wrecker has left',
+       CONFIG.winch.motorMaxN - van.peak, 2000);
+    near('AW25b and it did not take a second longer to find that out', van.t, solo.t, 8);
+    note(`AW  the line, not the clock: ${kN(solo.peak)} kN alone, ${kN(shunt.peak)} with a car and `
+      + `${kN(van.peak)} with a van, against a ${kN(CONFIG.winch.motorMaxN)} kN motor — `
+      + `and every one of them inside ${Math.max(solo.t, shunt.t, van.t).toFixed(0)} s`);
   }
 
   /* Doing it in the sensible order, and the job actually finishing. */
@@ -235,6 +246,232 @@ function sectionAW() {
   }
 }
 
+/* ══ AX. righting it ══════════════════════════════════════════════════════ */
+
+/**
+ * A rolled casualty on the flat, right behind the rotator, ready to be picked up.
+ *
+ * Deliberately staged rather than recovered into position: what this section measures is the
+ * righting, and a twenty-second winch up a bank first would only add variance to it.
+ */
+function stageRolled(casualtyId = 'sedanRoof', legsDown = true, zoneId = 'frameFront') {
+  const g = job({ truckId: 'heavy', casualtyId });
+  const st = g.state, truck = st.vehicles.truck, cas = st.vehicles.sedan;
+  truck.body.x = 60; truck.body.y = BANDS.roadN + 2.2; truck.body.angle = 0;
+  truck.body.vx = 0; truck.body.vy = 0; truck.body.omega = 0;
+  truck.parkBrake = true;
+  cas.body.x = truck.body.x - ((truck.def.lengthM + cas.def.lengthM) / 2 + 1.4);
+  cas.body.y = truck.body.y;
+  cas.body.angle = 0; cas.body.vx = 0; cas.body.vy = 0; cas.body.omega = 0;
+  cas.boggedN0 = 0; cas.boggedFactor = 0; cas.parkBrake = false;
+  if (legsDown) { truck.outriggers.down = true; g.skipMs(3200); }
+
+  /* RIGGED TO THE FRAME RAIL, and that is a measurement rather than a preference. The roofed
+   * sedan's tow eye is rated 7 kN — "bent in whatever put the car on its roof" — and a 1.4 t car
+   * weighs 13.7, so hooking the obvious point picks the car up and drops it again in the same
+   * step. AX19 below asserts exactly that. The frame rail is 44 kN and, on a car lying on its
+   * roof, is facing straight up at you. */
+  const zone = findZone(cas.def, zoneId) || findZone(cas.def, 'towHook');
+  const w = drumsOf(st)[0];
+  const p = cas.body.toWorld(zone.local.x, zone.local.y);
+  w.hook.x = p.x; w.hook.y = p.y;
+  w.state = WINCH.ATTACHED; w.targetId = 'sedan'; w.zoneId = zone.id;
+  const len = pathLength(cablePath(w, truck, st.vehicles, st.blocksById));
+  w.state = WINCH.LOOSE;
+  attachHook(st, cas, zone, g.bus, st.simTimeMs, w);
+  w.lineM = len;
+  return { g, st, truck, cas, w, zone };
+}
+
+function sectionAX() {
+  lines.push('--- AX. a rollover stops being a one-way door ---');
+
+  {
+    const s = stageRolled();
+    ok('AX1 a car that arrived on its roof is on its roof', s.cas.rolled);
+    lt('AX2 with less grip for it', s.cas.gripMul, 1);
+    let righted = null, lowered = null;
+    s.g.bus.on(EVENTS.RIGHTED, (e) => { righted = e; });
+    s.g.bus.on(EVENTS.LOAD_LOWERED, (e) => { lowered = e; });
+
+    for (let t = 0; t < 30000 && !s.cas.suspended; t += 250) { s.w.motor = 1; s.g.skipMs(250); }
+    s.w.motor = 0;
+    ok('AX3 the rotator picks it up', s.cas.suspended);
+    ok('AX4 and it is still on its roof in the air', s.cas.rolled);
+
+    for (let t = 0; t < 8000 && s.cas.suspended; t += 250) { s.w.motor = -1; s.g.skipMs(250); }
+    s.w.motor = 0;
+    ok('AX5 set it down again and it is back on the ground', !s.cas.suspended);
+    ok('AX6 the right way up', !s.cas.rolled);
+    eq('AX7 which the log says happened, and how', righted && righted.how, 'boom');
+    eq('AX8 and the set-down knows it did it', lowered && lowered.righted, true);
+    eq('AX9 with its grip back', s.cas.gripMul, 1);
+    s.g.skipMs(600);
+    eq('AX10 and its drag, which the per-step reset reads off the vehicle', s.cas.dragMul, 1);
+    note('AX  a car on its roof, picked up and set down, is a car on its wheels');
+  }
+
+  /* A load DROPPED is not a load righted. */
+  {
+    const s = stageRolled();
+    for (let t = 0; t < 30000 && !s.cas.suspended; t += 250) { s.w.motor = 1; s.g.skipMs(250); }
+    s.w.motor = 0;
+    ok('AX11 it is up', s.cas.suspended);
+    let righted = 0;
+    s.g.bus.on(EVENTS.RIGHTED, () => { righted++; });
+    // The line lets go, however that happened.
+    s.w.state = WINCH.STOWED; s.w.targetId = null;
+    s.g.step(STEP, s.st.simTimeMs + STEP, null);
+    ok('AX12 a line that lets go drops it', !s.cas.suspended);
+    ok('AX13 and a dropped car lands however it lands', s.cas.rolled);
+    eq('AX14 nobody righted anything', righted, 0);
+  }
+
+  /* And the chart is what decides whether this is available at all. */
+  {
+    const heavy = stageRolled('sedanRoof', false);
+    let refused = null;
+    heavy.g.bus.on(EVENTS.BOOM_OVERLOAD, (e) => { if (e.refused && !refused) refused = e; });
+    for (let t = 0; t < 30000 && !heavy.cas.suspended; t += 250) { heavy.w.motor = 1; heavy.g.skipMs(250); }
+    ok('AX15 a car can be righted on the tyres too, in close', heavy.cas.suspended);
+
+    const box = stageRolled('boxTruck', true);
+    box.cas.rolled = true;
+    box.cas.gripMul = CONFIG.vehicle.rolledGripMul;
+    let boxRefused = null;
+    box.g.bus.on(EVENTS.BOOM_OVERLOAD, (e) => { if (e.refused && !boxRefused) boxRefused = e; });
+    for (let t = 0; t < 30000 && !box.cas.suspended; t += 250) { box.w.motor = 1; box.g.skipMs(250); }
+    ok('AX16 a seven-tonner on its roof cannot be righted with the boom', !box.cas.suspended);
+    ok('AX17 because the chart refuses to pick it up, in newtons', !!boxRefused);
+    ok('AX18 and it is still on its roof', box.cas.rolled);
+    note(`AX  the box truck: ${boxRefused ? `${kN(boxRefused.demandN)} kN against `
+      + `${kN(boxRefused.capacityN)} kN at ${boxRefused.reachM} m` : 'no refusal recorded'}`);
+  }
+
+  /* WHERE YOU HOOK IT DECIDES WHETHER IT COMES UP AT ALL, and the obvious point is the wrong one.
+   * This cost a debugging session: rigged to the tow eye the car was picked up and set straight
+   * back down in the same step, which reads exactly like a broken hoist. It is not — the roofed
+   * sedan's tow eye is rated 7 kN because it is bent, and the car weighs 13.7. */
+  {
+    const eye = stageRolled('sedanRoof', true, 'towHook');
+    eq('AX19 a roofed car\'s tow eye is rated below its own weight',
+       eye.zone.strengthN < eye.cas.body.massKg * CONFIG.sim.gravity, true);
+    let lost = null;
+    eye.g.bus.on(EVENTS.LOAD_LOWERED, (e) => { if (!lost) lost = e; });
+    for (let t = 0; t < 20000 && !eye.cas.suspended; t += 250) { eye.w.motor = 1; eye.g.skipMs(250); }
+    ok('AX20 so hooking it there does not hold the car up', !eye.cas.suspended);
+    eq('AX21 the line lets go rather than the machine refusing', lost && lost.reason, 'lost');
+    ok('AX22 and the car is still on its roof', eye.cas.rolled);
+    const frame = stageRolled('sedanRoof', true, 'frameFront');
+    gt('AX23 while the frame rail — facing straight up at you — is rated many times that',
+       frame.zone.strengthN, eye.zone.strengthN * 4);
+    note(`AX  a roofed sedan: tow eye ${kN(eye.zone.strengthN)} kN against a `
+      + `${kN(eye.cas.body.massKg * CONFIG.sim.gravity)} kN car; frame rail ${kN(frame.zone.strengthN)} kN`);
+  }
+}
+
+/* ══ AY. the board ════════════════════════════════════════════════════════ */
+
+function sectionAY() {
+  lines.push('--- AY. how often two of them turn up, and what a pair is worth ---');
+
+  /* HOW OFTEN, and — the part that matters — independent of everything else. `situations.js`
+   * argues at length that its axes must stay independent or the generator becomes one difficulty
+   * dial wearing five hats; a sixth axis is exactly where that would go wrong. */
+  const N = 400;
+  const rolls = [];
+  for (let i = 0; i < N; i++) rolls.push(rollSituation(9000 + i, 100));
+  const shunts = rolls.filter((s) => !!s.second);
+  inRange(`AY1 a shunt is a minority of the board (${shunts.length}/${N})`,
+          shunts.length / N, 0.20, 0.42);
+  gt('AY2 but not a rarity', shunts.length, 40);
+
+  const rate = shunts.length / N;
+  const sliceRate = (pred) => {
+    const sub = rolls.filter(pred);
+    return sub.length < 40 ? null : sub.filter((s) => !!s.second).length / sub.length;
+  };
+  const byDry = sliceRate((s) => s.weather && s.weather.id === 'dry');
+  const byWet = sliceRate((s) => s.weather && s.weather.id !== 'dry');
+  for (const [name, r] of [['dry', byDry], ['anything else', byWet]]) {
+    if (r === null) continue;
+    near(`AY3 the weather does not decide whether there are two (${name})`, r, rate, 0.10);
+  }
+  const bigFront = sliceRate((s) => casualtyDefById(s.vehicle.id).massKg >= 2000);
+  if (bigFront !== null) {
+    near('AY4 nor does what is in front', bigFront, rate, 0.12);
+  }
+  note(`AY  ${shunts.length} of ${N} rolls are a shunt (${(rate * 100).toFixed(1)}%)`);
+
+  /* PLAUSIBILITY BOUNDS IT, NOT DIFFICULTY. Two rules, both about how a pair arrives. */
+  {
+    let heavierBehind = 0, tooWide = 0;
+    for (const s of shunts) {
+      const fd = casualtyDefById(s.vehicle.id), sd = casualtyDefById(s.second.id);
+      if (sd.massKg > fd.massKg) heavierBehind++;
+      if (fd.lengthM + 0.6 + sd.lengthM > 15.0) tooWide++;
+    }
+    eq('AY5 nothing heavier ever ends up behind something lighter', heavierBehind, 0);
+    eq('AY6 and no pair is wider than the gap they both came through', tooWide, 0);
+    note(`AY  pairs: ${[...new Set(shunts.map((s) => `${s.vehicle.id}+${s.second.id}`))]
+      .slice(0, 6).join(', ')}${shunts.length > 6 ? ' …' : ''}`);
+  }
+
+  /* THE LIE IS A LIE, not a position: expressed in the first casualty's own frame. */
+  {
+    const lies = shunts.map((s) => s.secondLie).filter(Boolean);
+    eq('AY7 every shunt carries a lie for the one behind', lies.length, shunts.length);
+    ok('AY8 which is always BEHIND the first one, in the first one\'s frame',
+       lies.every((l) => l.x < 0));
+    ok('AY9 by a real distance', lies.every((l) => Math.abs(l.x) > 1.5));
+    ok('AY10 and never so far off to one side that they are not a pair',
+       lies.every((l) => Math.abs(l.y) < 4));
+    const spread = Math.max(...lies.map((l) => Math.abs(l.angle)));
+    gt('AY11 with arrangements from square on to broadside', spread, 0.9);
+    note(`AY  the lie runs ${Math.min(...lies.map((l) => l.x)).toFixed(2)} to `
+      + `${Math.max(...lies.map((l) => l.x)).toFixed(2)} m behind, up to `
+      + `${(spread * 180 / Math.PI).toFixed(0)}° round`);
+  }
+
+  /* WHAT IT PAYS: more than one job, less than two. Structural, not lucky. */
+  {
+    let ratios = [];
+    for (const s of shunts) {
+      const alone = s.vehicle.feeMul;
+      ratios.push((alone + SECOND_CASUALTY_SHARE * s.second.feeMul) / alone);
+    }
+    gt('AY12 a pair always pays more than the one in front alone', Math.min(...ratios), 1.0);
+    lt('AY13 and always less than the two of them done separately', Math.max(...ratios), 2.0);
+    inRange('AY14 by a margin worth the slot it did not spend',
+            ratios.reduce((a, b) => a + b, 0) / ratios.length, 1.15, 1.75);
+    inRange('AY15 which is what the share is', SECOND_CASUALTY_SHARE, 0.01, 0.99);
+    note(`AY  a pair pays ${Math.min(...ratios).toFixed(2)}x to ${Math.max(...ratios).toFixed(2)}x `
+      + `the front vehicle alone, mean ${(ratios.reduce((a, b) => a + b, 0) / ratios.length).toFixed(2)}x`);
+  }
+
+  /* AND THE BOARD SAYS SO, in the voice the rest of the board uses. */
+  {
+    const s = shunts[0];
+    const offer = situationToOffer(s, 'test-1', 4242);
+    eq('AY16 a generated shunt reaches the board as one offer', offer.secondCasualtyId, s.second.id);
+    ok('AY17 carrying the lie with it', !!offer.secondLie);
+    ok('AY18 and saying so in words', /both of them|in the back of it|behind it/i.test(offer.blurb));
+    const banned = /\b(hard|difficult|challenging|expert|advanced|tier|level|difficulty)\b/i;
+    ok('AY19 without ever grading it', !banned.test(`${offer.title} ${offer.blurb}`));
+    note(`AY  "${offer.title}" — ${offer.blurb.slice(0, 90)}…`);
+  }
+
+  /* An authored offer carries the same keys, so nothing downstream reads the key set. */
+  {
+    const c = newCompany();
+    const offers = offersFor(c);
+    ok('AY20 every offer on the board answers the question, one way or the other',
+       offers.every((o) => 'secondCasualtyId' in o && 'secondLie' in o));
+    ok('AY21 including the ones the outfit is not good enough for yet',
+       offers.filter((o) => o.locked).every((o) => o.secondCasualtyId === null));
+  }
+}
+
 /* ══ AK4. eight milestones of numbers that must not have moved ════════════ */
 
 async function sectionAK4() {
@@ -274,7 +511,7 @@ async function sectionAK4() {
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['AW', sectionAW], ['AK4', sectionAK4]];
+  const sections = [['AW', sectionAW], ['AX', sectionAX], ['AY', sectionAY], ['AK4', sectionAK4]];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {

@@ -140,32 +140,44 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
    * that the second one is physically in the way, and the contact pass is the only thing enforcing
    * it. A player who rigs the deep one first will find out by watching the gauge.
    *
-   * MEASURED, same seed, same pull, same tow eye: the deep casualty comes up on 10.8 kN on its own
-   * and on 21.5 kN with a car in front of it — and the drum STALLS at 25.9 kN with a van in front,
-   * so bulldozing something big is not slower, it is impossible. Nothing is dented by the shove
-   * (worst contact impulse zero): pushing a car slowly up a bank does not damage it, and the cost
-   * of the wrong order is the line, not the paint.
+   * MEASURED, same seed, same pull, same tow eye: the deep casualty comes up on 10.8 kN on its own,
+   * 18.6 kN with a car in front of it and 25.1 kN with a van — against a light wrecker's 26.0 kN
+   * motor, so the margin left is under a kilonewton and the next thing up does not go at all.
+   *
+   * AND IT COSTS THE LINE, NOT THE CLOCK. All three finish in about 35 seconds: a drum that is
+   * turning pulls at the rate a drum turns. Nothing is dented by the shove either — worst contact
+   * impulse zero, because pushing a car slowly up a bank does not damage it. What the wrong order
+   * costs is the number on the gauge while it is happening, which is the one place a player can
+   * read it.
    *
    * It is also less dug in. It arrived later and at less of an angle, and `boggedMul` on the
    * second is the one number that says so. */
   const secondDef = (job && job.secondCasualtyId) ? casualtyDefById(job.secondCasualtyId) : null;
   let second = null;
   if (secondDef) {
-    const lie = (job && job.secondLie) || {};
-    const upSlopeM = (casualtyDef.lengthM + secondDef.lengthM) / 2
-      + (lie.gapM === undefined ? 1.3 : lie.gapM);
+    /* `secondLie` is in the FIRST casualty's own body frame — +x out of its nose, +y its right,
+     * `angle` RELATIVE to its heading, which is the frame data/vehicles.js is written in. It has
+     * to be relative: the same lie of (-4.45, -0.06) is 3.5 m away from itself at a heading of 0
+     * and at the 1.35 rad the bend actually rolls, so an absolute offset would put the pair in a
+     * different relationship every time the first one's lie moved.
+     *
+     * The default when a job names a casualty but no lie is a length and a bit straight behind. */
+    const lie = (job && job.secondLie) || {
+      x: -((casualtyDef.lengthM + secondDef.lengthM) / 2 + 1.3), y: 0, angle: 0,
+    };
+    const at = sedan.body.toWorld(lie.x, lie.y);
     const secondBogged = CONFIG.bigCasualty.boggedPerTonneN * (secondDef.massKg / 1000)
       * (lie.boggedMul === undefined ? 0.45 : lie.boggedMul);
     second = createVehicle(secondDef, {
-      x: sedan.body.x + (lie.acrossM || 0),
-      y: sedan.body.y - upSlopeM,
-      angle: sedan.body.angle + (lie.angleRad || 0),
+      x: at.x, y: at.y, angle: sedan.body.angle + (lie.angle || 0),
     }, { boggedN: secondBogged, id: 'second' });
     /* AND IT MUST NOT SPAWN WITH A CORNER ALREADY ON THE TARMAC. Measured on the first seed tried:
      * the casualty lie is rolled at about 71 degrees to the road, so a 4.4 m car placed a car's
      * length up the bank reached to y=14.7 against a road edge at 14.6, and started the job one
-     * corner recovered. Backing it off is a property rather than a number — a fixed gap that works
-     * for a sedan on this seed is wrong for a van on the next one. */
+     * corner recovered. It is worse than that in general — the generator writes the offer before
+     * the terrain exists, so it cannot know that seven metres up-slope of a box truck at the bend
+     * is the guardrail. Backing it down the bank is a PROPERTY rather than a number: a fixed gap
+     * that works for a sedan on this seed is wrong for a van on the next one. */
     for (let i = 0; i < 24 && cornersOnRoad(second, terrain).on > 0; i++) second.body.y += 0.25;
     if (secondDef.arrivesRolled || lie.rolled) {
       second.rolled = true;
