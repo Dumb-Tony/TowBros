@@ -25,6 +25,7 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { clamp } from '../core/vec.js';
 import { WINCH, drumsOf, fairleadPos, hookPos } from './cable.js';
+import { setRolled } from '../sim/righting.js';
 
 export const hasOutriggers = (veh) => !!(veh && veh.outriggers);
 export const hasBoom = (veh) => !!(veh && veh.def.boom);
@@ -349,9 +350,7 @@ export function stepHoist(st, dtSec, bus, simTimeMs) {
     /* Over it goes. The machine ends up in the state a rolled vehicle is already in — this is not
      * a new failure, it is the one sim/vehicle.js has had since Milestone 1, reached a second way.
      * The load comes down with it, because a machine on its side is not holding anything. */
-    truck.rolled = true;
-    truck.gripMul = CONFIG.vehicle.rolledGripMul;
-    truck.dragMul = CONFIG.vehicle.rolledDragMul;
+    setRolled(truck, true);
     if (truck.outriggers) { truck.outriggers.down = false; }
     bus.emit(EVENTS.ROLLED_OVER, { vehicle: truck.id, cause: 'boom' }, simTimeMs);
     lowerLoad(st, held, bus, simTimeMs, 'tipped');
@@ -396,9 +395,10 @@ export function lowerLoad(st, veh, bus, simTimeMs, reason = 'lowered') {
    * dropped must not quietly do the player a favour. */
   let righted = false;
   if (reason === 'lowered' && veh.rolled) {
-    veh.rolled = false;
-    veh.gripMul = 1;
-    veh.dragMul = 1;
+    // ONE writer for the three fields that go together. They were set by hand in three places, and
+    // that split is exactly how the drag penalty went missing for six milestones — see the note on
+    // `resetAids` at the top of recovery/gear.js.
+    setRolled(veh, false);
     righted = true;
     bus.emit(EVENTS.RIGHTED, {
       vehicle: veh.id, label: veh.def.label, how: 'boom',

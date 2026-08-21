@@ -21,6 +21,7 @@ import { createPolice } from './police.js';
 import { SEDAN_DEF, TRUCK_DEF, casualtyDefById, truckDefById } from '../data/vehicles.js';
 import { createGearPile } from '../data/equipment.js';
 import { createVehicle, cornersOnRoad, casualties } from '../sim/vehicle.js';
+import { setRolled } from '../sim/righting.js';
 import { buildScenery } from '../sim/collision.js';
 import { createWinch, drumsOf } from '../recovery/cable.js';
 import { createLift, LIFT } from '../recovery/lift.js';
@@ -100,11 +101,7 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
    * sim/vehicle.js already puts a car in when it rolls over mid-recovery, applied from the start.
    * That is what makes it a different plan rather than a longer pull: less than two thirds of the
    * grip, so the same straight pull needs 28 kN where the upright car needed 17. */
-  if (casualtyDef.arrivesRolled) {
-    sedan.rolled = true;
-    sedan.gripMul = CONFIG.vehicle.rolledGripMul;
-    sedan.dragMul = CONFIG.vehicle.rolledDragMul;
-  }
+  if (casualtyDef.arrivesRolled) setRolled(sedan, true);
   /* WHICH wrecker turned out (Milestone 6). `id: 'truck'` for the same reason the casualty slot
    * keeps its name: everything that names the recovery vehicle means the slot. */
   const truckDef = truckDefById(job && job.truckId);
@@ -179,11 +176,7 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
      * is the guardrail. Backing it down the bank is a PROPERTY rather than a number: a fixed gap
      * that works for a sedan on this seed is wrong for a van on the next one. */
     for (let i = 0; i < 24 && cornersOnRoad(second, terrain).on > 0; i++) second.body.y += 0.25;
-    if (secondDef.arrivesRolled || lie.rolled) {
-      second.rolled = true;
-      second.gripMul = CONFIG.vehicle.rolledGripMul;
-      second.dragMul = CONFIG.vehicle.rolledDragMul;
-    }
+    if (secondDef.arrivesRolled || lie.rolled) setRolled(second, true);
   }
 
   // Zone modifiers and rigging live on the vehicle, not on the definition: the definition is

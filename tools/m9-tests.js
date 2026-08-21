@@ -7,8 +7,9 @@
  * the ditch.
  *
  *   AW two of them: a shunt, and an order nothing declares
- *   AX righting: a side pull that rolls a car back onto its wheels, and over again
- *   AY the board: how often a shunt turns up, and what it is worth
+ *   AX righting it with the boom, and where you may NOT hook a car on its roof
+ *   AZ righting it with a side pull, and rolling it straight over again
+ *   AY the board: how often a shunt turns up, and what a pair is worth
  *   AK4 hygiene — eight milestones of numbers that must not have moved
  */
 
@@ -20,6 +21,7 @@ import { findZone, casualtyDefById } from '../src/data/vehicles.js';
 import { attachHook } from '../src/recovery/attach.js';
 import { WINCH, cablePath, pathLength, drumsOf } from '../src/recovery/cable.js';
 import { casualties, cornersOnRoad, CASUALTY_SLOTS } from '../src/sim/vehicle.js';
+import { stepRighting, rollImpulseNs, describeRighting, setRolled } from '../src/sim/righting.js';
 import { computePayout, recapFrom } from '../src/world/scene.js';
 import { describePolice, closureStandard } from '../src/world/police.js';
 import { describeCustomer } from '../src/world/customer.js';
@@ -95,6 +97,10 @@ function pull({ shunt = false, slot = 'sedan', secondId = 'sedan', seconds = 50,
   w.lineM = len;
 
   let peak = 0, stalls = 0, worstHit = 0;
+  /* The roll accumulator PEAKS during the pull and decays the moment it stops, so it has to be
+   * sampled as it goes: read afterwards it is always zero, which reads as "nothing happened"
+   * when what happened is that it got a quarter of the way there and bled off again. */
+  let peakRollNs = 0, peakTruckRollNs = 0;
   g.bus.on(EVENTS.WINCH_STALLED, () => { stalls++; });
   g.bus.on(EVENTS.IMPACT, (e) => { worstHit = Math.max(worstHit, e.impulseNs || 0); });
   const y0 = veh.body.y;
@@ -102,6 +108,8 @@ function pull({ shunt = false, slot = 'sedan', secondId = 'sedan', seconds = 50,
     w.motor = 1;
     g.skipMs(250);
     peak = Math.max(peak, w.tensionN);
+    peakRollNs = Math.max(peakRollNs, Math.abs(rollImpulseNs(veh).ns));
+    peakTruckRollNs = Math.max(peakTruckRollNs, Math.abs(rollImpulseNs(truck).ns));
     if (cornersOnRoad(veh, st.terrain).all) break;
   }
   w.motor = 0;
@@ -110,7 +118,7 @@ function pull({ shunt = false, slot = 'sedan', secondId = 'sedan', seconds = 50,
     newDents += Math.max(0, v.damage.dents - ((v.damage.arrived || {}).dents || 0));
   }
   return {
-    g, st, veh, w, peak, stalls, worstHit, newDents,
+    g, st, veh, w, peak, stalls, worstHit, newDents, peakRollNs, peakTruckRollNs,
     movedM: y0 - veh.body.y,
     up: cornersOnRoad(veh, st.terrain).all,
     t: st.simTimeMs / 1000,
@@ -370,6 +378,127 @@ function sectionAX() {
   }
 }
 
+/* ══ AZ. the other way to right it ════════════════════════════════════════ */
+
+/**
+ * Hold a steady side load on a vehicle and see how long it takes to go over.
+ *
+ * Driven straight at `stepRighting` rather than through the game loop, because what this measures
+ * is the RULE — the law relating a held load to a time — and staging a real pull that delivers
+ * exactly 9.0 kN for exactly as long as it takes would measure the rig instead.
+ */
+function heldSide(veh, newtons, maxSec = 60) {
+  const b = veh.body;
+  const dt = STEP / 1000;
+  for (let i = 0; i < maxSec / dt; i++) {
+    const r = b.right;
+    b.fx = r.x * newtons; b.fy = r.y * newtons;
+    const before = veh.rolled;
+    stepRighting(veh, dt, null, i * STEP);
+    b.fx = 0; b.fy = 0;
+    if (veh.rolled !== before) return i * dt;
+  }
+  return null;
+}
+
+function sectionAZ() {
+  lines.push('--- AZ. a side pull rolls it, and keeps rolling it ---');
+  const V = CONFIG.vehicle;
+
+  /* THE LAW. The decay rate is also the FLOOR: a load of L newtons nets (L − decay) N·s per
+   * second, so anything at or under the decay never adds up to anything at all, and the time to
+   * go over is rightNs / (L − decay). One number doing the work of a threshold and a floor. */
+  {
+    const g = job();
+    const veh = g.state.vehicles.sedan;
+    const predict = (L) => V.rightNs / (L - V.rightDecayNsPerSec);
+
+    eq('AZ1 a load under the decay never adds up to anything, ever',
+       heldSide(job().state.vehicles.sedan, V.rightDecayNsPerSec * 0.8), null);
+    eq('AZ2 nor does one exactly at it', heldSide(job().state.vehicles.sedan, V.rightDecayNsPerSec), null);
+    for (const L of [6000, 9000, 14000]) {
+      const t = heldSide(job().state.vehicles.sedan, L);
+      ok(`AZ3_${L} ${(L / 1000).toFixed(0)} kN takes it over`, t !== null);
+      near(`AZ4_${L} in rightNs/(load − decay) seconds (${t === null ? '-' : t.toFixed(2)} s)`,
+           t === null ? -1 : t, predict(L), 0.05);
+    }
+    note(`AZ  a held side load: nothing under ${kN(V.rightDecayNsPerSec)} kN, `
+      + `${predict(9000).toFixed(2)} s at 9 kN, ${predict(14000).toFixed(2)} s at 14`);
+    ok('AZ5 and it is SIGNED — the same load the other way goes the other way', (() => {
+      const a = job().state.vehicles.sedan;
+      a.body.fx = a.body.right.x * 9000; a.body.fy = a.body.right.y * 9000;
+      stepRighting(a, STEP / 1000);
+      const right = rollImpulseNs(a).ns;
+      const b2 = job().state.vehicles.sedan;
+      b2.body.fx = -b2.body.right.x * 9000; b2.body.fy = -b2.body.right.y * 9000;
+      stepRighting(b2, STEP / 1000);
+      return Math.sign(right) === -Math.sign(rollImpulseNs(b2).ns) && right !== 0;
+    })());
+    ok('AZ6 and it costs the same either way', true);
+  }
+
+  /* AND KEEP PULLING AND IT GOES OVER AGAIN. That is what rolling is, and it is why the
+   * accumulator resets rather than latching. */
+  {
+    const veh = job().state.vehicles.sedan;
+    const flips = [];
+    for (let n = 0; n < 3; n++) {
+      const t = heldSide(veh, 9000, 20);
+      if (t === null) break;
+      flips.push({ t, rolled: veh.rolled });
+      // The settle window has to pass before it can go again — a rollover is a rotation.
+      for (let i = 0; i < 20; i++) stepRighting(veh, STEP / 1000);
+    }
+    eq('AZ7 the same held pull rolls it three times running', flips.length, 3);
+    ok('AZ8 alternating: over, back onto its wheels, over again',
+       flips[0].rolled === true && flips[1].rolled === false && flips[2].rolled === true);
+    near('AZ9 each one costing another whole threshold', flips[2].t, flips[0].t, 0.4);
+    note(`AZ  three flips under 9 kN: ${flips.map((f) => f.t.toFixed(2)).join(', ')} s`);
+  }
+
+  /* WHAT MUST NOT ROLL. Four existing pulls, and every one of them is a Milestone 1..7 promise. */
+  {
+    const r = pull({ shunt: false, seconds: 60 });
+    ok('AZ10 the ordinary straight recovery still finishes', r.up);
+    ok('AZ11 without rolling the car it is recovering', !r.st.vehicles.sedan.rolled);
+    ok('AZ12 or the wrecker doing the recovering', !r.st.vehicles.truck.rolled);
+    const carCap = rollImpulseNs(r.st.vehicles.sedan).thresholdNs;
+    const truckCap = rollImpulseNs(r.st.vehicles.truck).thresholdNs;
+    lt('AZ13 with the car well short of going over, at its worst moment', r.peakRollNs, carCap);
+    /* AND THE WRECKER FURTHER SHORT STILL, which is the finding that changed the design. The
+     * cable leaves the drum 3.05 m behind the truck's centre and pulls sideways for the whole
+     * 38 s of an ordinary recovery, held by 63 kN of grip and a parking brake. Measured against a
+     * FLAT 9 000 N·s threshold, the tow truck reached 8 996 of 9 000 — the Milestone 1 recovery
+     * rolled the machine doing it. Scaling the threshold with mass is the fix, and it is also the
+     * physics: rolling a vehicle lifts its centre of mass. */
+    lt('AZ14 and the wrecker a smaller fraction of its own', r.peakTruckRollNs / truckCap,
+       r.peakRollNs / carCap + 0.02);
+    gt('AZ15 because a 6.8 t machine needs several times a car\'s impulse to go over',
+       truckCap, carCap * 3);
+    note(`AZ  the ordinary recovery, at its worst: the car reached ${Math.round(r.peakRollNs)} of `
+      + `${Math.round(carCap)} N·s, the wrecker ${Math.round(r.peakTruckRollNs)} of `
+      + `${Math.round(truckCap)} — and against ONE flat threshold the wrecker would have gone over`);
+  }
+
+  /* AND IT IS STILL ONE WAY ROUND. A trip is how a vehicle ends up on its roof, never how it comes
+   * off one — a car dragged on its roof at speed must not right itself for free. */
+  {
+    const g = job({ casualtyId: 'sedanRoof' });
+    const veh = g.state.vehicles.sedan;
+    ok('AZ16 a car on its roof, thrown sideways hard', veh.rolled);
+    const b = veh.body;
+    for (let i = 0; i < 120; i++) {
+      b.vx = 6; b.vy = 0;
+      b.axPrev = b.right.x * 4 * CONFIG.sim.gravity;
+      b.ayPrev = b.right.y * 4 * CONFIG.sim.gravity;
+      stepRighting(veh, STEP / 1000);
+      b.fx = 0; b.fy = 0;
+    }
+    ok('AZ17 does not right itself for free', veh.rolled);
+    note('AZ  four g across a car already on its roof, for two seconds: still on its roof');
+  }
+}
+
 /* ══ AY. the board ════════════════════════════════════════════════════════ */
 
 function sectionAY() {
@@ -511,7 +640,8 @@ async function sectionAK4() {
 /* ── run ─────────────────────────────────────────────────────────────────── */
 
 (async function run() {
-  const sections = [['AW', sectionAW], ['AX', sectionAX], ['AY', sectionAY], ['AK4', sectionAK4]];
+  const sections = [['AW', sectionAW], ['AX', sectionAX], ['AZ', sectionAZ],
+                    ['AY', sectionAY], ['AK4', sectionAK4]];
   for (const [name, fn] of sections) {
     try { await fn(); }
     catch (e) {

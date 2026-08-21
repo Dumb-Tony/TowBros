@@ -24,6 +24,7 @@ import { buildScene, stepGoal, stepEscalation, stepJob, recapFrom, JOB } from '.
 import { stepCrew, describeVehicle, seatOf, holdsHook, carriedItem } from './player/player.js';
 import { validateAuthority } from './crew/authority.js';
 import { stepVehicle, casualties } from './sim/vehicle.js';
+import { stepRighting } from './sim/righting.js';
 import { stepCollisions } from './sim/collision.js';
 import { stepCable, stepCableBreak, describeWinch } from './recovery/cable.js';
 import { stepLift, describeLift } from './recovery/lift.js';
@@ -288,6 +289,19 @@ export class Game {
       dynamics, st.scenery, this.bus, simTimeMs,
       (A, B, jn, hit) => applyImpactDamage(st, A, B, jn, hit, this.bus, simTimeMs),
     );
+
+    /* 5b. Which way up everything is (Milestone 9). BEFORE the ground, and that is the whole
+     *     reason it is a separate call rather than a line inside stepVehicle: the accumulator
+     *     still holds only what the LINE is doing, and the net force after the tires is the wrong
+     *     number to roll a car with — a car held by static friction reads zero, and being held is
+     *     exactly when a side pull rolls it instead of dragging it. Measured at the old call site,
+     *     a deliberate broadside pull put 70 N·s of 9 000 into the accumulator in twenty seconds.
+     *
+     *     Judged in newton-seconds, signed, like the guardrail and the anchors. Every casualty and
+     *     the wrecker: a machine can go over too, and until Milestone 8 only the boom could put it
+     *     there. */
+    stepRighting(st.vehicles.truck, dt, this.bus, simTimeMs);
+    for (const veh of cas) stepRighting(veh, dt, this.bus, simTimeMs);
 
     // 6. Ground. Slope, bogged, chocks, tires, then integrate. The tires size their grip
     //    against everything accumulated above.

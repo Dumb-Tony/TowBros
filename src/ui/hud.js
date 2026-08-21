@@ -63,6 +63,7 @@ function phrase(e) {
     case EVENTS.GUARDRAIL_BENT:     return e.broken ? 'took out a section of guardrail' : 'bent the guardrail';
     case EVENTS.TRUCK_SLIPPING:     return `the truck is sliding on ${e.surface.replace('wetGrass', 'wet grass')}`;
     case EVENTS.ROLLED_OVER:        return `rolled the ${e.vehicle}`;
+    case EVENTS.RIGHTED:            return `rolled the ${e.vehicle} back onto its wheels`;
     case EVENTS.GEAR_SCATTERED:     return `the ${e.kind} was knocked out of place`;
     case EVENTS.GEAR_USED:          return e.kind === 'jack' ? `jack at ${e.liftStep} of ${e.of}` : null;
     case EVENTS.BRAKE_SET:          return e.on ? "set the sedan's parking brake" : "released the sedan's parking brake";
@@ -610,7 +611,7 @@ export class Hud {
 
 const LOUD = new Set([
   EVENTS.CABLE_SNAPPED, EVENTS.ZONE_FAILED, EVENTS.COMPONENT_DETACHED,
-  EVENTS.TRUCK_SLIPPING, EVENTS.ROLLED_OVER, EVENTS.RECOVERY_COMPLETE,
+  EVENTS.TRUCK_SLIPPING, EVENTS.ROLLED_OVER, EVENTS.RIGHTED, EVENTS.RECOVERY_COMPLETE,
 ]);
 
 function escapeHtml(s) {

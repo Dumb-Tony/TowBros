@@ -3,13 +3,14 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 8 — what the machine can actually lift — is playable.** Pick a job off the board — a
-place, a forecast, a fee, and what is off the road — winch it out of the ditch while its owner
-watches from the verge, or put the rotator on its legs and pick it up off the ground outright, then
-carry it home on the underlift through a tailback of live traffic, reverse it into the bay, and get
-paid what the damage left of the fee — less whatever you were cited for leaving the road open. Then
-fix the truck, save up for a bigger one, and watch the afternoon go: a careful morning means the
-second job is in falling light.
+**Milestone 9 — righting it, and the one behind — is playable.** Pick a job off the board — a
+place, a forecast, a fee, and what is off the road, which is sometimes *two* things off the road —
+winch it out of the ditch while its owner watches from the verge, or put the rotator on its legs and
+pick it up off the ground outright and set it back down on its wheels, then carry it home on the
+underlift through a tailback of live traffic, reverse it into the bay, and get paid what the damage
+left of the fee — less whatever you were cited for leaving the road open. Then fix the truck, save
+up for a bigger one, and watch the afternoon go: a careful morning means the second job is in
+falling light.
 Two to four people, over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies,
 and still zero external requests — including the multiplayer and the save file.
 
@@ -27,6 +28,8 @@ it, not the other way round.
 ![a car on its roof, late in the afternoon, with its owner watching from the verge](docs/m7-scene.png)
 
 ![a van in the air on the rotator's boom, legs down, against its load chart](docs/m8-boom.png)
+
+![two cars on the bank, one behind the other, and the line running past the near one](docs/m9-shunt.png)
 
 ## Play it
 
@@ -72,6 +75,80 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 9 is
+
+Two things this game has been *describing* rather than simulating. A rollover has been a one-way
+door since Milestone 1 — you could put a vehicle on its roof and never put it back — and every job
+to date has had exactly one thing in the ditch, which is not what a bad afternoon looks like.
+
+**Two of them, and an order nothing declares.** A shunt is two casualties, one behind the other,
+both to be got onto the road. The second one is placed in the **first one's own body frame**, not in
+world coordinates: the same offset is 3.5 m away from itself at a heading of 0 and at the 1.35 rad
+the bend actually rolls, so "behind it" only survives if it means behind *the car*.
+
+![two cars on the bank, one behind the other, the line running past the near one](docs/m9-shunt.png)
+
+Nothing declares an order. The one nearer the road is physically in the way of the one below it, and
+the contact pass is the only thing enforcing that. Rig the deep one first and it is **not refused** —
+it is priced:
+
+| the same pull, same tow eye, same park | peak line |
+|---|---|
+| the deep casualty on its own | **10.8 kN** |
+| with a car in the way | **18.6 kN** |
+| with a van in the way | **25.1 kN**, against a 26.0 kN motor |
+
+And all three finish in about **35 seconds** — a drum that is turning pulls at the rate a drum turns,
+so the wrong order costs the *line* and not the clock. Nothing is dented by the shove either (worst
+contact impulse zero): pushing a car slowly up a bank does not damage it. What it costs is the number
+on the gauge while it is happening, which is the one place a player can read it.
+
+A shunt turns up on **29.3% of rolls**, and the rate holds within ten points across every forecast
+and every vehicle in front — it is a sixth independent axis, not the difficulty dial in a new hat.
+Nothing heavier ever ends up behind something lighter, and no pair is wider than the gap in the rail
+they both came through. A pair pays **1.13× to 1.90×** the vehicle in front alone: more than one job,
+less than two, because you spent one slot on it.
+
+**A rollover stops being a one-way door.** Pick a car up on the rotator's boom and set it down and it
+is on its wheels. That needs no new key and no new state — the Milestone 8 load chart already decides
+whether this machine can lift this vehicle at this reach, so "can I right it" was a number already
+being computed every step. A car can be righted this way; a seven-tonner is refused at 70.6 kN
+against 62.5. And only a *deliberate* set-down does it: a load dropped off the boom, or one that came
+down with a machine that went over, lands however it lands.
+
+There is a trap in that, and it is the game telling the truth rather than a bug. Rigged to the obvious
+point, a roofed sedan is picked up and dropped in the **same step**:
+
+| a sedan on its roof | |
+|---|---|
+| its front tow eye | **7.0 kN** — "bent in whatever put the car on its roof" |
+| the car | **13.7 kN** |
+| its front frame rail, facing straight up at you | **44.0 kN** |
+
+**And the other way, which is the one that works when there is no rotator.** A side pull rolls a
+vehicle, judged the way everything else in this game is judged — an accumulated impulse about its
+own long axis, signed, decaying. The decay rate is also the floor, so the whole rule is one line:
+
+> time to go over = `rightNs / (side load − decay)`
+
+| held across a 1.4 t car | |
+|---|---|
+| 5.2 kN or under | never, however long you hold it |
+| 6 kN | 11.25 s |
+| 9 kN | 2.37 s |
+| 14 kN | 1.02 s |
+
+It is **symmetrical**, because that is what rolling is: hold the same pull and the car goes over,
+comes back onto its wheels, and goes over again, each flip costing another whole threshold. And a
+trip — being thrown sideways at speed — stays strictly one way. A car dragged on its roof must not
+right itself for free with nobody having decided anything.
+
+The threshold **scales with mass**, and that is the measurement that changed the design. Against one
+flat number the ordinary Milestone 1 recovery **rolled the tow truck doing it**: the cable leaves the
+drum 3.05 m behind the machine's centre and pulls sideways for the whole 38 s, and the truck reached
+8 996 of 9 000. Scaled, the same recovery takes the car to 450 of 9 000 and the wrecker to 0 of
+43 714.
 
 ## What Milestone 8 is
 
@@ -534,9 +611,13 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m8-tests.js -Quiet
 ```
 
-**1321 assertions** across eight suites in headless Chrome — 265 for Milestone 1, 219 for
+```bash
+.\tools\smoketest.ps1 -Tests tools\m9-tests.js -Quiet
+```
+
+**1432 assertions** across nine suites in headless Chrome — 265 for Milestone 1, 219 for
 Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
-143 for Milestone 7, 121 for Milestone 8.
+143 for Milestone 7, 121 for Milestone 8, 111 for Milestone 9.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that

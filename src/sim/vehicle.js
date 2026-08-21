@@ -333,28 +333,13 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
   applyYawResistance(veh, dtSec);       // must follow the tires: it reads their friction budget
   applySpinResistance(veh, dtSec);
 
-  // Roll-over check, before integrating while the accumulated force is still readable.
-  //
-  // It has to be SUSTAINED. A rollover is a body rotating over its outside wheels, which takes
-  // a couple of hundred milliseconds of lateral load — not one step of it. Checking the instant
-  // value flipped cars on a single-step force spike: a hard winch pull is briefly worth 3 g at
-  // the tow eye, and the sedan would arrive on the road upside down for no reason a player could
-  // see. Caught in the m1 Ha trace, where ROLLED_OVER fired during an ordinary recovery.
-  if (!veh.rolled) {
-    const r = b.right;
-    const latG = Math.abs((b.fx * r.x + b.fy * r.y) / b.massKg) / CONFIG.sim.gravity;
-    if (latG > (veh.def.rollThresholdG || CONFIG.vehicle.rollThresholdG) && b.speed > 1.0) {
-      veh.rollLoadMs = (veh.rollLoadMs || 0) + dtSec * 1000;
-    } else {
-      veh.rollLoadMs = 0;
-    }
-    if ((veh.rollLoadMs || 0) >= (veh.def.rollSustainMs || CONFIG.vehicle.rollSustainMs)) {
-      veh.rolled = true;
-      veh.gripMul = CONFIG.vehicle.rolledGripMul;
-      veh.dragMul = CONFIG.vehicle.rolledDragMul;
-      if (bus) bus.emit('ROLLED_OVER', { vehicle: veh.id, lateralG: Math.round(latG * 100) / 100 }, simTimeMs);
-    }
-  }
+  /* The roll-over check used to be here, and it has moved to sim/righting.js — which owns the
+   * whole question of which way up a vehicle is, both ways round, since Milestone 9. `game.js`
+   * calls stepRighting() BEFORE this function, because a side load has to be read before the tires
+   * answer it: a vehicle held perfectly by friction reads a NET side load of zero, and being held
+   * is exactly the condition under which a side pull rolls it rather than dragging it. Measured at
+   * the old call site, a deliberate broadside pull accumulated 70 N·s of 9 000 in twenty seconds,
+   * because the tyres had already eaten all of it. */
 
   const before = { x: b.x, y: b.y };
   b.integrate(dtSec);
