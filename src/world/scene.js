@@ -467,9 +467,16 @@ export function stepJob(st, bus, simTimeMs) {
   const job = st.job;
   if (job.phase === JOB.DELIVERED) return job.phase;
 
-  const sedan = st.vehicles.sedan;
+  /* EVERY casualty, not the first one (Milestone 9). This read `st.vehicles.sedan` throughout, and
+   * on a shunt that meant delivering ONE of the two into the bay ended the job and paid the whole
+   * fee out with the other car still lying on the bank. Nothing errored; the results card simply
+   * came up early. It is the exact failure the milestone's completion criteria name — "no system
+   * at the scene may still behave as though there is one casualty" — and it survived the whole of
+   * that milestone because the goal, the payout, the recap and the closure standard were all swept
+   * and the job PHASE machine was not. */
+  const all = casualties(st);
   const lift = st.vehicles.truck.lift;
-  const carrying = lift.carryingId === sedan.id;
+  const carrying = all.some((v) => lift.carryingId === v.id);
 
   const to = (phase) => {
     if (job.phase === phase) return;
@@ -477,8 +484,14 @@ export function stepJob(st, bus, simTimeMs) {
     job.phase = phase;
   };
 
-  const bay = cornersInBay(sedan, st.terrain);
-  job.bayCorners = bay.on;
+  let bayOn = 0, allIn = true, settled = true;
+  for (const veh of all) {
+    const b = cornersInBay(veh, st.terrain);
+    bayOn += b.on;
+    if (!b.all) allIn = false;
+    if (veh.body.speed > CONFIG.success.maxSpeedMps) settled = false;
+  }
+  job.bayCorners = bayOn;
 
   if (carrying) {
     to(JOB.TRANSPORT);
@@ -489,8 +502,7 @@ export function stepJob(st, bus, simTimeMs) {
   /* Delivered: standing in the bay, on its own wheels, settled. Deliberately NOT "the truck is in
    * the yard" — the job is where the car ends up, and a player who shoves it into the bay with the
    * bumper instead of setting it down there has still delivered it. */
-  const settled = sedan.body.speed <= CONFIG.success.maxSpeedMps;
-  if (bay.all && settled) {
+  if (allIn && settled) {
     job.inBayMs += CONFIG.sim.stepMs;
     if (job.inBayMs >= CONFIG.job.settleMs) {
       job.deliveredAtMs = simTimeMs;

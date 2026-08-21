@@ -16,13 +16,13 @@
 import { CONFIG } from '../src/config.js';
 import { EVENTS } from '../src/core/eventBus.js';
 import { Game } from '../src/game.js';
-import { BANDS } from '../src/data/terrain.js';
+import { BANDS, YARD } from '../src/data/terrain.js';
 import { findZone, casualtyDefById } from '../src/data/vehicles.js';
 import { attachHook } from '../src/recovery/attach.js';
 import { WINCH, cablePath, pathLength, drumsOf } from '../src/recovery/cable.js';
 import { casualties, cornersOnRoad, CASUALTY_SLOTS } from '../src/sim/vehicle.js';
 import { stepRighting, rollImpulseNs, describeRighting, setRolled } from '../src/sim/righting.js';
-import { computePayout, recapFrom } from '../src/world/scene.js';
+import { computePayout, recapFrom, JOB } from '../src/world/scene.js';
 import { describePolice, closureStandard } from '../src/world/police.js';
 import { describeCustomer } from '../src/world/customer.js';
 import { rollSituation, situationToOffer, SECOND_CASUALTY_SHARE } from '../src/meta/situations.js';
@@ -232,6 +232,36 @@ function sectionAW() {
     ok('AW33 and names which car a deduction belongs to when there is more than one',
        pay.deductions.every((d) => typeof d.label === 'string'));
     ok('AW34 the owner on the verge can see both of them', !!describeCustomer(st.customer));
+
+    /* AND THE JOB IS NOT DELIVERED WITH HALF OF IT STILL ON THE BANK. The phase machine read
+     * `st.vehicles.sedan` throughout: putting ONE of the two in the bay ended the job and paid the
+     * whole fee out with the other car still lying there. Nothing errored — the results card just
+     * came up early. It survived the whole of the milestone that added the second casualty,
+     * because the goal, the payout, the recap and the closure standard were all swept and this was
+     * not. */
+    const put = (veh) => {
+      veh.body.x = (YARD.bay.x0 + YARD.bay.x1) / 2;
+      veh.body.y = (YARD.bay.y0 + YARD.bay.y1) / 2;
+      veh.body.angle = 0;
+      veh.body.vx = 0; veh.body.vy = 0; veh.body.omega = 0;
+    };
+    // The first one parked square in the bay; the other one left where it is.
+    for (let i = 0; i < 200; i++) { put(st.vehicles.sedan); g.step(STEP, st.simTimeMs + STEP, null); }
+    gt('AW35a which really is in the bay', st.job.bayCorners, 3);
+    ok('AW35b but one of two in the bay is not a delivered job', st.job.phase !== JOB.DELIVERED);
+    eq('AW35c and nothing has been paid', st.job.payout, null);
+    // Now the other one as well.
+    for (let i = 0; i < 200; i++) {
+      put(st.vehicles.sedan);
+      st.vehicles.second.body.x = (YARD.bay.x0 + YARD.bay.x1) / 2 + 0.05;
+      st.vehicles.second.body.y = (YARD.bay.y0 + YARD.bay.y1) / 2;
+      st.vehicles.second.body.angle = 0;
+      st.vehicles.second.body.vx = 0; st.vehicles.second.body.vy = 0; st.vehicles.second.body.omega = 0;
+      g.step(STEP, st.simTimeMs + STEP, null);
+    }
+    eq('AW35d with both of them in it, the job is delivered', st.job.phase, JOB.DELIVERED);
+    ok('AW35e and the fee is worked out over both', !!st.job.payout);
+    note(`AW  delivered only with both in the bay: £${st.job.payout ? st.job.payout.paid : 0}`);
   }
 
   /* The closure standard counts both, without having been told about the second one. */
