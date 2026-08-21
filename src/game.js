@@ -31,7 +31,7 @@ import { stepTraffic, trafficBodies, describeTraffic } from './world/traffic.js'
 import { stepAttachment, applyImpactDamage, stepDebris } from './recovery/attach.js';
 import { stepGearEffects } from './recovery/gear.js';
 import { stepAnchors } from './recovery/anchors.js';
-import { stepRig } from './recovery/rig.js';
+import { stepRig, stepHoist, describeRig } from './recovery/rig.js';
 import { stepCustomer, noteCableSnap } from './world/customer.js';
 import { stepPolice, describePolice } from './world/police.js';
 import { gripBudgetN, downslopeN } from './sim/tires.js';
@@ -261,6 +261,14 @@ export class Game {
     stepAttachment(st, this.bus, simTimeMs);
     stepAnchors(st, dt, this.bus, simTimeMs);
     stepCableBreak(st, this.bus, simTimeMs);
+
+    /* 4c. What is off the ground, and whether the machine can stand it (Milestone 8). AFTER the
+     *     failure checks, because a line that has just parted is not holding anything up and the
+     *     load has to come down this step rather than next one; BEFORE the ground, because
+     *     whether a vehicle's tyres are touching it is exactly what this decides. See
+     *     recovery/rig.js for the load chart — it is worked out from where the load actually is,
+     *     not from a rating. */
+    stepHoist(st, dt, this.bus, simTimeMs);
 
     /* 4b. Traffic. Before the contact pass, so a car that has decided to brake has already had its
      *     velocity changed by the time anything touches it — and it is driven from the FX stream,

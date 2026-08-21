@@ -3,12 +3,13 @@
 A cooperative, physics-led vehicle recovery game. A sedan is nose-down on a wet grassy
 embankment; a tow truck is on the road; nothing tells you how to connect the two.
 
-**Milestone 7 — the scene, and everybody at it — is playable.** Pick a job off the board — a place,
-a forecast, a fee, and what is off the road — winch it out of the ditch while its owner watches from
-the verge, pick it up on the wheel lift, strap it down, drive it home through live traffic, reverse
-it into the bay, and get paid what the damage left of the fee — less whatever you were cited for
-leaving the road open. Then fix the truck, save up for a bigger one, and watch the afternoon go: a
-careful morning means the second job is in falling light.
+**Milestone 8 — what the machine can actually lift — is playable.** Pick a job off the board — a
+place, a forecast, a fee, and what is off the road — winch it out of the ditch while its owner
+watches from the verge, or put the rotator on its legs and pick it up off the ground outright, then
+carry it home on the underlift through a tailback of live traffic, reverse it into the bay, and get
+paid what the damage left of the fee — less whatever you were cited for leaving the road open. Then
+fix the truck, save up for a bigger one, and watch the afternoon go: a careful morning means the
+second job is in falling light.
 Two to four people, over a network if you like. Browser, Canvas 2D, ES modules, zero dependencies,
 and still zero external requests — including the multiplayer and the save file.
 
@@ -24,6 +25,8 @@ it, not the other way round.
 ![the heavy wrecker on its outriggers, boom slewed, both drums rigged to a box truck on the bank](docs/m6-heavy.png)
 
 ![a car on its roof, late in the afternoon, with its owner watching from the verge](docs/m7-scene.png)
+
+![a van in the air on the rotator's boom, legs down, against its load chart](docs/m8-boom.png)
 
 ## Play it
 
@@ -69,6 +72,66 @@ are shared, because they are about the screen rather than about a person.
 `E` (or `/`) is the whole verb set: take the hook, hook it on, wrap a strap, place a block, pump the
 jack, run the line through the snatch block, drop the casualty's handbrake. What it does is decided
 by what you are standing next to.
+
+## What Milestone 8 is
+
+What the machine can actually lift. The GDD's roadmap ran out at Milestone 6 and Milestone 7 spent
+the last of §8's deferred list, so this one is drawn from **this README's own Known limitations** —
+which is the honest place to look next. Three of those entries were not "content we have not made
+yet"; they were places where a machine in this game did less than the machine it is modelled on.
+
+**A load chart.** The rotator's boom slewed and did nothing else. Now it lifts, and what it can lift
+is not a number — it is one line of school mechanics, worked out from where the load actually is:
+
+> capacity = machine weight × lever ÷ (distance − lever)
+
+`lever` is the distance to the edge the machine would tip about, and it depends which way the load
+is: over the tail it is the length of the outrigger footprint, over the side it is the width. So:
+
+| | | |
+|---|---|---|
+| sedan, 13.7 kN | on its tyres, 22.9 kN of chart at 7.1 m | comes up either way |
+| van, 25.5 kN | **refused** on its tyres at 7.6 m, where the chart reads 21.3 | …and then comes up anyway once it is dragged in to 25.6 |
+| van, 25.5 kN | legs down, 63.7 kN | straightforward |
+| box truck, 70.6 kN | 55.6 kN on the legs at 6.9 m, and the bodies are touching by then | not a pick, either way |
+
+![a van in the air on the boom, legs down, the chart showing 25.5 of 62.7 kN](docs/m8-boom.png)
+
+There is no lift button. A load comes off the ground when it has been reeled in to within 1.7 m of
+the boom head and goes back down when it is paid out — which is what the machine actually does, and
+it means **line out IS reach**, so the two controls the rotator already had turn out to be the crane
+controls. And you cannot pick up what the chart refuses: the line goes tight and nothing moves.
+
+Which means a tip is never "you lifted too much". It is the chart **changing under a load you
+already have up**, and the fastest way to do that is to raise the legs with something in the air:
+the van picked at 63.7 kN of chart is at 21.6 with the legs up, and the machine goes over 10.0 s
+later. Put them back down inside those ten seconds and the overload bleeds off.
+
+**The heavy tows what it recovers.** The wheel lift was a car yoke — 11 kN of cradle and 9 kN a
+strap — and a box truck's front axle is 35.3 kN on its own, so for two milestones the biggest
+casualty in the game was dragged home on the line. The heavy now has an underlift: the same hinge
+constraint, 46 kN of cradle, and **chains** rather than straps at 30 kN each, two of them.
+
+| the same swerve, at 7.2 tonnes | |
+|---|---|
+| bare cradle, 46.0 kN | worked to the top of its rating and **lost the load at 14 m** |
+| one chain, 76.0 kN | peaked at 62.2 and came home, 81 m |
+
+That is Milestone 3's result — one strap is the difference between keeping the car and not — at
+seven tonnes, on the machine that needed it. The stiffness had to go up with it: at the yoke's
+300 kN/m a 46 kN cradle rates at 153 mm of travel, past the 90 mm the axle is allowed, so it was
+*geometrically unlosable* and securement bought nothing.
+
+**Traffic that sees traffic.** A driver braked for the recovery vehicles, the crew, the cones and
+the cable, and for other drivers not at all — two cars in one lane were kept apart by the contact
+solver rather than by anybody lifting off. Now the car in front is an obstacle like any other, on
+the same stopping-distance curve, with a gap that grows with speed: **9.2 m stopped, 20.0 m at
+12 m/s, 29.0 m at road speed.** Three cars arriving at a blocked lane make 18.4 m of stationary
+tailback with zero contacts, where before they made a scrum. Block both lanes and the queue still
+clears itself — every car edges round after its own 3.5 s, and all three get past.
+
+A car facing the *other* way in your lane is still not braked for, deliberately: a stopping-distance
+curve applied to a head-on halts both of them nose to nose and neither ever moves again.
 
 ## What Milestone 7 is
 
@@ -467,9 +530,13 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m7-tests.js -Quiet
 ```
 
-**1200 assertions** across seven suites in headless Chrome — 265 for Milestone 1, 219 for
+```bash
+.\tools\smoketest.ps1 -Tests tools\m8-tests.js -Quiet
+```
+
+**1321 assertions** across eight suites in headless Chrome — 265 for Milestone 1, 219 for
 Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
-143 for Milestone 7.
+143 for Milestone 7, 121 for Milestone 8.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
@@ -580,18 +647,25 @@ where more than one person can grab the same thing.
 - **Two wreckers and five casualties.** A library, not a catalogue: enough for the decisions to be
   real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
   rotator's actual crane are all still missing.
-- **The wheel lift is light-duty and stays that way.** It holds 11 kN bare and a box truck's axle is
-  well past that, so a seven-tonner is recovered and towed on the line rather than lifted. That is
-  correct — you do not wheel-lift a 7.5-tonner on a car yoke — but it does mean the heavy machine
-  has no equivalent of Milestone 3's securement decision.
-- **The boom slews and does nothing else.** No lift, no telescope, no load chart: a rotator's boom
-  in a top-down game can plausibly change where the line leaves the machine, and the rest of what a
-  real one does needs a third axis this game does not have.
-- **Traffic is a lane model, not a driver model.** Cars brake for what they can see, overtake a
-  stopped obstruction and creep round one that will not move — which is enough to make the road a
-  hazard and the cones worth putting out. What they look ahead for is the two recovery vehicles, the
-  crew, the cones and the cable, and *not each other*: two cars in one lane are kept apart by the
-  contact solver rather than by anybody lifting off. They do not indicate or give way.
+- **The boom has a chart but no telescope and no hoist height.** Reach is where the load actually
+  is, which is a top-down projection of a thing that happens in three dimensions — so a load comes
+  up when it is reeled to the head and goes down when it is paid out, and there is no distinction
+  between "in close on a long boom" and "further out on a short one". A real load chart has both
+  axes; this one has the one a top-down camera can show.
+- **A suspended load cannot be driven anywhere.** The legs are what make a pick possible and the
+  legs are what stop the machine moving, so lifting is a stationary operation: pick it up, slew it,
+  set it down. Carrying it down the road is the underlift's job, not the boom's.
+- **Traffic is a lane model, not a driver model.** Cars brake for what they can see — the two
+  recovery vehicles, the crew, the cones, the cable and, since Milestone 8, the car in front —
+  overtake a stopped obstruction and creep round one that will not move. A tailback forms behind a
+  blocked lane and holds station: three cars sit 9.2 m apart stopped and 29.0 m apart at road speed.
+  What they still do not see is a head-on. A car facing the other way in your lane is not braked for
+  at all, deliberately: a stopping-distance curve applied head-on halts both of them nose to nose
+  and neither ever moves again. They do not indicate or give way.
+- **The road only ever holds three cars**, both directions sharing the budget, so the longest
+  tailback the game can show behind an unclosed scene is three cars and about 18 m. Raising it is
+  one number (`CONFIG.traffic.maxCars`) and it changes the contact-pass load and every traffic count
+  the m5 suite measures, which is why it has not moved.
 - **The responding unit is kinematic and deliberately not a physical object.** It drives in on a
   braking curve and parks on the shoulder, but it is not in the contact pass and cannot be hit,
   shoved, or shove anything — a police car that could put an impulse into the recovery it was sent

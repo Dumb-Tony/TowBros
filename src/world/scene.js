@@ -24,6 +24,7 @@ import { createVehicle, cornersOnRoad } from '../sim/vehicle.js';
 import { buildScenery } from '../sim/collision.js';
 import { createWinch, drumsOf } from '../recovery/cable.js';
 import { createLift, LIFT } from '../recovery/lift.js';
+import { createHoist } from '../recovery/rig.js';
 import { createCrewMember } from '../player/player.js';
 
 /**
@@ -111,7 +112,12 @@ export function buildScene(rng, crewCount = CONFIG.crew.count, job = null) {
   if (truckDef.outriggers) {
     truck.outriggers = { down: false, deployMs: 0, frac: 0 };
   }
-  if (truckDef.boom) truck.boomRad = 0;
+  if (truckDef.boom) {
+    truck.boomRad = 0;
+    // What is hanging off it, and what the chart says about that (Milestone 8). Built here rather
+    // than lazily in stepHoist so a test or the HUD can read it on step zero.
+    truck.hoist = createHoist();
+  }
 
   /* What the outfit's own truck is like. Milestone 4: a neglected wrecker is a worse wrecker, and
    * these are the only three places that fact reaches the physics. Defaults of 1 mean a game with
@@ -517,7 +523,10 @@ export function recapFrom(bus, st) {
         lines.push([t, `picked the ${e.vehicle} up by its ${e.end} axle`]);
         break;
       case EVENTS.LOAD_SECURED:
-        lines.push([t, `strapped the load down — ${e.straps} on, good for ${(e.capacityN / 1000).toFixed(0)} kN`]);
+        // Straps on a car yoke, chains on the heavy's underlift (Milestone 8). The event carries
+        // the word rather than the recap deciding it — recovery/lift.js owns which machine is which.
+        lines.push([t, `${e.noun === 'chain' ? 'chained' : 'strapped'} the load down — `
+                     + `${e.straps} on, good for ${(e.capacityN / 1000).toFixed(0)} kN`]);
         break;
       case EVENTS.LIFT_RELEASED:
         lines.push([t, e.dropped

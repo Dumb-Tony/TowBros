@@ -22,6 +22,7 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { describeWinch, WINCH, drumsOf } from '../recovery/cable.js';
 import { describeRig } from '../recovery/rig.js';
+import { liftGearNoun, liftGearVerb } from '../recovery/lift.js';
 import { loadedAnchor, describeAnchor } from '../recovery/anchors.js';
 import { GameClock } from '../core/clock.js';
 import { clamp01 } from '../core/vec.js';
@@ -67,6 +68,15 @@ function phrase(e) {
     case EVENTS.CREW_STUMBLED:      return `${who(e.crew)} was knocked off their feet`;
     case EVENTS.VEHICLE_ENTERED:    return `${who(e.crew)} got in the ${e.vehicle}`;
     case EVENTS.VEHICLE_EXITED:     return `${who(e.crew)} got out of the ${e.vehicle}`;
+    case EVENTS.LOAD_HOISTED:       return `picked the ${e.label || e.vehicle} up — ${kN(e.weightN)} against ${kN(e.capacityN)}`;
+    case EVENTS.LOAD_LOWERED:       return e.reason === 'lowered' ? `set the ${e.label || e.vehicle} down`
+      : e.reason === 'tipped' ? `the ${e.label || e.vehicle} came down with the machine`
+        : `LOST the ${e.label || e.vehicle} off the boom`;
+    // Two different facts and the player needs both: the chart saying no BEFORE anything moves, and
+    // the chart having gone against a load that is already in the air.
+    case EVENTS.BOOM_OVERLOAD:      return e.refused
+      ? `too much at ${e.reachM} m — ${kN(e.demandN)} against ${kN(e.capacityN)}`
+      : `PAST THE CHART — ${kN(e.demandN)} at ${e.reachM} m, rated ${kN(e.capacityN)}`;
     case EVENTS.POLICE_DISPATCHED:  return 'a unit has been called to the open road';
     case EVENTS.POLICE_ON_SCENE:    return 'a unit is on scene';
     case EVENTS.POLICE_CITED:       return `cited for the carriageway — £${e.amountN}`;
@@ -84,14 +94,26 @@ function objectiveFor(st, cornersOnRoad, lift) {
    * says "get the sedan onto the road" while a seven-tonne box truck is lying on the bank is the
    * interface disagreeing with the game. Still one line, still a statement of fact. */
   const what = st.vehicles.sedan ? st.vehicles.sedan.def.label : 'the sedan';
+  /* OFF THE GROUND BEATS EVERY OTHER PHASE (Milestone 8). The job phases are about where the
+   * casualty has got to; a casualty hanging off a boom has not got anywhere yet, and a line
+   * reading "on the road, on its own wheels" under a van in the air is the interface disagreeing
+   * with the game. Caught in the first screenshot of the clause. */
+  if (st.vehicles.sedan && st.vehicles.sedan.suspended) {
+    const h = st.vehicles.truck.hoist;
+    return `the ${what} is off the ground — ${(h.demandN / 1000).toFixed(1)} kN`
+      + ` of ${(h.capacityN / 1000).toFixed(1)} at ${h.reachM.toFixed(1)} m`;
+  }
   switch (j.phase) {
     case JOB.DELIVERED:
       return `delivered · £${j.payout ? j.payout.paid : 0}`;
     case JOB.TRANSPORT: {
+      // Straps on a car yoke, chains on the heavy's underlift (Milestone 8). One place decides
+      // the word — see recovery/lift.js liftGearNoun — because three files say it.
+      const truck = st.vehicles.truck;
       const n = lift.straps.length;
       return `the ${what} is on the lift · ${n === 0
-        ? 'nothing strapping it down'
-        : `${n} strap${n === 1 ? '' : 's'} on it`}`;
+        ? `nothing ${liftGearVerb(truck)} it down`
+        : `${n} ${liftGearNoun(truck, n)} on it`}`;
     }
     case JOB.LOAD:
       return j.bayCorners > 0
@@ -294,9 +316,22 @@ export class Hud {
         bits.push(`${d.drumLabel}: ${d.state === WINCH.ATTACHED
           ? `${(d.tensionN / 1000).toFixed(1)} kN` : d.state}`);
       }
-      const rig = describeRig(truck);
+      const rig = describeRig(truck, st);
       if (rig && rig.outriggers) bits.push(`legs ${rig.outriggers}`);
       if (rig && rig.boomDeg !== null && rig.boomDeg !== 0) bits.push(`boom ${rig.boomDeg}°`);
+      /* THE LOAD CHART, as two numbers and never as one (Milestone 8). A capacity on its own is a
+       * rating; a capacity next to what is actually hanging there is a decision, and it is the
+       * decision the whole clause exists for — reel in, slew back, or get the legs down. The
+       * reach is shown with it because reach is the thing the player is changing. */
+      if (rig && rig.chart) {
+        if (rig.carrying) {
+          bits.push(`boom load ${(rig.demandN / 1000).toFixed(1)}/${(rig.chart.capacityN / 1000).toFixed(1)} kN`
+            + ` at ${rig.chart.reachM.toFixed(1)} m`
+            + (rig.tipFrac > 0.2 ? ' — GOING OVER' : ''));
+        } else if (rig.outriggerFrac > 0 || rig.boomDeg) {
+          bits.push(`chart ${(rig.chart.capacityN / 1000).toFixed(0)} kN at the head`);
+        }
+      }
       /* And what the ANCHOR is carrying, when a line is routed through a block. Two numbers, and
        * the subtraction is the player's: a redirect puts up to twice the line tension on whatever
        * it is mounted to, and that is the fact worth having in front of you while you pull. */

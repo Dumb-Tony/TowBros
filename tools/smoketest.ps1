@@ -38,7 +38,13 @@ if (-not (Test-Path $testPath)) { Write-Host "Tests not found: $testPath" -Foreg
 # Scratch copy in the served root, so every relative module path still resolves.
 # -Encoding UTF8 is REQUIRED: PS 5.1's Get-Content defaults to ANSI, so a UTF-8 source
 # file round-trips into double-encoded mojibake and the test runs against a corrupt copy.
-$scratchName = "_smoketest.html"
+#
+# NAMED FOR THE PORT. It used to be one fixed filename, which meant -Port bought you a second web
+# server and a second browser but not a second scratch page: two harnesses running at once wrote
+# the same file, and the second one's <script> tag silently replaced the first one's while it was
+# still loading. Anything that runs two suites in parallel — which is the only reason -Port exists —
+# could get a run of the wrong tests, or of no tests at all, with no error to say so.
+$scratchName = "_smoketest-$Port.html"
 $scratch = Join-Path $root $scratchName
 $html = Get-Content $gamePath -Raw -Encoding UTF8
 if ($html -notmatch '</body>') { Write-Host "No </body> in $Game." -ForegroundColor Red; exit 2 }

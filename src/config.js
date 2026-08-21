@@ -127,6 +127,17 @@ export const CONFIG = {
     zoneLeadM: 24,          // a driver starts slowing this far before the first cone
     zoneSlowPerCone: 0.22,
     zoneSlowFloor: 0.4,
+    /* ── the car in front (Milestone 8) ──────────────────────────────────────
+     * Until now a driver looked ahead for the recovery vehicles, the crew, the cones and the
+     * cable, and for other traffic not at all: two cars in one lane were kept apart by the contact
+     * solver rather than by anybody lifting off. That is why a blocked road produced a scrum
+     * instead of a tailback, and a tailback is the thing an unclosed scene actually creates.
+     *
+     * Same look-ahead the rest of traffic.js uses — a stopping-distance curve, not a follow
+     * spring — with a gap that grows with speed the way a real one does. `queueGapM` is the
+     * standstill gap; `queueHeadwaySec` is how much of it is speed. */
+    queueGapM: 7.0,
+    queueHeadwaySec: 0.9,
     creepAfterMs: 3500,     // stationary this long and a driver starts working their way round
     creepMps: 2.2,          // at walking pace, which is what people actually do
     creepPastM: 16,         // once edging, keep edging for this far rather than re-deciding
@@ -281,6 +292,42 @@ export const CONFIG = {
     alignMaxNm: 90000,
     /** A wrecker with a car hanging off the back does not do fifty. A governor, not a wall. */
     towSpeedMaxMps: 9.0,
+
+    /* ── THE HEAVY UNDERLIFT (Milestone 8) ───────────────────────────────────────────
+     * The numbers above are a car yoke: 11 kN of cradle and 9 kN a strap. A box truck's front
+     * axle carries about 35 kN on its own, so for two milestones the biggest casualty in the game
+     * has been dragged home on the line rather than carried — and the securement decision
+     * Milestone 3 built, where one strap is the difference between keeping the car and not, was
+     * never available on the machine that needs it most.
+     *
+     * An underlift is the same constraint with different numbers and CHAINS instead of straps: far
+     * more hold each, and only two of them, because a seven-tonner is chained at two points and
+     * not woven down with three ratchet straps. Everything else — the hinge, the articulation
+     * limit, the accumulated overload that drops a load — is the yoke's, unchanged. */
+    heavy: {
+      reachM: 1.55,          // a longer arm, because it goes under a longer overhang
+      engageM: 1.40,
+      yokeHoldN: 46000,      // the cradle and its pins
+      strapHoldN: 30000,     // per CHAIN. Two of them doubles what the cradle holds on its own
+      maxStraps: 2,
+      /* An underlift is a bigger steel structure and has to be STIFFER in the proportion it is
+       * stronger, or its rating lands past the travel limit and can never be reached: at the
+       * yoke's 300 kN/m a 46 kN cradle rates at 153 mm of travel against a 90 mm `maxGapM`, so a
+       * bare box truck swerved peaked at 45.8 kN against a 46.0 kN cap with nothing accumulated —
+       * geometrically unlosable, and securement bought exactly nothing. 300 kN/m x 46/11 puts both
+       * cradles at 36.7 mm, force trips before travel on both, and the same swerve now moves the
+       * axle 19 mm instead of 85. Stiffer is TIGHTER, which is the right way round for a machine. */
+      springK: 1255000,
+      /* NO ACCUMULATOR OF ITS OWN, and that is a measurement rather than an omission. It was
+       * `dropNs` scaled by the hold (620, 4.2x) — and the excess a swerve produces does not scale
+       * with the hold: the same manoeuvre is worth 185 N·s to a bare 11 kN yoke and 299 N·s to a
+       * bare 46 kN underlift, which is 1.6x, not 4.2x. At 620 a bare box truck could not be lost by
+       * any input, so the milestone's decision did not exist. Four swerve shapes put 213-350 N·s
+       * into a bare underlift and ZERO into a chained one, while a straight tow and a full-force
+       * stop put zero into either — so the yoke's own 160 catches every swerve with margin and
+       * never troubles ordinary driving. Inherited by omission, on purpose. */
+      towSpeedMaxMps: 7.0,   // and it goes home slower still
+    },
   },
 
   /* Networking. GDD §7 Milestone 2.
@@ -404,6 +451,73 @@ export const CONFIG = {
     boomLengthM: 2.30,      // how far the fairleads sit behind the pivot
     boomSlewMaxRad: 1.05,   // ~60° either side
     boomSlewRateRad: 0.45,  // and it takes about two and a half seconds to reach full lock
+
+    /* ── THE LOAD CHART (Milestone 8) ────────────────────────────────────────────────
+     * What a crane can pick up is not a number, it is a surface: capacity falls away with reach
+     * and it falls away with slew, because both move the load further from the line the machine
+     * would tip about. So this block is not "how strong is the boom", it is the geometry of the
+     * machine, and the capacity is worked out from where the load actually IS every step — the
+     * same rule the work zone and the closure standard follow.
+     *
+     * Righting moment = mass x g x lever. At 15 t that is 147.2 kN of machine, so:
+     *
+     *   legs down, over the tail   2.60 m lever ->  383 kN·m
+     *   legs down, over the side   1.90 m         ->  280 kN·m
+     *   on tyres, over the tail    1.10 m         ->  162 kN·m
+     *   on tyres, over the side    0.75 m         ->  110 kN·m
+     *
+     * ── AND THE MEASUREMENT DISAGREED WITH THE STORY, SO THE STORY CHANGED ───────────
+     * These numbers were chosen expecting SLEW to be the thing that tips a machine, because that
+     * is what it is on a real one. It is not what it is on this one, and the probe said so in one
+     * run: the boom pivots at `boomPivotX` and the head swings on a 2.3 m arc about a point 2.3 m
+     * behind the centre of mass, so slewing to full lock pulls the head from 4.60 m out to 3.98.
+     * The lever shrinks — and the radius shrinks with it, by almost exactly as much. Measured at
+     * the head: 79.0 kN straight back against 83.9 kN at full lock. Slew is very nearly free here,
+     * and pretending otherwise in a comment would have been the comment lying about the code.
+     *
+     * What DOES decide it is the legs, and how far out the load is hanging. So (all measured, load
+     * staged on the road directly behind the machine and reeled in until it either comes up or the
+     * two bodies touch):
+     *
+     *   sedan   13.7 kN   on tyres 22.9 kN of chart at 7.06 m  -> comes up, either way
+     *   van     25.5 kN   on tyres REFUSED at 7.60 m, where the chart reads 21.3 — and then comes
+     *                     up anyway once it has been dragged in to 25.6. Emergent, and exactly
+     *                     right: on its tyres the machine can lift a van, but only in close.
+     *                     legs down 63.7 kN -> straightforward
+     *   box     70.6 kN   REFUSED both ways. 55.6 kN on the legs at 6.88 m is as good as it gets,
+     *                     and the two bodies are touching by then
+     *
+     * The van is the whole clause in one row. The box truck is the honest answer to a seven-tonner:
+     * you do not hang one off a boom by its nose, you put it on the underlift and carry it.
+     *
+     * ── AND WHAT ACTUALLY TIPS A MACHINE ────────────────────────────────────────────
+     * Not lifting something too heavy — you cannot, the chart refuses it and the line simply goes
+     * tight. It is the chart CHANGING under a load you already have up, and the fastest way to do
+     * that is to raise the legs with something in the air: the van picked at 63.7 kN of chart is
+     * at 21.6 with the legs up, and the machine goes over 10.0 s later. Which is, in the end, the
+     * mistake this whole clause exists to make available. */
+    tipLeverLegsRearM: 2.60,
+    tipLeverLegsSideM: 1.90,
+    tipLeverTyresRearM: 1.10,
+    tipLeverTyresSideM: 0.75,
+    /** Structural ceiling: the chart never promises more than the boom itself will take. */
+    boomMaxLoadN: 120000,
+    /** How near the head a load has to be reeled before it comes off the ground. */
+    hoistM: 1.70,
+    /* Overload, accumulated in NEWTON-METRE-SECONDS and decayed, for the reason every other
+     * threshold in this game is accumulated: one step at 105% of the chart is a gust and several
+     * seconds of it is a machine going over.
+     *
+     * MEASURED, and retuned once because of it. At 60 000 the marginally overloaded van went over
+     * in 2.4 s — which is not a decision, it is a trapdoor. At 180 000 the same pick gives 7.3 s,
+     * with the warning at 35% arriving after two, and a GROSS overload still goes almost at once
+     * because the excess moment scales the rate: the box truck on its tyres is 429 kN·m past the
+     * chart and puts the machine over in 0.9 s. One number produces both, which is the point of
+     * accumulating rather than thresholding. */
+    tipNms: 180000,
+    tipDecayNmsPerSec: 60000,
+    /** A hanging load swings. Damp it, or a picked car pendulums for the rest of the job. */
+    hangDamp: 2.6,
   },
 
   sedan: {

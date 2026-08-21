@@ -2,7 +2,7 @@
 ## Game Design Document & Development Plan
 
 **Document status:** Living design contract  
-**Current target:** Milestone 7 — The scene, and everybody at it  
+**Current target:** Milestone 8 — What the machine can actually lift  
 **Primary implementation:** Standalone HTML5 Canvas browser game  
 
 > The game does not care how you got the car out of the ditch. It only cares that the car is no longer in the ditch.
@@ -196,6 +196,41 @@ Add:
 name what it cost them; if the customer's reaction is something they could have changed; if a car on
 its roof requires a different plan rather than a longer pull; and if at least one job in a day is
 lost to time rather than to a mistake.
+
+### Milestone 8 — What the machine can actually lift
+
+*Authored after Milestone 7 shipped, and not from §8's deferred list — that list is now spent. This
+one is drawn from the README's own **Known limitations**, which is the honest place to look once the
+roadmap runs out: three of those entries are not "content we have not made yet", they are places
+where a machine in this game does less than the machine it is modelled on, and the difference is a
+decision the player never gets to make.*
+
+Milestone 6 put a rotator in the yard and Milestone 7 filled the scene around it. Both left the same
+gap: the heavy machine is a light wrecker with more drums. Its boom slews and does nothing else. Its
+wheel lift is the car yoke, which will not take a seven-tonne axle, so the biggest casualty in the
+game is dragged home on the line rather than carried. And the road it all happens on is a conveyor —
+cars brake for the recovery and for the cones, and for each other not at all.
+
+Add:
+
+- **A load chart.** The boom gets *reach* as well as slew, and a capacity that falls away with both.
+  Whether the legs are down decides which chart applies. A load taken on the hook LEAVES THE GROUND —
+  which is a different plan, not a stronger pull: a suspended car can be swung over a guardrail
+  instead of dragged through the gap in it. The weight moves onto the machine while it hangs, and a
+  machine asked for more moment than it has tips over. Nothing here is a mode: capacity is computed
+  from the geometry every step, the same way a work zone is.
+- **The heavy tows what it recovers.** A heavy underlift, rated in tonnes rather than in car axles,
+  with chains instead of straps. Milestone 3 proved the shape — one strap is the difference between
+  keeping the car and not — and the seven-tonne version of that decision is the one the big machine
+  has never been allowed to make.
+- **Traffic that sees traffic.** A driver brakes for the car in front. That is all — but it means a
+  queue forms behind an unclosed scene, the queue is itself the hazard, and the cones stop being a
+  speed modifier and become the reason the tailback is somewhere else.
+
+**Completion criteria.** Milestone 8 succeeds only if there is a recovery that is *easier* suspended
+than dragged and one that is not; if a player can overload the boom and say afterwards which number
+they exceeded; if a box truck goes home on the machine rather than behind it; and if a tailback is
+something the player can see forming and do something about.
 
 ## 8. Explicitly deferred
 

@@ -536,6 +536,12 @@ export const HEAVY_DEF = Object.freeze({
   ],
   outriggers: HEAVY_OUTRIGGERS,
   boom: true,
+  /* An UNDERLIFT rather than a car yoke (Milestone 8). One flag, because the difference between
+   * the two machines is a table of numbers — CONFIG.lift.heavy — and not a second mechanism: the
+   * same hinge, a cradle that holds four times as much, a longer arm to clear a seven-tonner's
+   * overhang, and two chains across the load instead of three straps. Read by
+   * src/recovery/lift.js `liftSpec`, which is the only place the two are told apart. */
+  underlift: true,
   parts: ['bumperFront', 'wheelFL', 'wheelFR', 'wheelML', 'wheelMR', 'wheelRL', 'wheelRR'],
 });
 

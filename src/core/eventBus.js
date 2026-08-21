@@ -39,6 +39,11 @@ export const EVENTS = Object.freeze({
   /* The heavy wrecker. GDD §7 Milestone 6. */
   OUTRIGGERS:         'OUTRIGGERS',      // { vehicle, down } legs going down, or coming up
 
+  /* The boom that lifts. GDD §7 Milestone 8. */
+  LOAD_HOISTED:       'LOAD_HOISTED',    // { vehicle, weightN, capacityN, reachM } it is off the ground
+  LOAD_LOWERED:       'LOAD_LOWERED',    // { vehicle, reason, x, y } set down, dropped, or tipped with
+  BOOM_OVERLOAD:      'BOOM_OVERLOAD',   // { demandN, capacityN, reachM } past the chart, and counting
+
   /* The people at the scene. GDD §7 Milestone 7. */
   CUSTOMER_MOOD:      'CUSTOMER_MOOD',   // { mood, from, moodFrac } the owner's opinion moved
   POLICE_DISPATCHED:  'POLICE_DISPATCHED', // { fromX, toX } a unit has turned out to an open road
@@ -70,7 +75,7 @@ export const EVENTS = Object.freeze({
   LIFT_STOWED:        'LIFT_STOWED',
   LIFT_ENGAGED:       'LIFT_ENGAGED',    // { vehicle, end, misalignDeg } an axle is up
   LIFT_RELEASED:      'LIFT_RELEASED',   // { vehicle, reason, dropped } set down, or lost
-  LOAD_SECURED:       'LOAD_SECURED',    // { gear, kind, straps, capacityN }
+  LOAD_SECURED:       'LOAD_SECURED',    // { gear, kind, noun, straps, capacityN }
   JOB_PHASE:          'JOB_PHASE',       // { from, to }
   JOB_DELIVERED:      'JOB_DELIVERED',   // { payout, deductions, atMs }
 
@@ -99,6 +104,7 @@ const STORY = new Set([
   'RECOVERY_COMPLETE', 'LIFT_ENGAGED', 'LIFT_RELEASED', 'LOAD_SECURED', 'JOB_DELIVERED',
   'TRAFFIC_HIT', 'ANCHOR_FAILED', 'ANCHOR_PLANTED', 'OUTRIGGERS', 'CUSTOMER_MOOD',
   'POLICE_DISPATCHED', 'POLICE_CITED',
+  'LOAD_HOISTED', 'LOAD_LOWERED', 'BOOM_OVERLOAD',
 ]);
 
 export class EventBus {

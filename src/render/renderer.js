@@ -28,7 +28,7 @@ import { GEAR } from '../data/equipment.js';
 import { MUD_EDGE_M, MUD_FADE_M } from '../data/terrain.js';
 import { mulberry32 } from '../core/rng.js';
 import { seatOf, carriedItem } from '../player/player.js';
-import { LIFT, yokePos, axleMid } from '../recovery/lift.js';
+import { LIFT, yokePos, axleMid, liftSpec } from '../recovery/lift.js';
 import { outriggerPads } from '../recovery/rig.js';
 
 /* Resolution of the painted terrain, in pixels per metre.
@@ -68,6 +68,7 @@ const COL = {
   liftBoom: '#2d3138',
   liftBoomLit: '#5b636e',
   strap: '#c8a86a',
+  chain: '#9aa0a8',      // the heavy's underlift is chained, not strapped. See recovery/lift.js.
   unsecured: '#c8503c',
   rail: '#9aa0a8',
   railPost: '#7c828a',
@@ -841,14 +842,29 @@ export class Renderer {
     const isTruck = veh.def.driven;
     const L = b.halfL, W = b.halfW;
 
-    // Shadow, offset downhill so a vehicle on the bank looks like it is on the bank.
+    /* Shadow, offset downhill so a vehicle on the bank looks like it is on the bank.
+     *
+     * And a long way further, smaller and softer, when it is hanging off a boom (Milestone 8).
+     * A top-down camera has no height to show, so the shadow is the only place height can live:
+     * a gap between a body and its own shadow is the one cue that reads as "off the ground" at a
+     * glance, and it is the same cue every isometric game uses for a jump. The body is drawn a
+     * few percent larger for the same reason — nearer the camera. */
     const slope = st.terrain.slopeAt(b.x, b.y);
+    const up = veh.suspended ? 1 : 0;
     ctx.save();
-    ctx.translate(b.x - slope.gx * 0.5 + 0.12, b.y - slope.gy * 0.5 + 0.16);
+    ctx.translate(b.x - slope.gx * 0.5 + 0.12 - LIGHT.x * up * 1.5,
+                  b.y - slope.gy * 0.5 + 0.16 - LIGHT.y * up * 1.5);
     ctx.rotate(b.angle);
-    ctx.fillStyle = COL.shadow;
-    roundRect(ctx, -L, -W, L * 2, W * 2, 0.34, true);
+    ctx.fillStyle = up ? 'rgba(4,6,10,0.30)' : COL.shadow;
+    const sh = up ? 0.88 : 1;
+    roundRect(ctx, -L * sh, -W * sh, L * 2 * sh, W * 2 * sh, 0.34, true);
     ctx.restore();
+    if (up) {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.scale(1.06, 1.06);
+      ctx.translate(-b.x, -b.y);
+    }
 
     // Wheel arches, then wheels, then the body over the top. The arch is a dark recess: without
     // it the tires look stuck onto the outside of the car rather than sitting under it.
@@ -1072,6 +1088,8 @@ export class Renderer {
         }
       }
     }
+
+    if (up) ctx.restore();      // the "off the ground" scale, opened above the shadow
   }
 
   /* The wheel lift: the boom out of the tail, the yoke, and the straps across a load.
@@ -1106,11 +1124,15 @@ export class Renderer {
     const load = st.vehicles[lift.carryingId];
     if (!load) return;
 
-    // Straps, drawn across the load's lifted end. One line per strap, so counting them works.
+    /* Straps, drawn across the load's lifted end. One line per strap, so counting them works.
+     * On the heavy's underlift they are CHAINS and they are drawn as chains (Milestone 8): the
+     * count was already readable, but a nylon strap over a seven-tonner is the picture disagreeing
+     * with the prompt, the HUD and the recap, all three of which now say chain. */
     const a = axleMid(load, lift.end);
     const across = load.body.dirToWorld(0, 1);
-    ctx.strokeStyle = COL.strap;
-    ctx.lineWidth = 0.09;
+    const chained = liftSpec(truck).gearNoun === 'chain';
+    ctx.strokeStyle = chained ? COL.chain : COL.strap;
+    ctx.lineWidth = chained ? 0.12 : 0.09;
     for (let i = 0; i < lift.straps.length; i++) {
       const off = load.body.dirToWorld((i - (lift.straps.length - 1) / 2) * 0.42, 0);
       const w2 = load.def.widthM / 2 + 0.12;

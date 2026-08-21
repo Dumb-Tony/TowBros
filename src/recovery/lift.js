@@ -28,11 +28,51 @@
  * connection has a CAPACITY that straps raise, the constraint force is measured against it every
  * step, and exceeding it drops the car in the road. Drive round the yard entrance at speed with an
  * unstrapped load and you will find out; strap it and you will not.
+ *
+ * ── TWO MACHINES, ONE CONSTRAINT (Milestone 8) ───────────────────────────────────────
+ * The heavy wrecker carries an underlift rather than a car yoke, and for two milestones it did
+ * not: an 11 kN cradle against a box truck's 35 kN axle meant the biggest casualty in the game
+ * was dragged home on the line, and the securement decision this file exists to produce was
+ * unavailable on the machine that needs it most.
+ *
+ * An underlift is not a second mechanism. It is this hinge with a bigger cradle, a longer arm and
+ * CHAINS instead of straps — so the difference is a table of numbers rather than a branch, and
+ * `liftSpec` below is the only place the two machines are told apart. Everything the hinge itself
+ * is made of — stiffness, damping, the articulation limit, the weight transfer — is shared and
+ * cannot drift between them.
  */
 
 import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { clamp, clamp01, unit } from '../core/vec.js';
+
+/* CONFIG.lift.heavy overrides only what differs, so the two specs are built by merging rather
+ * than authored twice — `YOKE` is CONFIG.lift itself, to the decimal, and a light wrecker cannot
+ * be retuned by anything done to the heavy's block. The noun is here rather than in config
+ * because it is not a tunable: it is what the gear across the load is CALLED on each machine. */
+const { heavy: HEAVY_NUMBERS, ...YOKE_NUMBERS } = CONFIG.lift;
+const YOKE = Object.freeze({ ...YOKE_NUMBERS, gearNoun: 'strap', gearVerb: 'strapping' });
+const UNDERLIFT = Object.freeze({
+  ...YOKE_NUMBERS,
+  /* ── WHY THE UNDERLIFT IS STIFFER, AND WHY IT IS A RATIO ──────────────────────────
+   * A cradle's travel and its rating are the same fact: the spring IS the steel. At the car
+   * yoke's 300 kN/m an 11 kN cradle is at its rating after 37 mm, comfortably inside the 90 mm
+   * at which the axle is declared out of the cradle — so a car yoke can be genuinely OVERLOADED,
+   * which is the whole Milestone 3 mechanic.
+   *
+   * MEASURED: give a 46 kN cradle that same 300 kN/m and its rating is 153 mm of travel, past
+   * `maxGapM`. The load then jumps out of the cradle before the force can ever exceed capacity —
+   * a box truck swerved bare peaked at 45.8 kN against a 46.0 kN cap and accumulated 0 N·s, so
+   * `dropNs` was a number nothing in the game could reach and securement bought nothing.
+   *
+   * So the underlift reaches its rated hold at the same displacement the car yoke does, which
+   * makes it stiffer in exactly the proportion it is stronger. Authoring `springK` in
+   * CONFIG.lift.heavy overrides this, because the config spread below wins. */
+  springK: YOKE_NUMBERS.springK * (HEAVY_NUMBERS.yokeHoldN / YOKE_NUMBERS.yokeHoldN),
+  ...HEAVY_NUMBERS,
+  gearNoun: 'chain',
+  gearVerb: 'chaining',
+});
 
 /** Where the lift is in its cycle. Ownership of the load lives on the lift, not on the car. */
 export const LIFT = Object.freeze({
@@ -61,13 +101,53 @@ export function createLift() {
     forceN: 0,
     capacityN: 0,
     loadFrac: 0,
+    /** Which machine's numbers this lift is running on — refreshed from the truck every step by
+     *  `liftSpec`, alongside capacityN and forceN. A readout, not a record: see liftSpec. */
+    spec: YOKE,
   };
+}
+
+/**
+ * The numbers THIS machine's lift runs on.
+ *
+ * Selected from the truck doing the lifting and never from a global, which is the whole of the
+ * per-machine behaviour: a light wrecker reads CONFIG.lift to the decimal and the heavy reads
+ * CONFIG.lift.heavy on top of it.
+ *
+ * The chosen block is also left on the lift, because `liftCapacityN` is handed a lift rather than
+ * a truck. That is a derived readout refreshed every step, in the same slot as `capacityN` and
+ * `forceN` — never the record of anything. The fact that a machine HAS an underlift lives on its
+ * definition (data/vehicles.js) and nowhere else, so there is only ever one thing to change.
+ */
+export function liftSpec(truck) {
+  const spec = truck && truck.def && truck.def.underlift ? UNDERLIFT : YOKE;
+  if (truck && truck.lift) truck.lift.spec = spec;
+  return spec;
+}
+
+/** What the gear across the load is called on this machine. Chains on an underlift, straps on a
+ *  car yoke — the player is told about it in the HUD, in the prompt and in the recap, and all
+ *  three ask here rather than each deciding for themselves. */
+export function liftGearNoun(truck, n = 1) {
+  const noun = liftSpec(truck).gearNoun;
+  return n === 1 ? noun : `${noun}s`;
+}
+
+/** ...and what putting it there is called: "nothing STRAPPING it on" on a car yoke, "nothing
+ *  CHAINING it on" on the heavy. Here so that no interface file has to own a gerund. */
+export function liftGearVerb(truck) {
+  return liftSpec(truck).gearVerb;
+}
+
+/** How fast this machine is governed to with a load on. Read by the tire model. */
+export function towSpeedMaxMps(truck) {
+  return liftSpec(truck).towSpeedMaxMps;
 }
 
 /** The yoke's world position: straight out behind the truck, past the fairlead. */
 export function yokePos(truck) {
   const L = truck.def.lengthM / 2;
-  return truck.body.toWorld(-(L + truck.lift.reachM + CONFIG.lift.yokeOffsetM), 0);
+  return truck.body.toWorld(-(L + truck.lift.reachM + liftSpec(truck).yokeOffsetM), 0);
 }
 
 /** Midpoint of a vehicle's front or rear axle, in world space. */
@@ -89,17 +169,19 @@ export function axleWheelIndices(veh, end = 'front') {
 
 /** How much the connection can hold before the car comes off it. */
 export function liftCapacityN(lift) {
-  return CONFIG.lift.yokeHoldN + lift.straps.length * CONFIG.lift.strapHoldN;
+  const L = lift.spec || YOKE;
+  return L.yokeHoldN + lift.straps.length * L.strapHoldN;
 }
 
 /* ── the workflow ──────────────────────────────────────────────────────────── */
 
 /** Swing the yoke out. Only from stowed, and only when nothing is on it. */
 export function extendLift(st, bus, simTimeMs) {
-  const lift = st.vehicles.truck.lift;
+  const truck = st.vehicles.truck;
+  const lift = truck.lift;
   if (lift.state !== LIFT.STOWED) return false;
   lift.state = LIFT.EXTENDED;
-  lift.reachM = CONFIG.lift.reachM;
+  lift.reachM = liftSpec(truck).reachM;
   bus.emit(EVENTS.LIFT_EXTENDED, {}, simTimeMs);
   return true;
 }
@@ -125,6 +207,7 @@ export function liftTarget(st) {
   const truck = st.vehicles.truck;
   const lift = truck.lift;
   if (lift.state !== LIFT.EXTENDED) return null;
+  const L = liftSpec(truck);
   const y = yokePos(truck);
 
   let best = null;
@@ -134,12 +217,12 @@ export function liftTarget(st) {
     for (const end of ['front', 'rear']) {
       const a = axleMid(veh, end);
       const d = Math.hypot(a.x - y.x, a.y - y.y);
-      if (d > CONFIG.lift.engageM) continue;
+      if (d > L.engageM) continue;
       // Angle between the two vehicles, folded into 0..pi/2 — a car facing either way is fine,
       // it is a car lying ACROSS the yoke that is not.
       let da = Math.abs(((veh.body.angle - truck.body.angle + Math.PI) % (Math.PI * 2)) - Math.PI);
       if (da > Math.PI / 2) da = Math.PI - da;
-      if (da > CONFIG.lift.engageAlignRad) continue;
+      if (da > L.engageAlignRad) continue;
       if (!best || d < best.d) best = { veh, end, d, misalignRad: da };
     }
   }
@@ -184,8 +267,9 @@ export function engageLift(st, bus, simTimeMs) {
    * the VEHICLE, because that is where the tire model will ask — see the note at the top of
    * crew/authority.js about not keeping a second copy of a fact. */
   for (const i of axleWheelIndices(t.veh, t.end)) t.veh.wheelState[i].airborne = true;
-  t.veh.groundLoadMul = 1 - CONFIG.lift.weightTransfer;
-  truck.extraLoadKg = t.veh.body.massKg * CONFIG.lift.weightTransfer;
+  const transfer = liftSpec(truck).weightTransfer;
+  t.veh.groundLoadMul = 1 - transfer;
+  truck.extraLoadKg = t.veh.body.massKg * transfer;
 
   // A car being carried is not a car being winched. Leaving the line on would have the cable and
   // the yoke fighting each other over the same body, which is neither realistic nor debuggable.
@@ -223,11 +307,13 @@ export function releaseLift(st, bus, simTimeMs, reason = 'player') {
   return true;
 }
 
-/** Strap the load down. One gear item per strap; capacity rises with each. */
+/** Strap the load down. One gear item per strap — or per chain on the heavy, where there are two
+ *  of them rather than three and each is worth better than three times as much. */
 export function strapLoad(st, item, bus, simTimeMs) {
-  const lift = st.vehicles.truck.lift;
+  const truck = st.vehicles.truck;
+  const lift = truck.lift;
   if (lift.state !== LIFT.CARRYING) return false;
-  if (lift.straps.length >= CONFIG.lift.maxStraps) return false;
+  if (lift.straps.length >= liftSpec(truck).maxStraps) return false;
   if (lift.straps.includes(item.id)) return false;
   lift.straps.push(item.id);
   item.carriedBy = null;
@@ -235,6 +321,9 @@ export function strapLoad(st, item, bus, simTimeMs) {
   item.attachedTo = 'lift';
   bus.emit(EVENTS.LOAD_SECURED, {
     gear: item.id, kind: item.kind, straps: lift.straps.length,
+    /* What this machine calls the gear across the load — 'strap' or 'chain', SINGULAR, so a
+     * reader can form its own past tense. The count is `straps`. */
+    noun: liftGearNoun(truck),
     capacityN: Math.round(liftCapacityN(lift)),
   }, simTimeMs);
   return true;
@@ -257,6 +346,10 @@ export function strapLoad(st, item, bus, simTimeMs) {
 export function stepLift(st, dtSec, bus, simTimeMs) {
   const truck = st.vehicles.truck;
   const lift = truck.lift;
+  /* FIRST, every step, carrying or not: which machine's numbers this lift is on. Everything
+   * below — the capacity, the reach, the drop threshold — comes from here rather than from
+   * CONFIG.lift, and a lift that has never been touched still reports the right capacity. */
+  const L = liftSpec(truck);
   lift.capacityN = liftCapacityN(lift);
   if (lift.state !== LIFT.CARRYING) { lift.forceN = 0; lift.loadFrac = 0; return 0; }
 
@@ -268,7 +361,6 @@ export function stepLift(st, dtSec, bus, simTimeMs) {
   const dx = y.x - a.x, dy = y.y - a.y;
   const gap = Math.hypot(dx, dy);
 
-  const L = CONFIG.lift;
   const u = gap > 1e-6 ? { x: dx / gap, y: dy / gap } : { x: 0, y: 0 };
 
   /* Rate at which the gap is OPENING. `u` points from the axle to the yoke, so
@@ -372,9 +464,18 @@ export function stepLift(st, dtSec, bus, simTimeMs) {
    * had this shape (collision.js: a shunt breaks it, a lean only bends it) and it is the same
    * question — how hard, for how long — so it gets the same answer.
    *
-   * The numbers then say something a player can feel: bare, one hard swerve is about 360 N·s of
-   * excess and the car comes off. One strap lifts capacity to 20 kN and the same swerve is 66 N·s.
-   * Two and it never exceeds at all. */
+   * The numbers then say something a player can feel. MEASURED, on one hard swerve — a tap of
+   * lock and a counter-tap — with the same drive at both scales:
+   *
+   *   sedan, bare car yoke        11 kN cap, 16.3 kN peak   185 N·s   the car comes off
+   *   sedan, one strap            20 kN cap, 22.1 kN peak    35 N·s   arrives
+   *   sedan, two straps           29 kN cap                   0 N·s   never exceeds at all
+   *   box truck, bare underlift   46 kN cap, 64.0 kN peak   299 N·s
+   *   box truck, one chain        76 kN cap, 64.0 kN peak     0 N·s   arrives
+   *
+   * Note what the two bare rows say together: the excess a swerve produces is a fact about the
+   * MACHINE's dynamics, not about the cradle's rating. Four times the cradle bought 1.6 times the
+   * overload, so this threshold cannot be scaled off the hold — see the report. */
   const excess = T - lift.capacityN;
   if (excess > 0) {
     lift.overNs = (lift.overNs || 0) + excess * dtSec;

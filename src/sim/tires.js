@@ -26,6 +26,7 @@
 
 import { CONFIG } from '../config.js';
 import { clamp } from '../core/vec.js';
+import { towSpeedMaxMps } from '../recovery/lift.js';
 
 /**
  * Largest resistance force that may be applied against motion along one axis without
@@ -96,7 +97,9 @@ export function applyWheelForces(veh, terrain, dtSec) {
    * the same class of mistake as reading `b.fx` live per wheel instead of snapshotting it. */
   let govMul = 1;
   if (veh.lift && veh.lift.state === 'carrying') {
-    const over = b.speed - CONFIG.lift.towSpeedMaxMps;
+    // Per MACHINE (Milestone 8): a heavy with a seven-tonner on its underlift is governed slower
+    // than a light wrecker with a hatchback on its yoke. Same shape as cable.js's motorMaxN(w).
+    const over = b.speed - towSpeedMaxMps(veh);
     if (over > 0) govMul = Math.max(0, 1 - over / 1.5);
   }
 

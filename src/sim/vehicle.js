@@ -308,6 +308,23 @@ export function applyOutriggerResistance(veh, dtSec) {
 export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
   const b = veh.body;
 
+  /* OFF THE GROUND (Milestone 8). Everything below the integrator is a conversation between a
+   * vehicle and the ground it is standing on: the slope pulling it downhill, the mud holding its
+   * nose, a chock under a wheel, the tyres' friction budget, the yaw resistance that reads that
+   * budget. A load hanging from a rotator's boom is having none of those conversations, and the
+   * whole point of picking it up is that it stops having them — a suspended car swings over the
+   * guardrail rather than being dragged through the gap in it.
+   *
+   * So this is not "less grip", it is no ground at all. What still applies is the cable holding it
+   * up (recovery/cable.js, already in the accumulator by the time this runs), the swing damping
+   * from recovery/rig.js, and contacts — a hanging load can still be swung into a tree. Who put it
+   * there and what it costs the machine is recovery/rig.js's business; this only has to know that
+   * the ground is not involved. */
+  if (veh.suspended) {
+    stepAirborne(veh, terrain, dtSec);
+    return;
+  }
+
   applySlopeForce(veh, terrain);
   applyBoggedResistance(veh, dtSec);
   applyChockResistance(veh, dtSec);
@@ -383,6 +400,25 @@ export function stepVehicle(veh, terrain, dtSec, bus = null, simTimeMs = 0) {
 
 /** Driver inputs from a steering/throttle axis pair. Steering eases toward the request and
  *  self-centres when released, so a parked truck does not hold full lock forever. */
+/**
+ * One step for a vehicle that is hanging off a boom (Milestone 8).
+ *
+ * Integrate, and keep it inside the world. That is deliberately the whole of it: `travelledM` is
+ * NOT accumulated while it is up, because that counter is what frees a bogged nose and a car
+ * swinging through the air has not been working itself loose. Set it down where it was dug in and
+ * it is still dug in, which is the honest answer and the one a player would predict.
+ */
+function stepAirborne(veh, terrain, dtSec) {
+  const b = veh.body;
+  b.integrate(dtSec);
+  const c = terrain.clampToWorld(b.x, b.y, b.boundRadius * 0.5);
+  if (c.clamped) {
+    b.x = c.x; b.y = c.y;
+    if (c.clampedX) b.vx = 0;
+    if (c.clampedY) b.vy = 0;
+  }
+}
+
 export function applyDriverInput(veh, steerAxis, throttleAxis, parkBrakeToggle, dtSec) {
   const T = CONFIG.truck;
   // The lock belongs to the vehicle — a car turns its wheels further than a 7-tonne wrecker.

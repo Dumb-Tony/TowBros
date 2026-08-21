@@ -22,6 +22,15 @@
  * one mistake, and GDD §4 is explicit that consequences should continue the story rather than end
  * it. A driver who can see an obstruction slows for it. A driver who cannot — fog, night, or one
  * that is already too close — does not, and that is the failure worth keeping.
+ *
+ * ── AND FOR EACH OTHER (Milestone 8) ─────────────────────────────────────────────────
+ * For three milestones a driver looked ahead for the recovery vehicles, the crew, the cones and the
+ * cable, and for other traffic not at all: two cars in one lane were held apart by the contact
+ * solver rather than by anybody lifting off. So a blocked road produced a scrum — cars grinding
+ * into each other's flanks around the obstruction — rather than a tailback. That matters beyond
+ * looking right: a queue is what an unclosed scene actually creates, the queue is itself the second
+ * hazard, and Milestone 7's road closure is the thing that stops it forming. Without a queue, the
+ * closure protects you from a picture.
  */
 
 import { CONFIG } from '../config.js';
@@ -92,28 +101,38 @@ function spawnCar(st, dir, rng, simTimeMs) {
 /**
  * Is there anything in this car's way, and how far ahead?
  *
- * Looks along the lane for the two recovery vehicles, the crew, and the winch line. The cable is
- * the interesting one: a rope across a carriageway is invisible at speed and it is exactly the
- * thing a real operator is terrified of, so a car that hits one takes the cable with it.
+ * Looks along the lane for the two recovery vehicles, the crew, the winch line — and, since
+ * Milestone 8, the car in front. The cable is the interesting one: a rope across a carriageway is
+ * invisible at speed and it is exactly the thing a real operator is terrified of, so a car that
+ * hits one takes the cable with it.
+ *
+ * Everything ahead is measured the same way and returned as one answer, because there is one
+ * braking curve downstream. What a candidate carries with it is the two facts that genuinely differ
+ * between a parked wrecker and a moving car: how much room to leave short of it (`gapM`) and how
+ * fast the thing itself is going (`thingMps`). Both default to what a stationary obstruction has
+ * always meant, so nothing but the car in front reads any differently than it did.
  */
 function lookAhead(st, car) {
   const T = CONFIG.traffic;
   const ahead = car.dir === EAST ? 1 : -1;
-  let nearest = Infinity, what = null, blockY = 0;
+  let nearest = Infinity, what = null, kind = null, blockY = 0;
+  let gapM = T.stopGapM, thingMps = 0;
 
-  const consider = (x, y, label) => {
+  const consider = (x, y, label, k, gap = T.stopGapM, mps = 0) => {
     const dx = (x - car.body.x) * ahead;
     if (dx <= 0 || dx > T.sightM) return;
     if (Math.abs(y - car.body.y) > T.laneHalfW) return;
-    if (dx < nearest) { nearest = dx; what = label; blockY = y; }
+    if (dx < nearest) {
+      nearest = dx; what = label; kind = k; blockY = y; gapM = gap; thingMps = mps;
+    }
   };
 
   for (const id of Object.keys(st.vehicles)) {
     const v = st.vehicles[id];
-    for (const c of v.body.corners()) consider(c.x, c.y, id);
+    for (const c of v.body.corners()) consider(c.x, c.y, id, 'vehicle');
   }
-  for (const p of st.crew) consider(p.x, p.y, 'crew');
-  for (const it of st.gear) if (it.placed && it.kind === 'cone') consider(it.x, it.y, 'cone');
+  for (const p of st.crew) consider(p.x, p.y, 'crew', 'crew');
+  for (const it of st.gear) if (it.placed && it.kind === 'cone') consider(it.x, it.y, 'cone', 'cone');
 
   /* The cable, sampled along its span. A line across the road is not a point, and testing only its
    * endpoints would let a car drive straight through the middle of it. */
@@ -122,10 +141,34 @@ function lookAhead(st, car) {
     const a = st.vehicles.truck.body.toWorld(-st.vehicles.truck.def.lengthM / 2 - 0.6, 0);
     const b = w.hook;
     for (let t = 0; t <= 1.001; t += 0.1) {
-      consider(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 'cable');
+      consider(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 'cable', 'cable');
     }
   }
-  return { distM: nearest, what, blockY };
+
+  /* ── the car in front (Milestone 8) ────────────────────────────────────────────────
+   * SAME DIRECTION ONLY. A car on the other carriageway is closing on you, not blocking you, and
+   * putting it on a stopping-distance curve stops the pair of them nose to nose in the middle of
+   * the road and never lets either go — which is a deadlock, not a driver. The lateral window
+   * `consider` already applies does the rest: a driver who has pulled out to go round the wrecker
+   * stops seeing the queue they just left, which is exactly what overtaking is.
+   *
+   * Corners rather than centres, the same as the recovery vehicles, so a car shoved out of square
+   * is seen where it actually sticks out. That puts the measurement bumper-to-bumper: MEASURED,
+   * two stopped cars settle 9.2 m centre to centre, which is 4.8 m of clear tarmac between them.
+   *
+   * And the gap grows with speed because a real one does — `queueGapM` standing still, plus
+   * `queueHeadwaySec` of your own travel on top. MEASURED, centre to centre: 9.2 m stopped, 16.4 at
+   * 8 m/s, 20.0 at 12, 26.3 at 19 and 29.0 at road speed. */
+  const gap = T.queueGapM + T.queueHeadwaySec * Math.abs(car.body.vx);
+  for (const o of st.traffic.cars) {
+    if (o === car || o.dir !== car.dir) continue;
+    /* Their speed along MY direction, floored at zero: a car being shoved backwards towards me is
+     * not a speed I can safely match, it is a shorter stop. */
+    const theirs = Math.max(0, o.body.vx * car.dir);
+    for (const c of o.body.corners()) consider(c.x, c.y, o.id, 'traffic', gap, theirs);
+  }
+
+  return { distM: nearest, what, kind, blockY, gapM, thingMps };
 }
 
 /** Is the opposite carriageway clear enough ahead to pull out into? */
@@ -187,9 +230,20 @@ export function stepTraffic(st, dtSec, rng, bus, simTimeMs) {
 
     let target = car.wantMps * zoneMul;
     if (blocked) {
-      // Stop short of it if there is room; otherwise this is going to be an incident.
-      const room = Math.max(0, seen.distM - T.stopGapM);
-      target = Math.min(target, Math.sqrt(2 * T.brakeMps2 * room));
+      /* Stop short of it if there is room; otherwise this is going to be an incident.
+       *
+       * v² = u² + 2as — the same curve this has always been, now finishing at the speed of the
+       * thing ahead instead of always at zero. `thingMps` is 0 for a wrecker, a cone, a crew member
+       * and a cable, so every number four suites have measured is arithmetically unchanged.
+       *
+       * It has to be there for the car in front, though. Treated as a wall, a leader doing 22 m/s
+       * would need its whole stopping distance on top of the gap — 22²/2a is 37 m — so nobody could
+       * hold road speed within 64 m of anybody, and `sightM` is 46: a driver would brake from the
+       * moment another car came into view and never get back up to speed. Finishing at the leader's
+       * speed instead, MEASURED, a follower settles 29.0 m back and holds 22.0 m/s, which is what
+       * following a car is. */
+      const room = Math.max(0, seen.distM - seen.gapM);
+      target = Math.min(target, Math.sqrt(seen.thingMps * seen.thingMps + 2 * T.brakeMps2 * room));
     }
 
     /* Edging past. A driver who has been sitting still for long enough works their way round
@@ -243,7 +297,13 @@ export function stepTraffic(st, dtSec, rng, bus, simTimeMs) {
      * request rather than a wall) and nothing is coming the other way, take the other lane. */
     const mine = laneY(st.terrain, car.dir);
     const other = laneY(st.terrain, -car.dir);
-    const wantsRound = blocked && seen.what && seen.what !== 'cone' && seen.distM < T.overtakeM;
+    /* ...and NOT for the car in front, which is the whole reason a tailback exists. A driver
+     * crosses the centre line to get round a wrecker that is never going to move; a driver who
+     * swings out to get past the car ahead of them is a driver in a different game. Let them, and
+     * the queue behind an unclosed scene dissolves into an overtaking lane the instant it forms —
+     * and the queue IS the hazard the closure protects you from. */
+    const wantsRound = blocked && seen.kind && seen.kind !== 'cone' && seen.kind !== 'traffic'
+      && seen.distM < T.overtakeM;
     if (wantsRound && oncomingClear(st, car)) car.onOtherSide = true;
     else if (!blocked && Math.abs(b.y - other) < 1.2) car.onOtherSide = false;
     /* Where to aim laterally. Creeping means squeezing past on whichever side of the obstruction
@@ -269,7 +329,10 @@ export function stepTraffic(st, dtSec, rng, bus, simTimeMs) {
     b.angle += b.omega * dtSec;
     car.braking = target < car.wantMps * zoneMul - 0.5;
 
-    if (blocked && !car.braking && simTimeMs - car.honkedAtMs > 3000) {
+    /* The horn means "somebody has seen you too late", so it stays about the scene. Following a car
+     * at a steady 22 m/s satisfies "something ahead and not braking" every step of the way, and
+     * left in, every driver on the road leant on the horn every three seconds at nothing. */
+    if (blocked && seen.kind !== 'traffic' && !car.braking && simTimeMs - car.honkedAtMs > 3000) {
       car.honkedAtMs = simTimeMs;
       bus.emit(EVENTS.TRAFFIC_HORN, { car: car.id, what: seen.what, speed: Math.round(speed * 10) / 10 }, simTimeMs);
     }

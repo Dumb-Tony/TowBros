@@ -29,6 +29,7 @@ import { WINCH, fairleadPos, hookPos, cablePath, pathLength, drumsOf } from '../
 import { attachHook, detachHook, rigZone, zoneCapacityN } from '../recovery/attach.js';
 import {
   LIFT, yokePos, liftTarget, extendLift, stowLift, engageLift, releaseLift, strapLoad,
+  liftSpec, liftGearNoun, liftGearVerb,
 } from '../recovery/lift.js';
 import {
   nearestGear, placeGear, mountBlock, routeThroughBlock, pumpJack, contextFor,
@@ -286,7 +287,10 @@ function atYoke(st, p) {
 function liftWorthOffering(st) {
   const truck = st.vehicles.truck;
   const y = yokePos(truck);
-  const reach = CONFIG.lift.reachM + CONFIG.lift.engageM + 1.0;
+  // Per machine (Milestone 8): the heavy's yoke reaches half a metre further out, so a light
+  // wrecker's prompt radius would have the crew standing inside the cradle to be offered it.
+  const L = liftSpec(truck);
+  const reach = L.reachM + L.engageM + 1.0;
   for (const id of Object.keys(st.vehicles)) {
     const v = st.vehicles[id];
     if (v === truck) continue;
@@ -552,7 +556,8 @@ export function doContext(st, p, terrain, bus, simTimeMs) {
      *      chain, putting the chain in the mud is not what anybody meant. */
     if (['strap', 'chain'].includes(item.kind) && atYoke(st, p)) {
       const lift = st.vehicles.truck.lift;
-      if (lift.state === LIFT.CARRYING && lift.straps.length < CONFIG.lift.maxStraps) {
+      if (lift.state === LIFT.CARRYING
+          && lift.straps.length < liftSpec(st.vehicles.truck).maxStraps) {
         releaseGear(item, p.id);
         strapLoad(st, item, bus, simTimeMs);
         return 'strap';
@@ -871,10 +876,17 @@ function hintFor(st, p, terrain, carried) {
   /* The wheel lift, mirroring doContext's 4b and 7b. Kept adjacent to it in both files so the
    * prompt and the action cannot drift into disagreeing about what E does here. */
   if (atYoke(st, p)) {
-    const lift = st.vehicles.truck.lift;
+    const truck = st.vehicles.truck;
+    const lift = truck.lift;
+    // "0 of 3 straps" on a hatchback, "0 of 2 chains" on a seven-tonner (Milestone 8). The prompt
+    // has to say what the machine actually takes, or it is describing a different machine.
+    const L = liftSpec(truck);
     const strapping = carried && (carried.kind === 'strap' || carried.kind === 'chain');
-    if (strapping && lift.state === LIFT.CARRYING && lift.straps.length < CONFIG.lift.maxStraps) {
-      return { key: 'E', label: `strap the load down (${lift.straps.length} of ${CONFIG.lift.maxStraps})` };
+    if (strapping && lift.state === LIFT.CARRYING && lift.straps.length < L.maxStraps) {
+      return {
+        key: 'E',
+        label: `${liftGearNoun(truck)} the load down (${lift.straps.length} of ${L.maxStraps})`,
+      };
     }
     if (!carried) {
       if (lift.state === LIFT.STOWED) return { key: 'E', label: 'swing the wheel lift out' };
@@ -883,7 +895,7 @@ function hintFor(st, p, terrain, carried) {
         return {
           key: 'E',
           label: 'set the load down',
-          alt: n === 0 ? { key: '', label: 'nothing strapping it on' } : null,
+          alt: n === 0 ? { key: '', label: `nothing ${liftGearVerb(truck)} it on` } : null,
         };
       }
       const t = liftTarget(st);
