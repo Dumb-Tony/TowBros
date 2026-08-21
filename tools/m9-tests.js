@@ -27,7 +27,7 @@ import { describePolice, closureStandard } from '../src/world/police.js';
 import { describeCustomer } from '../src/world/customer.js';
 import { rollSituation, situationToOffer, SECOND_CASUALTY_SHARE } from '../src/meta/situations.js';
 import { newCompany } from '../src/meta/company.js';
-import { offersFor } from '../src/meta/dispatch.js';
+import { offersFor, acceptOffer, endDay } from '../src/meta/dispatch.js';
 
 /* ── reporting ───────────────────────────────────────────────────────────── */
 
@@ -598,6 +598,60 @@ function sectionAY() {
        offers.every((o) => 'secondCasualtyId' in o && 'secondLie' in o));
     ok('AY21 including the ones the outfit is not good enough for yet',
        offers.filter((o) => o.locked).every((o) => o.secondCasualtyId === null));
+  }
+
+  /* END TO END, which nothing else in this suite does: a shunt the BOARD generated, taken off the
+   * board, and turned into a scene with two vehicles on the bank. Everything above this tests one
+   * link of that chain; this is the chain. */
+  {
+    let found = null;
+    const c = newCompany();
+    c.reputation = 100;
+    for (let d = 0; d < 40 && !found; d++) {
+      const offer = offersFor(c).find((o) => !o.locked && o.secondCasualtyId);
+      if (offer) { found = offer; break; }
+      endDay(c);
+    }
+    ok('AY22 a shunt reaches a real board inside a few days', !!found);
+    if (found) {
+      acceptOffer(c, found);
+      const g = new Game({ seed: 4242, seedLabel: 'm9-board' });
+      g.job = { ...found, traffic: false };
+      g.startJob({ reroll: false, attempt: 1 });
+      eq('AY23 and the scene it builds has two vehicles in the ditch',
+         casualties(g.state).length, 2);
+      eq('AY24 the one the card named', g.state.secondCasualtyId, found.secondCasualtyId);
+      eq('AY25 with neither of them already on the road',
+         casualties(g.state).filter((v) => cornersOnRoad(v, g.state.terrain).on > 0).length, 0);
+      /* AND IT SETTLES. A body placed on a 27-degree bank by a generator that never saw the bank
+       * is the one thing in this chain that could quietly be wrong — it can be left leaning on
+       * the first casualty, or half over the lip of the mud, and slide for the rest of the job.
+       * Measured over six seconds from a standing start: where they end up is where the player
+       * finds them. */
+      const at0 = casualties(g.state).map((v) => ({ x: v.body.x, y: v.body.y }));
+      g.skipMs(6000);
+      const st2 = g.state;
+      const moved = casualties(st2).map((v, i) =>
+        Math.hypot(v.body.x - at0[i].x, v.body.y - at0[i].y));
+      ok('AY26 and it runs', st2.simTimeMs > 5500);
+
+      /* THEY SETTLE AS A PAIR, which is not the same as not moving. A vehicle parked across a
+       * 27-degree wet bank slides, and that has been true since Milestone 1 — measured here, a
+       * 2.6 t van moves 8 m in six seconds on a bank a 1.4 t car sits still on, because 11.6 kN of
+       * downslope beats what its tyres will hold. What must NOT happen is the pair stopping being
+       * a pair: the one behind has to still be behind, both still off the tarmac, and neither
+       * halfway to the far edge of the world. */
+      const a2 = st2.vehicles.sedan.body, b2 = st2.vehicles.second.body;
+      lt('AY27 the one behind is still behind it six seconds later', b2.y, a2.y);
+      eq('AY28 with neither of them having found the road on its own',
+         casualties(st2).filter((v) => cornersOnRoad(v, st2.terrain).on > 0).length, 0);
+      lt('AY29 and neither of them off the bank altogether', Math.max(...moved), 14);
+      ok('AY30 both still inside the world they were built in',
+         casualties(st2).every((v) => v.body.x > 1 && v.body.x < st2.terrain.world.widthM - 1));
+      note(`AY  off the board: "${found.title}" — £${found.fee}, `
+        + `${found.casualtyId} + ${found.secondCasualtyId}; six seconds later they had slid `
+        + `${moved.map((m) => m.toFixed(2)).join(' and ')} m down the bank`);
+    }
   }
 }
 

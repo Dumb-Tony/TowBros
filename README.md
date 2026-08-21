@@ -615,9 +615,9 @@ this game exist because of how those numbers compare, and the comparison is writ
 .\tools\smoketest.ps1 -Tests tools\m9-tests.js -Quiet
 ```
 
-**1432 assertions** across nine suites in headless Chrome — 265 for Milestone 1, 219 for
+**1448 assertions** across ten suites in headless Chrome — 265 for Milestone 1, 219 for
 Milestone 2, 160 for Milestone 3, 128 for Milestone 4, 128 for Milestone 5, 157 for Milestone 6,
-143 for Milestone 7, 121 for Milestone 8, 111 for Milestone 9.
+143 for Milestone 7, 121 for Milestone 8, 120 for Milestone 9, 7 so far for Milestone 10.
 The harness *is* a browser: it injects the suite into a copy of the page, serves it over http, and
 greps the dumped DOM. That was originally because there was no Node.js on the machine; it stays that
 way because half of these assertions are about a canvas, a DOM and a real `Input`, and the ones that
@@ -728,6 +728,12 @@ where more than one person can grab the same thing.
 - **Two wreckers and five casualties.** A library, not a catalogue: enough for the decisions to be
   real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
   rotator's actual crane are all still missing.
+- **A heavy casualty does not stay where it was put.** Measured end to end on a real board job: a
+  2.6 t van parked across the bend's 27-degree bank slides **8.3 m in six seconds**, on a bank the
+  1.4 t car sits perfectly still on — 11.6 kN of downslope against what its tyres will hold. That is
+  the tire model being right rather than wrong, and it has been true since Milestone 1; but it does
+  mean the scene a player arrives at is not quite the scene the dispatch card described, and nothing
+  tells them it moved.
 - **A scene holds two casualties and no more.** `CASUALTY_SLOTS` is a list of two, and three cars
   in a ditch is not expressible. The list is the only thing that would have to change, but every
   system that reads it would then need a real answer for "which of the three is in the way", which
