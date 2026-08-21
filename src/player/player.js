@@ -25,6 +25,7 @@ import { clamp, unit } from '../core/vec.js';
 import { closestOnBox } from '../sim/collision.js';
 import { nearestZone } from '../data/vehicles.js';
 import { applyDriverInput, releaseDriverInput, describeVehicle } from '../sim/vehicle.js';
+import { describeRighting } from '../sim/righting.js';
 import { WINCH, fairleadPos, hookPos, cablePath, pathLength, drumsOf } from '../recovery/cable.js';
 import { attachHook, detachHook, rigZone, zoneCapacityN } from '../recovery/attach.js';
 import {
@@ -369,6 +370,12 @@ export function inspectNearest(st, p, terrain, bus, simTimeMs) {
     if (rig !== 'bare') lines.push(`A ${CONFIG.rigging[rig].label} is wrapped round it.`);
     lines.push(lost ? 'Nothing here to hook to.'
       : `Holds about ${(cap / 1000).toFixed(0)} kN as rigged. The cable parts at ${(CONFIG.winch.cableBreakN / 1000).toFixed(0)} kN.`);
+    /* WHICH WAY UP IT IS, and how close a side pull has it to going over (Milestone 9). A fact and
+     * a fraction, in the same voice the anchor's "rated 60 kN, carrying 31" uses — a player looking
+     * at a car on its roof deserves to know that rolling it back is a thing that can happen, and
+     * how far off it is, without being told to do it. */
+    const rt = describeRighting(v);
+    if (rt && rt.line) lines.push(rt.line);
     p.inspect = { title: `${v.def.label} — ${z.label}`, lines, ttlMs: 5200 };
     bus.emit(EVENTS.INSPECTED, { crew: p.id, kind: 'zone', vehicle: v.id, zone: z.id }, simTimeMs);
     return p.inspect;
