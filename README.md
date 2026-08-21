@@ -728,6 +728,21 @@ where more than one person can grab the same thing.
 - **Two wreckers and five casualties.** A library, not a catalogue: enough for the decisions to be
   real (which machine, which pull) and nowhere near a content set. A trailer, an artic and a
   rotator's actual crane are all still missing.
+- **A scene holds two casualties and no more.** `CASUALTY_SLOTS` is a list of two, and three cars
+  in a ditch is not expressible. The list is the only thing that would have to change, but every
+  system that reads it would then need a real answer for "which of the three is in the way", which
+  is a different problem from "is there one behind it".
+- **The generator places the second casualty without ever seeing the terrain.** It writes the offer
+  before `createTerrain` runs, so it knows the pair's lie and not what is at that spot — seven
+  metres up-slope of a box truck is open grass at one site and the guardrail at another. The scene
+  backs the body down the bank until no corner is on the tarmac, which is honest and is not the
+  same as the generator having meant to put it there.
+- **The trip path may now be unreachable in ordinary play.** A vehicle thrown sideways at speed
+  still rolls over its outside wheels at 1.9 g sustained for 220 ms, exactly as it has since
+  Milestone 1 — but across every scenario traced, net lateral acceleration peaked at 1.57 g. It
+  fires correctly when driven directly and nothing in the suites reaches it, so those two numbers
+  may be dead in practice. Flagged rather than changed: deciding that deliberately is worth more
+  than discovering it.
 - **The boom has a chart but no telescope and no hoist height.** Reach is where the load actually
   is, which is a top-down projection of a thing that happens in three dimensions — so a load comes
   up when it is reeled to the head and goes down when it is paid out, and there is no distinction
