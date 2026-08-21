@@ -94,10 +94,24 @@ const decayNFor = (veh, V) => (veh.def.rightDecayNsPerSec !== undefined
  * come back onto its wheels. (That asymmetry is not hypothetical — it is the reason `gripMul`
  * survived the resetAids bug that wiped `dragMul` for six milestones.)
  */
-export function setRolled(veh, rolled, V = CONFIG.vehicle) {
+export function setRolled(veh, rolled, V = CONFIG.vehicle, { settle = false } = {}) {
   veh.rolled = !!rolled;
   veh.gripMul = veh.rolled ? V.rolledGripMul : 1;
   veh.dragMul = veh.rolled ? V.rolledDragMul : 1;
+  /* A FLIP COSTS THE SAME WHOEVER DID IT. `stepRighting` zeroes the accumulator and starts the
+   * settle window on every flip it makes — "going over again costs another whole threshold" and
+   * "it has to land before it can go over again" — but a car righted by the BOOM went through
+   * `lowerLoad`, which only wrote these three fields. MEASURED: a roofed sedan with a side pull on
+   * it, hoisted and set down, came up righted still carrying 1 505 of its 9 000 N·s and with no
+   * settle window, and the same pull put it straight back on its roof in 0.52 s — RIGHTED then
+   * ROLLED_OVER with nothing between them, which is the exact loop `rollSettleMs` was measured
+   * into existence to stop. So the three fields that go together are five, and one writer owns
+   * all of them. */
+  if (settle) {
+    veh.rollNs = 0;
+    veh.rollLoadMs = 0;
+    veh.rollSettleMs = (veh.def && veh.def.rollSustainMs) || V.rollSustainMs;
+  }
   return veh.rolled;
 }
 
@@ -182,7 +196,13 @@ export function stepRighting(veh, dtSec, bus = null, simTimeMs = 0, V = CONFIG.v
   const thresholdNs = thresholdNsFor(veh, V);
   const bleed = decayNFor(veh, V) * dtSec;
 
-  veh.rollNs += sideLoadN(veh) * dtSec;
+  /* And the same number kept for the next step, because things that run EARLIER in the frame need
+   * it and the accumulator is empty by then. recovery/gear.js's jack reads this: it was reading the
+   * live accumulator at step 2 and finding 0.000 N in it, 1500 steps out of 1500. Same seam as
+   * `axPrev` below, for the same reason. */
+  const sideN = sideLoadN(veh);
+  veh.sideLoadPrevN = sideN;
+  veh.rollNs += sideN * dtSec;
   if (veh.rollNs > bleed) veh.rollNs -= bleed;
   else if (veh.rollNs < -bleed) veh.rollNs += bleed;
   else veh.rollNs = 0;
@@ -204,15 +224,14 @@ export function stepRighting(veh, dtSec, bus = null, simTimeMs = 0, V = CONFIG.v
   let went = false;
   if (thresholdNs > 0 && Math.abs(veh.rollNs) >= thresholdNs) {
     const impulseNs = Math.round(veh.rollNs);
-    /* Reset, so going over again costs another whole threshold in the same direction. That is
-     * what makes over-rolling a decision rather than an accident: a crew that keeps hauling after
-     * the car has come onto its wheels has to put the same 9 000 N·s in a second time. Same
-     * pattern as the anchors' `pullNs = 0` and the lift's `overNs = 0` on the step they fire. */
-    veh.rollNs = 0;
-    veh.rollLoadMs = 0;
-    veh.rollSettleMs = veh.def.rollSustainMs || V.rollSustainMs;
+    /* `settle: true` resets the accumulator and starts the landing window, so going over again
+     * costs another whole threshold in the same direction. That is what makes over-rolling a
+     * decision rather than an accident: a crew that keeps hauling after the car has come onto its
+     * wheels has to put the same 9 000 N·s in a second time. Same pattern as the anchors' `pullNs
+     * = 0` and the lift's `overNs = 0` on the step they fire — and it lives inside `setRolled` so
+     * that a car righted by the BOOM pays exactly the same price. */
     const cameOffItsRoof = veh.rolled;
-    setRolled(veh, !cameOffItsRoof, V);
+    setRolled(veh, !cameOffItsRoof, V, { settle: true });
     went = true;
     if (bus) {
       bus.emit(cameOffItsRoof ? RIGHTED : ROLLED_OVER,

@@ -109,11 +109,23 @@ export function stepGearEffects(st, terrain, dtSec, bus, simTimeMs) {
           if (w && w.veh === v) v.wheelState[w.index].lifted = true;
         }
 
-        // A jack is a column. Sideways load knocks it out — GDD §4: "unstable under large
-        // sideways loads". The consequence is the lesson; there is no warning label.
-        const r = v.body.right;
-        const lateralN = Math.abs(v.body.fx * r.x + v.body.fy * r.y);
+        /* A jack is a column. Sideways load knocks it out — GDD §4: "unstable under large sideways
+         * loads". The consequence is the lesson; there is no warning label.
+         *
+         * FROM LAST STEP, and that is the whole reason this rule works at all. It read the live
+         * accumulator — `v.body.fx` — and `stepGearEffects` is step 2 of the frame, before the
+         * cable has applied anything and after `integrate` cleared it at the end of the last one.
+         * MEASURED over a 25 s recovery whose line peaked at 6.3 kN: the accumulator held exactly
+         * 0.000 N at the top of the step, 1500 steps out of 1500, against a 5 200 N threshold. The
+         * mechanic the design document names by name had never once fired in play, and the suite
+         * that appears to cover it passes because it calls this function directly after loading
+         * the accumulator by hand.
+         *
+         * `sideLoadPrevN` is written by sim/righting.js at step 5b, where the accumulator holds
+         * what the LINE is doing — the same seam, and the same argument, as `axPrev`. */
+        const lateralN = Math.abs(v.sideLoadPrevN || 0);
         if (lateralN > CONFIG.gear.jack.slipLateralN) {
+          const r = v.body.right;
           item.liftStep = 0;
           item.x += r.x * 0.5; item.y += r.y * 0.5;
           item.angle += 1.1;

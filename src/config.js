@@ -431,7 +431,7 @@ export const CONFIG = {
     /* What being on its roof costs, either way round: a car that goes over mid-recovery and one
      * that arrived that way (Milestone 7's `arrivesRolled`) are the same state and must read the
      * same numbers, or the two would drift. Measured: the same straight pull on the same car needs
-     * 17.3 kN upright and 28.1 kN on its roof. */
+     * 17.3 kN upright and 28.7 kN on its roof. */
     rolledGripMul: 0.55,
     rolledDragMul: 1.6,
     /* ── AND BACK AGAIN (Milestone 9) ───────────────────────────────────────────────
@@ -532,8 +532,15 @@ export const CONFIG = {
      * run: the boom pivots at `boomPivotX` and the head swings on a 2.3 m arc about a point 2.3 m
      * behind the centre of mass, so slewing to full lock pulls the head from 4.60 m out to 3.98.
      * The lever shrinks — and the radius shrinks with it, by almost exactly as much. Measured at
-     * the head: 79.0 kN straight back against 83.9 kN at full lock. Slew is very nearly free here,
-     * and pretending otherwise in a comment would have been the comment lying about the code.
+     * the head with the legs UP: 46.2 kN straight back against 47.3 kN at full lock. Slew is very
+     * nearly free here, and pretending otherwise in a comment would have been the comment lying
+     * about the code.
+     *
+     * (That pair was first written down as 79.0 against 83.9, which an audit could not reproduce:
+     * those are the numbers at `outriggers.frac ≈ 0.34` — the legs a third of the way down, a
+     * state that exists for about 0.9 s of a 2.6 s deployment. The conclusion survived and the
+     * evidence did not, which is the more embarrassing half. With the legs fully DOWN both
+     * readings clamp to `boomMaxLoadN` and say nothing at all.)
      *
      * What DOES decide it is the legs, and how far out the load is hanging. So (all measured, load
      * staged on the road directly behind the machine and reeled in until it either comes up or the

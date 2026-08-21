@@ -38,7 +38,7 @@ import { EVENTS } from '../core/eventBus.js';
 import { Body } from '../sim/body.js';
 import { boxInertia } from '../data/vehicles.js';
 import { obbOverlap } from '../sim/collision.js';
-import { drumsOf } from '../recovery/cable.js';
+import { drumsOf, fairleadPos, hookPos } from '../recovery/cable.js';
 
 /** How much light there is: the forecast times the time of day. ONE number — see world/scene.js. */
 const lightOf = (t) => (typeof t.light === 'number' ? t.light : (t.weather ? t.weather.light : 1));
@@ -138,8 +138,22 @@ function lookAhead(st, car) {
    * endpoints would let a car drive straight through the middle of it. */
   for (const w of drumsOf(st)) {
     if (w.state !== 'attached') continue;
-    const a = st.vehicles.truck.body.toWorld(-st.vehicles.truck.def.lengthM / 2 - 0.6, 0);
-    const b = w.hook;
+    /* BOTH ENDS ASKED FOR, not guessed at. This sampled `w.hook` for the far end and a hand-written
+     * offset off the truck's tail for the near one, and both were wrong.
+     *
+     * `w.hook` is only WRITTEN while the hook is being carried, at the moment it is attached, and
+     * when the cable parts — once it is on a vehicle the live end is `hookPos`, which every other
+     * reader in this codebase already uses. MEASURED on the ordinary Milestone 1 recovery: the real
+     * hook end walked 2.4, then 8.4, then 16.5 m away from the point this was sampling, crossed
+     * onto the carriageway at about 25 s and stayed there for the last fifteen seconds of the pull
+     * — while the frozen point sat down the bank, off the road, the whole time. So a line across a
+     * live lane stopped being an obstruction to traffic the instant it was rigged, and this rule
+     * quietly collapsed to "brake for the truck".
+     *
+     * The near end was wrong by 0.85 m and, on the heavy, ignored the boom entirely: `fairleadPos`
+     * is boom-aware and a full slew moves a fairlead 2.35 m off the centreline. */
+    const a = fairleadPos(st.vehicles.truck, w);
+    const b = hookPos(w, st.vehicles);
     for (let t = 0; t <= 1.001; t += 0.1) {
       consider(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 'cable', 'cable');
     }
@@ -159,7 +173,11 @@ function lookAhead(st, car) {
    * And the gap grows with speed because a real one does — `queueGapM` standing still, plus
    * `queueHeadwaySec` of your own travel on top. MEASURED, centre to centre: 9.2 m stopped, 16.4 at
    * 8 m/s, 20.0 at 12, 26.3 at 19 and 29.0 at road speed. */
-  const gap = T.queueGapM + T.queueHeadwaySec * Math.abs(car.body.vx);
+  /* SIGNED, like `theirs` below. A magnitude here is the mistake this file has already made once
+   * and documents at the top of stepTraffic: a car shoved backwards by a wrecker reads as
+   * travelling forwards, and demands MORE headway while it retreats. Small in effect, and exactly
+   * the shape of the bug that made traffic an immovable wall for a whole milestone. */
+  const gap = T.queueGapM + T.queueHeadwaySec * Math.max(0, car.body.vx * car.dir);
   for (const o of st.traffic.cars) {
     if (o === car || o.dir !== car.dir) continue;
     /* Their speed along MY direction, floored at zero: a car being shoved backwards towards me is

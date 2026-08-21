@@ -124,7 +124,7 @@ export function stepRig(veh, dtSec, bus, simTimeMs) {
  * First: slew barely matters here, and it was expected to matter most. `boomPivotX` puts the slew
  * centre 2.3 m behind the machine's own centre, so swinging the head to full lock brings it from
  * 4.60 m out to 3.98 — the lever shrinks and the radius shrinks with it, almost exactly in step.
- * Measured at the head: 79.0 kN straight back against 83.9 kN at full lock. What decides a pick
+ * Measured at the head with the legs UP: 46.2 kN straight back against 47.3 kN at full lock. What decides a pick
  * here is the legs and how far out the load is hanging. See CONFIG.heavy for the whole table.
  *
  * Second: you cannot lift something too heavy. The chart REFUSES the pick and the line just goes
@@ -243,7 +243,12 @@ export function stepHoist(st, dtSec, bus, simTimeMs) {
    * facts that cannot both be true. */
   if (truck.rolled) {
     if (held) lowerLoad(st, held, bus, simTimeMs, 'tipped');
-    hoist.capacityN = 0; hoist.demandN = 0; hoist.loadFrac = 0;
+    /* EVERY live readout, not three of them. `overNms` and `reachM` were left where the tip found
+     * them, so `describeRig().tipFrac` read 1.00 and the reach read stale for the rest of the
+     * attempt — a HUD line describing a load that is lying on the grass beside a machine on its
+     * side. `warned` too, or the 35% warning is suppressed for the next pick. */
+    hoist.capacityN = 0; hoist.demandN = 0; hoist.loadFrac = 0; hoist.reachM = 0;
+    hoist.overNms = 0; hoist.warned = false;
     return;
   }
 
@@ -305,6 +310,10 @@ export function stepHoist(st, dtSec, bus, simTimeMs) {
     hoist.carryingId = null;
     hoist.capacityN = 0; hoist.demandN = 0; hoist.reachM = 0; hoist.loadFrac = 0;
     hoist.overNms = Math.max(0, hoist.overNms - H.tipDecayNmsPerSec * dtSec);
+    // And the warning is armed again once the accumulator is back to nothing. It was only cleared
+    // inside the load-held-and-under-the-chart branch, so setting a warned load down left the next
+    // pick's 35% warning suppressed until a step happened to satisfy that branch.
+    if (hoist.overNms <= 0) hoist.warned = false;
     return;
   }
 
@@ -398,7 +407,7 @@ export function lowerLoad(st, veh, bus, simTimeMs, reason = 'lowered') {
     // ONE writer for the three fields that go together. They were set by hand in three places, and
     // that split is exactly how the drag penalty went missing for six milestones — see the note on
     // `resetAids` at the top of recovery/gear.js.
-    setRolled(veh, false);
+    setRolled(veh, false, CONFIG.vehicle, { settle: true });
     righted = true;
     bus.emit(EVENTS.RIGHTED, {
       vehicle: veh.id, label: veh.def.label, how: 'boom',

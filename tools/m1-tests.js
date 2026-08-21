@@ -710,13 +710,69 @@ lines.push('--- G. gear: geometry, not a checklist (GDD pillar 7) ---');
   near('G13 and is much less dug in', s3.vehicles.sedan.boggedMul, CONFIG.gear.jack.liftBoggedMul, 0.02);
   ok('G14 the nearest corner is off the ground', s3.vehicles.sedan.wheelState.some((w) => w.lifted));
 
-  // A jack under sideways load falls over. Consequence, not a warning label.
-  s3.vehicles.sedan.body.clearForces();
+  /* A jack under sideways load falls over. Consequence, not a warning label.
+   *
+   * THIS USED TO LOAD THE ACCUMULATOR BY HAND and it passed on a fiction. `stepGearEffects` is
+   * step 2 of the frame and `Body.integrate` clears the accumulator at the end of step 6, so in
+   * actual play the number this rule read was 0.000 N — measured, 1500 steps out of 1500, against
+   * a 5 200 N threshold. The mechanic GDD §4 names by name had never once fired outside this test,
+   * and this test could not have told anybody: it put the force in itself, one line earlier, and
+   * then called the function directly.
+   *
+   * The rule now reads `sideLoadPrevN`, written by sim/righting.js at step 5b where the
+   * accumulator holds what the LINE is doing. So the test sets that — and G15b below drives the
+   * whole thing through `game.step` with no hand-loading anywhere, which is what would actually
+   * have caught it. */
   const right = s3.vehicles.sedan.body.right;
-  s3.vehicles.sedan.body.applyForce(right.x * 9000, right.y * 9000);
+  s3.vehicles.sedan.sideLoadPrevN = 9000;
   stepGearEffects(s3, s3.terrain, 1 / 60, g3.bus, 0);
   eq('G15 sideways load knocks the jack out', jack.liftStep, 0);
   gt('G16 and says so', g3.bus.count(EVENTS.GEAR_SCATTERED), 0);
+  ok('G16b and the direction it went is the direction the load was',
+     Math.abs(right.x) + Math.abs(right.y) > 0.5);
+
+  /* AND THROUGH THE REAL STEP ORDER, which is the assertion that was missing. Nothing is written
+   * by hand: a jack under the car, a hard side pull on the line, and the whole `game.step` run. */
+  {
+    const gj = newGame(4242, 1);
+    const sj = gj.state;
+    const cas = sj.vehicles.sedan, tk = sj.vehicles.truck;
+    // Park square abeam of it, so the pull is across the car rather than along it.
+    const side = cas.body.right;
+    tk.body.x = cas.body.x + side.x * 11; tk.body.y = BANDS.roadN + 1.4;
+    tk.body.angle = 0; tk.body.vx = 0; tk.body.vy = 0; tk.body.omega = 0;
+    tk.parkBrake = true;
+    const jz = findZone(cas.def, 'towHook');
+    const jp = cas.body.toWorld(jz.local.x, jz.local.y);
+    sj.winch.hook.x = jp.x; sj.winch.hook.y = jp.y;
+    sj.winch.state = WINCH.ATTACHED; sj.winch.targetId = 'sedan'; sj.winch.zoneId = jz.id;
+    const jl = pathLength(cablePath(sj.winch, tk, sj.vehicles, sj.blocksById));
+    sj.winch.state = WINCH.LOOSE;
+    attachHook(sj, cas, jz, gj.bus, sj.simTimeMs);
+    sj.winch.lineM = jl;
+    const jk = stage(gj, 'jack', cas.body.x + 1.2, cas.body.y + 0.4);
+    for (let i = 0; i < CONFIG.gear.jack.liftSteps; i++) {
+      jk.pumpMs = CONFIG.gear.jack.pumpMs;
+      pumpJack(sj, jk, 0.001, gj.bus, 0);
+    }
+    /* ONE STEP AT A TIME. The peak is what matters and it is transient: sampled every 250 ms this
+     * reported 3.4 kN on a run that had plainly exceeded 5.2, because the step that knocked the
+     * jack out had come and gone inside the chunk. */
+    let peakSide = 0, atFire = 0;
+    for (let i = 0; i < 60 * 30 && jk.liftStep > 0; i++) {
+      sj.winch.motor = 1;
+      gj.step(STEP, sj.simTimeMs + STEP, null);
+      const s = Math.abs(cas.sideLoadPrevN || 0);
+      peakSide = Math.max(peakSide, s);
+      if (jk.liftStep === 0) atFire = s;
+    }
+    gt('G15b a real pull puts a real sideways load on a jacked car', peakSide, 1000);
+    eq('G15c and it knocks the jack out, with nothing loaded by hand', jk.liftStep, 0);
+    gt('G15d at a load past the column\'s rating, measured in the step it went',
+       atFire, CONFIG.gear.jack.slipLateralN);
+    lines.push(`      G  the jack went at ${(atFire / 1000).toFixed(1)} kN across it, `
+      + `against a ${(CONFIG.gear.jack.slipLateralN / 1000).toFixed(1)} kN column`);
+  }
 
   // Chocks: a wedge only resists rolling INTO it. This is the whole of "poor placement has
   // little effect", and it is judged by geometry.

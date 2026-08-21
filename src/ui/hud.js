@@ -82,7 +82,9 @@ function phrase(e) {
     case EVENTS.POLICE_DISPATCHED:  return 'a unit has been called to the open road';
     case EVENTS.POLICE_ON_SCENE:    return 'a unit is on scene';
     case EVENTS.POLICE_CITED:       return `cited for the carriageway — £${e.amountN}`;
-    case EVENTS.RECOVERY_COMPLETE:  return 'the sedan is on the road';
+    // The recap already says "both of them were on the road" and this said "the sedan" regardless.
+    case EVENTS.RECOVERY_COMPLETE:  return e.vehicles > 1
+      ? 'both of them are on the road' : 'the sedan is on the road';
     default: return null;
   }
 }
@@ -101,18 +103,23 @@ function objectiveFor(st, cornersOn, lift) {
    * no idea which car that is about. Deliberately does NOT say which to do first: the one nearer
    * the road is in the other one's way, and reading that off the ground is the clause. */
   const all = casualties(st);
-  if (all.length > 1 && st.job.phase === JOB.RECOVER) {
-    const up = all.filter((v) => !v.suspended && cornersOnRoad(v, st.terrain).all).length;
-    return `two of them in the ditch — ${up} of ${all.length} on the road`;
-  }
-  /* OFF THE GROUND BEATS EVERY OTHER PHASE (Milestone 8). The job phases are about where the
-   * casualty has got to; a casualty hanging off a boom has not got anywhere yet, and a line
-   * reading "on the road, on its own wheels" under a van in the air is the interface disagreeing
-   * with the game. Caught in the first screenshot of the clause. */
-  if (st.vehicles.sedan && st.vehicles.sedan.suspended) {
+
+  /* OFF THE GROUND BEATS EVERY OTHER PHASE (Milestone 8), including the two-casualty line below —
+   * which is why it now comes first. The job phases are about where a casualty has got to; one
+   * hanging off a boom has not got anywhere yet, and a line reading "on the road, on its own
+   * wheels" under a van in the air is the interface disagreeing with the game. It looked for
+   * `st.vehicles.sedan` alone, so with two casualties the SECOND one being in the air was
+   * invisible — and after Milestone 9 the second one is the one you are most likely to be
+   * righting. Caught in the first screenshot of the clause, and again by an audit. */
+  const airborne = all.find((v) => v.suspended);
+  if (airborne) {
     const h = st.vehicles.truck.hoist;
-    return `the ${what} is off the ground — ${(h.demandN / 1000).toFixed(1)} kN`
+    return `the ${airborne.def.label} is off the ground — ${(h.demandN / 1000).toFixed(1)} kN`
       + ` of ${(h.capacityN / 1000).toFixed(1)} at ${h.reachM.toFixed(1)} m`;
+  }
+  if (all.length > 1 && st.job.phase === JOB.RECOVER) {
+    const upCount = all.filter((v) => cornersOnRoad(v, st.terrain).all).length;
+    return `two of them in the ditch — ${upCount} of ${all.length} on the road`;
   }
   switch (j.phase) {
     case JOB.DELIVERED:

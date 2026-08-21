@@ -74,9 +74,16 @@ export function daylightAt(company) {
  *
  * `simMsPerHour` is the exchange rate, and it is the one number here worth arguing about. Measured
  * against the suites: a clean far-lane recovery is 39 s of simulation, a mid-road one 35 s, a box
- * truck in two parks 67 s, and the delivery leg adds 20-30 s on top. At 12 000 ms to the hour a
- * straightforward job is a bit over three hours and a bad one is most of a working day — which is
- * about right for a real recovery, and means two jobs fill a day with nothing to spare.
+ * truck in two parks 67 s, and the delivery leg adds 20-30 s on top.
+ *
+ * At **9 500 ms to the hour** a straightforward job is 4.1 hours and a bad 90-second one is 9.5 —
+ * so two ordinary recoveries fill the day and the second one finishes at 16:13, in falling light.
+ *
+ * It was first written at 12 000, which made the same job 3.3 hours: two of them finished at 14:40,
+ * the light never went, and the clock cost nothing at all. **If a clock never changes an outcome,
+ * the exchange rate is wrong, not the idea.** This paragraph went on quoting the 12 000 numbers
+ * after the retune and an audit caught it — the module that owns the clock was documenting the
+ * number it does not use.
  */
 export function jobMinutes(simTimeMs) {
   return (simTimeMs / CONFIG.company.simMsPerHour) * 60;

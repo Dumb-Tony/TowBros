@@ -343,15 +343,26 @@ export function stepGoal(st, bus, simTimeMs) {
   if (met && settled) {
     goal.settledMs += CONFIG.sim.stepMs;
     if (goal.settledMs >= CONFIG.success.settleMs) {
-      const sedan = st.vehicles.sedan;
       goal.complete = true;
       goal.completedAtMs = simTimeMs;
+      /* Over ALL of them. The payload still read the first casualty alone while the `vehicles`
+       * count beside it was correct — so a shunt where the second car lost a bumper reported an
+       * empty `partsLost`, right next to a `vehicles: 2` saying there was another car to look at.
+       * Caught by an audit, not by a test: nothing reads this payload closely enough to fail. */
+      let dents = 0;
+      const lost = [];
+      for (const veh of all) {
+        dents += veh.damage.dents;
+        for (const [p, s] of Object.entries(veh.damage.parts)) {
+          if (s === 'lost') lost.push(all.length > 1 ? `${veh.def.label}'s ${p}` : p);
+        }
+      }
       bus.emit(EVENTS.RECOVERY_COMPLETE, {
         atMs: simTimeMs,
         cornersOnRoad: cornersOn,
         vehicles: all.length,
-        sedanDents: sedan.damage.dents,
-        partsLost: Object.entries(sedan.damage.parts).filter(([, s]) => s === 'lost').map(([p]) => p),
+        sedanDents: dents,
+        partsLost: lost,
       }, simTimeMs);
       return true;
     }
